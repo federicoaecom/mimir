@@ -6,6 +6,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- The KB index extracts attribute references from `WorkWithForWeb` pattern instances: a new relation `workwith_references_attribute` links a web Work With to each attribute its grids, orders, view tabs, and fixed data name (`<attribute attribute="<typeGuid>-<Name>">`), its description attribute, and its filter attributes (`<filterAttribute name="<Name>">`), so `who-uses` on an `Attribute` now lists those Work With objects. Targets resolve only against the Attribute inventory, each object and attribute pair yields one relation, and `<variable>` elements and condition expressions are not read; the mobile `WorkWith` is not a source. The extractor version goes from 12 to 13, so the index gate reports existing indexes as built by an older extractor until they are rebuilt once.
+- Reverse-relation coverage for an `Attribute` target gains `partially_extracted_source_types`: `WorkWithForWeb` moves there from `unextracted_source_types`, with its count, `extracted: ["grids", "filters", "orders", "views"]`, and `missing: ["conditions"]`, since its grid, filter, order, and view references are now indexed but its condition expressions are not. `complete` stays `false` while any unextracted or partly extracted type has objects in the index, and the `text` line adds `attribute uses are partly extracted from WorkWithForWeb (N): grids, filters, orders and views are indexed, conditions are not`. The list is always empty for the `calls` scope. The field is additive; `scope`, exit codes, and the index schema are unchanged. The find workflow, the KB index reference, the README limits, and the backlog follow.
+
 ## [0.4.0] - 2026-10-09
 
 ### Added

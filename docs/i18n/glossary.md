@@ -27,6 +27,8 @@ Term mappings used across the documentation. Add a term here before translating 
 | envelope | envoltorio | The outer XML wrapper of an object (`<Object>`/`<Attribute>`, legacy `<GxLegacyPayload>`). |
 | Pattern | Pattern | The GeneXus Pattern feature (e.g. Work With, WorkWithForWeb); "pattern-generated" describes its output. |
 | pattern instance | instancia de Pattern | An object that applies a Pattern to a base object (for example a `WorkWithForWeb` instance of a Transaction); the objects it generates are its output. "Pattern" keeps its capital, as in the row above. |
+| order (pattern instance) | orden | A sort order defined in a pattern instance, for example `<orders>` in a `WorkWithForWeb` grid. |
+| view (pattern instance) | vista | The view part of a pattern instance (`<view>` in a `WorkWithForWeb`), with its tabs and fixed data. |
 | writability | capacidad de escritura | Whether a Transaction attribute is physically stored (`own-physical`, `extended-fk-key`, etc.); a read-only classification. |
 
 ## Reading and evidence

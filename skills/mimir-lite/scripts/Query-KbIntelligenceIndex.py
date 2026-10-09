@@ -65,15 +65,17 @@ UNEXTRACTED_CALL_SOURCE_TYPES = (
 )
 # Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
 # views, layouts, or item types) while the extractor emits no attribute-use relation for any
-# of them. The only relations that target an Attribute are structural: has_level_attribute
-# (Transaction levels), has_key_attribute and has_index_member_attribute (Table keys and
-# indexes). Chosen from the object type catalog: the Source scope (INDEXED_SOURCE_TYPES:
-# Procedure, WebPanel, DataProvider, Transaction rules/events, API, DataSelector), Attribute
-# (formulas), SDT (items based on an attribute), DataView and Query (attribute lists), the web
-# patterns WorkWithForWeb and WorkWithPlusInstance (grid, filter, order and view attributes),
-# and every type of UNEXTRACTED_CALL_SOURCE_TYPES. Table is left out: its attributes come from
-# Transaction levels and its keys and indexes are extracted. Must include
-# UNEXTRACTED_CALL_SOURCE_TYPES (checked by
+# of them. Besides workwith_references_attribute (WorkWithForWeb, see
+# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES), the relations that target an Attribute are
+# structural: has_level_attribute (Transaction levels), has_key_attribute and
+# has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
+# Source scope (INDEXED_SOURCE_TYPES: Procedure, WebPanel, DataProvider, Transaction
+# rules/events, API, DataSelector), Attribute (formulas), SDT (items based on an attribute),
+# DataView and Query (attribute lists), the web pattern WorkWithPlusInstance (grid, filter,
+# order and view attributes), and every type of UNEXTRACTED_CALL_SOURCE_TYPES. Table is left
+# out: its attributes come from Transaction levels and its keys and indexes are extracted. Must
+# include UNEXTRACTED_CALL_SOURCE_TYPES and stay disjoint from
+# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES (checked by
 # tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
 UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
     sorted(
@@ -89,11 +91,19 @@ UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
             "SDT",
             "Transaction",
             "WebPanel",
-            "WorkWithForWeb",
             "WorkWithPlusInstance",
         }
     )
 )
+# Types whose attribute uses are extracted only in part: what the index holds and what it
+# misses. WorkWithForWeb emits workwith_references_attribute from its pattern instance (grid,
+# filter, order and view attributes) but its condition expressions are not read.
+PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, dict[str, tuple[str, ...]]] = {
+    "WorkWithForWeb": {
+        "extracted": ("grids", "filters", "orders", "views"),
+        "missing": ("conditions",),
+    },
+}
 COVERAGE_SCOPE_CALLS = "calls"
 COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
 _CATALOG_TYPES_CACHE: dict[tuple[str | None, str | None, str], dict[str, dict[str, object]]] = {}
@@ -638,17 +648,22 @@ def reverse_relation_coverage(
     """Coverage of incoming-relation answers for the target's type.
 
     An Attribute target uses the attribute_references scope (types whose attribute uses are
-    not extracted); any other target uses the calls scope (types whose calls are not extracted).
+    not extracted, plus types whose attribute uses are extracted only in part); any other target
+    uses the calls scope (types whose calls are not extracted; nothing is partly extracted).
     The type is compared ignoring case, so a differently cased "attribute" never falls back to
-    the calls scope and its empty answer still discloses the attribute gap.
+    the calls scope and its empty answer still discloses the attribute gap. Coverage is complete
+    only when the index holds no object of an unextracted or partly extracted type.
     """
+    partial_types: dict[str, dict[str, tuple[str, ...]]] = {}
     if target_type is not None and target_type.casefold() == "attribute":
         scope = COVERAGE_SCOPE_ATTRIBUTE_REFERENCES
         source_types = UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES
+        partial_types = PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES
     else:
         scope = COVERAGE_SCOPE_CALLS
         source_types = UNEXTRACTED_CALL_SOURCE_TYPES
-    placeholders = ", ".join("?" for _ in source_types)
+    counted_types = tuple(source_types) + tuple(sorted(partial_types))
+    placeholders = ", ".join("?" for _ in counted_types)
     rows = fetch_all(
         conn,
         f"""
@@ -658,10 +673,35 @@ def reverse_relation_coverage(
         GROUP BY type
         ORDER BY type
         """,
-        tuple(source_types),
+        counted_types,
     )
-    unextracted = [{"type": str(row["type"]), "count": int(row["count"])} for row in rows]
-    return {"complete": not unextracted, "unextracted_source_types": unextracted, "scope": scope}
+    unextracted = [
+        {"type": str(row["type"]), "count": int(row["count"])}
+        for row in rows
+        if str(row["type"]) not in partial_types
+    ]
+    partially_extracted = [
+        {
+            "type": str(row["type"]),
+            "count": int(row["count"]),
+            "extracted": list(partial_types[str(row["type"])]["extracted"]),
+            "missing": list(partial_types[str(row["type"])]["missing"]),
+        }
+        for row in rows
+        if str(row["type"]) in partial_types
+    ]
+    return {
+        "complete": not unextracted and not partially_extracted,
+        "unextracted_source_types": unextracted,
+        "partially_extracted_source_types": partially_extracted,
+        "scope": scope,
+    }
+
+
+def join_english_list(values: list[str]) -> str:
+    if len(values) <= 1:
+        return "".join(values)
+    return ", ".join(values[:-1]) + " and " + values[-1]
 
 
 def format_coverage_note(result: dict[str, object]) -> str | None:
@@ -675,11 +715,28 @@ def format_coverage_note(result: dict[str, object]) -> str | None:
         if isinstance(entry, dict)
     )
     if coverage.get("scope") == COVERAGE_SCOPE_ATTRIBUTE_REFERENCES:
-        return (
-            f"coverage: incomplete - attribute uses (grids, filters, code, rules, formulas) from {listed} "
-            "are not extracted; only structural relations (Transaction levels, Table keys and indexes) are indexed, "
+        segments: list[str] = []
+        if listed:
+            segments.append(f"attribute uses (grids, filters, code, rules, formulas) from {listed} are not extracted")
+        partial_entries = [
+            entry for entry in coverage.get("partially_extracted_source_types", []) if isinstance(entry, dict)
+        ]
+        if partial_entries:
+            described = "; ".join(
+                "{type} ({count}): {extracted} are indexed, {missing} are not".format(
+                    type=entry.get("type"),
+                    count=entry.get("count"),
+                    extracted=join_english_list([str(item) for item in entry.get("extracted", [])]),
+                    missing=join_english_list([str(item) for item in entry.get("missing", [])]),
+                )
+                for entry in partial_entries
+            )
+            segments.append(f"attribute uses are partly extracted from {described}")
+        segments.append(
+            "otherwise only structural relations (Transaction levels, Table keys and indexes) are indexed, "
             "so an empty or short list does not prove the attribute is unused"
         )
+        return "coverage: incomplete - " + "; ".join(segments)
     return (
         f"coverage: incomplete - calls made from {listed} are not extracted; "
         "callers of those types can be missing, so an empty or short list does not prove the object is unused"

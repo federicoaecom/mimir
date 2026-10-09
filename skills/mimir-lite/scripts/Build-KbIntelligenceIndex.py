@@ -14,6 +14,8 @@ Current scope:
 - WorkWith and WorkWithForWeb explicit link tags to WebPanel
 - WorkWith and WorkWithForWeb explicit prompt attributes to WebPanel
 - WorkWith and WorkWithForWeb explicit transaction binding
+- WorkWithForWeb pattern instance attribute references (grids, orders, views, fixed data,
+  description and filter attributes) to Attribute; conditions and <variable> elements are not read
 - Source WebComponent Create calls to WebPanel
 - literal ATTCUSTOMTYPE CustomType values
 - explicit Source for each table references in Procedure and WebPanel
@@ -45,7 +47,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "12"
+EXTRACTOR_SIGNATURE_VERSION = "13"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -283,6 +285,25 @@ SDT_ITEM_RE = re.compile(r"<Item\b(?P<attrs>[^>]*)>(?P<body>.*?)</Item>", re.IGN
 WORKWITH_TRANSACTION_RE = re.compile(r"<transaction\b[^>]*\btransaction=\"(?P<value>[^\"]+)\"", re.IGNORECASE)
 WORKWITH_WEBPANEL_LINK_RE = re.compile(r"<link\b[^>]*\bwebpanel=\"(?P<name>[^\"]+)\"", re.IGNORECASE)
 WORKWITH_PROMPT_RE = re.compile(r"\bprompt=\"(?P<value>[^\"]+)\"", re.IGNORECASE)
+# WorkWithForWeb pattern instance: <Data Pattern="<WorkWithForWeb pattern guid>"> holds the CDATA <instance>.
+WORKWITH_FOR_WEB_INSTANCE_DATA_RE = re.compile(
+    r"<Data\b[^>]*\bPattern=\"78cecefe-be7d-4980-86ce-8d6e91fba04b\"[^>]*>(?P<body>.*?)</Data>",
+    re.IGNORECASE | re.DOTALL,
+)
+# <variable> elements (self-closing or with nested code) are masked before attribute matching.
+WORKWITH_VARIABLE_ELEMENT_RE = re.compile(r"<variable\b[^>]*?(?:/>|>.*?</variable>)", re.IGNORECASE | re.DOTALL)
+# <attribute attribute="<typeGuid>-<Name>">, <descriptionAttribute attribute="<typeGuid>-<Name>">
+# and <filterAttribute name="<Name>">; condition expressions are never matched.
+WORKWITH_ATTRIBUTE_REFERENCE_RE = re.compile(
+    r"<(?P<tag>attribute|descriptionAttribute)\b[^>]*?\battribute=\"(?P<value>[^\"]+)\""
+    r"|<(?P<filter_tag>filterAttribute)\b[^>]*?\bname=\"(?P<name>[^\"]+)\"",
+    re.IGNORECASE,
+)
+WORKWITH_ATTRIBUTE_REFERENCE_ROLES = {
+    "attribute": "WorkWithForWeb attribute",
+    "descriptionattribute": "WorkWithForWeb description attribute",
+    "filterattribute": "WorkWithForWeb filter attribute",
+}
 
 
 @dataclass(frozen=True)
@@ -1961,6 +1982,58 @@ def extract_workwith_prompt_evidence(
     return list(unique.values())
 
 
+def mask_preserving_lines(match: re.Match[str]) -> str:
+    return re.sub(r"[^\n]", " ", match.group(0))
+
+
+def extract_workwith_for_web_attribute_evidence(
+    workwith_for_web_objects: Iterable[ObjectInfo],
+    attribute_names: set[str],
+) -> list[Evidence]:
+    """Attribute references from the WorkWithForWeb pattern instance, one per source and target.
+
+    Reads <attribute>/<descriptionAttribute> (typeGuid-Name form) and bare <filterAttribute name>
+    inside the pattern instance Data only; <variable> elements are masked and condition
+    expressions are never read. Targets resolve against the Attribute inventory only.
+    """
+    evidences: list[Evidence] = []
+    seen: set[tuple[str, str]] = set()
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    for source in workwith_for_web_objects:
+        xml_text = read_text(source.path)
+        for data_match in WORKWITH_FOR_WEB_INSTANCE_DATA_RE.finditer(xml_text):
+            body = WORKWITH_VARIABLE_ELEMENT_RE.sub(mask_preserving_lines, data_match.group("body"))
+            body_offset = data_match.start("body")
+            for match in WORKWITH_ATTRIBUTE_REFERENCE_RE.finditer(body):
+                if match.group("filter_tag"):
+                    tag = match.group("filter_tag")
+                    raw_value = html.unescape(match.group("name")).strip()
+                else:
+                    tag = match.group("tag")
+                    raw_value = html.unescape(match.group("value")).strip()
+                raw_attribute_name = gxobject_name(raw_value) or raw_value
+                target_name = attribute_lookup.get(raw_attribute_name.lower())
+                if not target_name:
+                    continue
+                pair_key = (source.name.lower(), target_name.lower())
+                if pair_key in seen:
+                    continue
+                seen.add(pair_key)
+                add_evidence(
+                    evidences,
+                    source=source,
+                    target_type="Attribute",
+                    target_name=target_name,
+                    relation_kind="workwith_references_attribute",
+                    line=line_number_at(xml_text, body_offset + match.start()),
+                    column=1,
+                    snippet=match.group(0),
+                    extractor_rule="workwith_for_web_attribute_reference",
+                    evidence_role=WORKWITH_ATTRIBUTE_REFERENCE_ROLES[tag.lower()],
+                )
+    return evidences
+
+
 def normalize_custom_type(value: str) -> str:
     return " ".join(html.unescape(value).strip().split())
 
@@ -3170,6 +3243,10 @@ def main() -> int:
         workwith_objects,
         webpanel_names=set(webpanels),
     )
+    workwith_for_web_attribute_evidences = extract_workwith_for_web_attribute_evidence(
+        objects_by_type.get("WorkWithForWeb", {}).values(),
+        attribute_names=set(attributes),
+    )
     relation_scope_objects = [
         *procedures.values(),
         *webpanels.values(),
@@ -3263,6 +3340,7 @@ def main() -> int:
         *workwith_transaction_evidences,
         *workwith_webpanel_link_evidences,
         *workwith_prompt_evidences,
+        *workwith_for_web_attribute_evidences,
         *custom_type_evidences,
         *resolved_custom_type_evidences,
         *sdt_item_attcustomtype_resolved_sdt_evidences,

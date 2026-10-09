@@ -44,7 +44,7 @@ Funciona en Windows 10/11 y en Linux, ambos probados en la CI, con PowerShell 7.
 
 Un tipo de objeto que la skill no conoce detiene la sincronización antes de escribir nada; la skill no lo adivina. Una exportación que mezcla el formato de GeneXus 9 con el moderno se rechaza de la misma forma.
 
-Las llamadas hechas desde objetos móviles (paneles de Smart Devices y Native Mobile y su Work With, el objeto Offline Database) y desde los diagramas de procesos de negocio de GXflow todavía no se indexan: una respuesta de "quién usa" puede omitir esos invocadores, y lo advierte cuando la KB contiene esos objetos. Para un atributo solo se indexan las relaciones estructurales (niveles de Transaction, claves e índices de Table); sus usos en grids, filtros, código, reglas y fórmulas no, y una respuesta de "quién usa" sobre un atributo lo advierte.
+Las llamadas hechas desde objetos móviles (paneles de Smart Devices y Native Mobile y su Work With, el objeto Offline Database) y desde los diagramas de procesos de negocio de GXflow todavía no se indexan: una respuesta de "quién usa" puede omitir esos invocadores, y lo advierte cuando la KB contiene esos objetos. Para un atributo se indexan sus relaciones estructurales (niveles de Transaction, claves e índices de Table) y sus usos en los grids, filtros, órdenes y vistas de los objetos WorkWithForWeb; sus usos en las condiciones de WorkWithForWeb y en los grids, filtros, código, reglas y fórmulas de otros objetos no se indexan, y una respuesta de "quién usa" sobre un atributo lo advierte.
 
 ## Usarlo con un agente de IA
 
