@@ -11,7 +11,7 @@ Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base
 
 ## Status
 
-Current release: `0.3.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+Current release: `0.4.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
 
 ## Support
 
@@ -38,13 +38,13 @@ Runs on Windows 10/11 and Linux, both tested in CI, with PowerShell 7.4+ (7.4.6+
 |---|---|---|
 | GeneXus 18 | Tested | The object type catalog and the reading references come from real GeneXus 18 exports (upgrades 9 and 13) |
 | GeneXus 9 | Tested | Its `ExportFile` format is detected and synced with no extra configuration (see [legacy exports](skills/mimir-lite/workflows/sync.md#legacy-exports-genexus-9)); 11 of the 12 known elements were confirmed on a real export |
-| GeneXus 15 to 17 | Tested with public samples | Public training and wiki exports (export header 4.0) sync, index, and answer queries |
-| GeneXus X Evolution 2 and 3 | Tested with public samples | Public wiki exports (export headers 3.1 and 3.3) sync, index, and answer queries |
+| GeneXus 15 to 17 | Tested with public samples | Public training and wiki exports (export header 4.0) sync, index, and answer queries; full agent runs (install, setup, sync, questions) passed on a GeneXus 15 and a GeneXus 17 sample |
+| GeneXus X Evolution 2 and 3 | Tested with public samples | Public wiki exports (export headers 3.1 and 3.3) sync, index, and answer queries; a full agent run passed on an X Evolution 3 sample |
 | GeneXus 8 and earlier, X, X Evolution 1, GeneXus Next | Unknown | No export has been read |
 
 An object type the skill does not know stops the sync before anything is written; the skill does not guess it. An export that mixes the GeneXus 9 and the modern formats is rejected the same way.
 
-Calls made from mobile objects (Smart Devices and Native Mobile panels and their Work With, the Offline Database object) and from GXflow business process diagrams are not indexed yet: a "who uses" answer can miss those callers, and it says so when the KB contains such objects.
+Calls made from mobile objects (Smart Devices and Native Mobile panels and their Work With, the Offline Database object) and from GXflow business process diagrams are not indexed yet: a "who uses" answer can miss those callers, and it says so when the KB contains such objects. For an attribute, only structural relations are indexed (Transaction levels, Table keys and indexes); its uses in grids, filters, code, rules, and formulas are not, and a "who uses" answer for an attribute says so.
 
 ## Use it with an AI agent
 
@@ -56,7 +56,7 @@ Give your agent the repository URL and your XPZ, for example with this prompt (r
 Install the Mimir Lite skill from https://github.com/federicoaecom/mimir following its README, then set up a KB workspace for my GeneXus KB <KbName> in <folder> and sync this XPZ: <path>.
 ```
 
-For the first sync, give it a full export of the KB from the GeneXus IDE, not only the objects you changed. Give the XPZ as a file path when you can: a file attached in the chat may not exist on disk for the agent's scripts.
+For the first sync, give it a full export of the KB from the GeneXus IDE, not only the objects you changed. Give the XPZ as a file path when you can: a file attached in the chat may not exist on disk for the agent's scripts. If you only have the XPZ and not the native KB folder, say so: the workspace can be set up from the XPZ alone.
 
 ### For the agent
 
@@ -220,7 +220,7 @@ Each step below names the workflow that handles it; see the linked workflow file
 
 | Step | Workflow | What it does |
 |---|---|---|
-| 1. Set up the KB workspace | [`workflows/setup.md`](skills/mimir-lite/workflows/setup.md) | Creates the folder structure next to your GeneXus KB in one command with `New-MimirKbWorkspace.ps1` (`KbObjectsXml`, `KbIntelligence`, local wrappers), or audits an existing one |
+| 1. Set up the KB workspace | [`workflows/setup.md`](skills/mimir-lite/workflows/setup.md) | Creates the folder structure next to your GeneXus KB in one command with `New-MimirKbWorkspace.ps1` (`KbObjectsXml`, `KbIntelligence`, local wrappers), or from the XPZ alone when the native KB folder is not available, or audits an existing one |
 | 2. Sync an XPZ | [`workflows/sync.md`](skills/mimir-lite/workflows/sync.md) | Materializes an XPZ exported from the GeneXus IDE into the XML corpus, one file per object |
 | 3. Find via the index | [`workflows/find.md`](skills/mimir-lite/workflows/find.md) | Queries the derived SQLite index for who-uses/what-uses/impact before opening XML, after its mandatory freshness gate passes |
 | 4. Read an object | [`workflows/read.md`](skills/mimir-lite/workflows/read.md) | Structurally classifies a single object's XML (type, family, parts, risk) |

@@ -11,7 +11,7 @@ Mimir Lite es una skill de agente que lee y entiende una Base de Conocimiento (K
 
 ## Estado
 
-Versión actual: `0.3.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
+Versión actual: `0.4.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
 
 ## Soporte
 
@@ -38,13 +38,13 @@ Funciona en Windows 10/11 y en Linux, ambos probados en la CI, con PowerShell 7.
 |---|---|---|
 | GeneXus 18 | Probado | El catálogo de tipos de objeto y las referencias de lectura salen de exportaciones reales de GeneXus 18 (upgrades 9 y 13) |
 | GeneXus 9 | Probado | Su formato `ExportFile` se detecta y se sincroniza sin configuración adicional (ver [exportaciones heredadas](skills/mimir-lite/workflows/sync.md#legacy-exports-genexus-9)); 11 de los 12 elementos conocidos se confirmaron en una exportación real |
-| GeneXus 15 a 17 | Probado con ejemplos públicos | Exportaciones públicas de training y de la wiki (cabecera de exportación 4.0) se sincronizan, se indexan y responden consultas |
-| GeneXus X Evolution 2 y 3 | Probado con ejemplos públicos | Exportaciones públicas de la wiki (cabeceras de exportación 3.1 y 3.3) se sincronizan, se indexan y responden consultas |
+| GeneXus 15 a 17 | Probado con ejemplos públicos | Exportaciones públicas de training y de la wiki (cabecera de exportación 4.0) se sincronizan, se indexan y responden consultas; corridas completas con un agente (instalación, preparación, sincronización, preguntas) pasaron sobre un ejemplo de GeneXus 15 y uno de GeneXus 17 |
+| GeneXus X Evolution 2 y 3 | Probado con ejemplos públicos | Exportaciones públicas de la wiki (cabeceras de exportación 3.1 y 3.3) se sincronizan, se indexan y responden consultas; una corrida completa con un agente pasó sobre un ejemplo de X Evolution 3 |
 | GeneXus 8 y anteriores, X, X Evolution 1, GeneXus Next | Desconocido | No se leyó ninguna exportación |
 
 Un tipo de objeto que la skill no conoce detiene la sincronización antes de escribir nada; la skill no lo adivina. Una exportación que mezcla el formato de GeneXus 9 con el moderno se rechaza de la misma forma.
 
-Las llamadas hechas desde objetos móviles (paneles de Smart Devices y Native Mobile y su Work With, el objeto Offline Database) y desde los diagramas de procesos de negocio de GXflow todavía no se indexan: una respuesta de "quién usa" puede omitir esos invocadores, y lo advierte cuando la KB contiene esos objetos.
+Las llamadas hechas desde objetos móviles (paneles de Smart Devices y Native Mobile y su Work With, el objeto Offline Database) y desde los diagramas de procesos de negocio de GXflow todavía no se indexan: una respuesta de "quién usa" puede omitir esos invocadores, y lo advierte cuando la KB contiene esos objetos. Para un atributo solo se indexan las relaciones estructurales (niveles de Transaction, claves e índices de Table); sus usos en grids, filtros, código, reglas y fórmulas no, y una respuesta de "quién usa" sobre un atributo lo advierte.
 
 ## Usarlo con un agente de IA
 
@@ -56,7 +56,7 @@ Darle al agente la URL del repositorio y el XPZ, por ejemplo con este prompt (re
 Instala la skill Mimir Lite desde https://github.com/federicoaecom/mimir siguiendo su README; luego prepara un espacio de trabajo de KB para mi KB de GeneXus <NombreKb> en <carpeta> y sincroniza este XPZ: <ruta>.
 ```
 
-Para la primera sincronización, darle una exportación completa de la KB desde el IDE de GeneXus, no solo los objetos que se modificaron. Indicar el XPZ como ruta de archivo cuando sea posible: un archivo adjuntado en el chat puede no existir en disco para los scripts del agente.
+Para la primera sincronización, darle una exportación completa de la KB desde el IDE de GeneXus, no solo los objetos que se modificaron. Indicar el XPZ como ruta de archivo cuando sea posible: un archivo adjuntado en el chat puede no existir en disco para los scripts del agente. Si solo se tiene el XPZ y no la carpeta nativa de la KB, indicarlo: el espacio de trabajo de KB se puede preparar solo a partir del XPZ.
 
 ### Para el agente
 
@@ -220,7 +220,7 @@ Cada paso indica el flujo de trabajo que lo resuelve; ver el archivo del flujo e
 
 | Paso | Flujo de trabajo | Qué hace |
 |---|---|---|
-| 1. Preparar el espacio de trabajo de la KB | [`workflows/setup.md`](skills/mimir-lite/workflows/setup.md) | Crea la estructura de carpetas junto a la KB de GeneXus en un solo comando con `New-MimirKbWorkspace.ps1` (`KbObjectsXml`, `KbIntelligence`, wrappers locales), o audita una existente |
+| 1. Preparar el espacio de trabajo de la KB | [`workflows/setup.md`](skills/mimir-lite/workflows/setup.md) | Crea la estructura de carpetas junto a la KB de GeneXus en un solo comando con `New-MimirKbWorkspace.ps1` (`KbObjectsXml`, `KbIntelligence`, wrappers locales), o solo a partir del XPZ cuando la carpeta nativa de la KB no está disponible, o audita una existente |
 | 2. Sincronizar un XPZ | [`workflows/sync.md`](skills/mimir-lite/workflows/sync.md) | Materializa un XPZ exportado desde el IDE de GeneXus en el corpus XML, un archivo por objeto |
 | 3. Buscar mediante el índice | [`workflows/find.md`](skills/mimir-lite/workflows/find.md) | Consulta el índice SQLite derivado para quién-usa/qué-usa/impacto antes de abrir el XML, una vez que pasa su compuerta obligatoria de frescura |
 | 4. Leer un objeto | [`workflows/read.md`](skills/mimir-lite/workflows/read.md) | Clasifica estructuralmente el XML de un objeto (tipo, familia, partes, riesgo) |

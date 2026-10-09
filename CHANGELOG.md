@@ -6,12 +6,15 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
 ### Added
 
 - The install audit (`Test-MimirSkillsRegistration.ps1`) accepts `-OnlyTool <names>`, the complement of `-SkipTool`: every built-in tool not listed is reported `skipped_by_choice`, exactly as if passed to `-SkipTool`, so the audit runs once with the right choices declared. It takes a comma-separated list like `-SkipTool`; an unknown name, or combining it with `-SkipTool`, stops with `BLOCK:`, exit `1`, and nothing on stdout. `-SkipSkill` still combines with it, and every `-AdditionalSkillsRoot` entry stays audited. The README agent steps and the install workflow map each skills folder the user approved to its tools (`~/.claude/skills` to `ClaudeCode`; `~/.agents/skills` to `Codex`, `OpenCode`, and `Antigravity`; `~/.cursor/skills` to `Cursor`; `~/.gemini/config/skills` to `Antigravity`), run the audit once with `-OnlyTool`, and write the command with the literal `<mimir-lite-root>` path instead of `$HOME`.
 
 ### Changed
 
+- README: the GeneXus versions table records the full agent runs on GeneXus 15, 17, and X Evolution 3 samples; the limits note that an attribute's uses are not indexed (only structural relations); the agent steps and the workflow table mention a workspace set up from the XPZ alone.
 - The README agent steps and the install workflow handle an existing clone: when `<mimir-lite-root>` already exists, the agent inspects it read-only (`status`, current commit, `origin` URL), tells the user, and asks before updating; with a yes it fetches and updates by fast-forward only. When a fast-forward is not possible (unrelated history, local commits, or uncommitted changes), it stops, explains why, and offers a fresh clone into a new approved path; the old clone is never reset, deleted, or overwritten, and is removed or renamed only after an explicit yes and with a clean `git status`. Any clone, fetch, pull, or reset of the skill checkout needs the user's explicit yes first.
 - The existing-clone check in the README agent steps and the install workflow, from a fifth end-to-end run: before the update question, the agent tells the user in one short message whether the clone is clean, its current commit, and whether `origin` is the README's URL; it runs each inspection and update command as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule; after updating, it re-reads the workflow files already read in the session (at least `install.md`) before continuing; and when the user declines the update, it takes the commands from that clone's own `README.md` and `install.md`, since an older clone may lack newer options such as `-OnlyTool`. In the linking question, a "no new links" choice excludes every other choice.
 - When the user asks to install or update the skill following the README, the `SKILL.md` workflow table and the install workflow tell the agent to read the README from its URL first, even when the skill is already installed or linked, and to follow its steps from the existing-clone check to the install audit.
