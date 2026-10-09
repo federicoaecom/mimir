@@ -18,7 +18,9 @@
     raised when neither variable is set. -SkipTool/-SkipSkill cases, and the
     exit contract as a child process (pwsh -File): REGISTRATION_GAPS exits 0
     with its JSON; an unknown skip name exits non-zero with BLOCK on stderr
-    and nothing on stdout.
+    and nothing on stdout. -OnlyTool cases: only the listed tools are audited,
+    -SkipSkill still combines, and an unknown name or a -SkipTool combination
+    stops with BLOCK.
 #>
 
 [CmdletBinding()]
@@ -525,6 +527,55 @@ try {
     Assert-Equal 'list: an unknown name inside a list exits 1' '1' ([string]$badListExit)
     Assert-Equal 'list: an unknown name inside a list names it in the BLOCK' 'True' ([string]($badListErr -match "BLOCK: unknown -SkipTool name 'NoSuchTool'"))
     Assert-Equal 'list: an unknown name inside a list writes nothing on stdout' '' ((@($badListOut) | Out-String).Trim())
+
+    # -OnlyTool: audit only the listed tools; every other built-in tool is reported
+    # skipped by choice, exactly as if it had been passed to -SkipTool. -SkipSkill still
+    # combines with it; a user-declared -AdditionalSkillsRoot entry stays audited.
+    $onlyOut = & $pwshExe -NoProfile -NonInteractive -File $scriptUnderTest -RepoRoot $skipRepo -OnlyTool 'ClaudeCode' -SkipSkill 'skill-b' -AsJson 2> $childErrPath
+    $onlyExit = $LASTEXITCODE
+    Assert-Equal 'only: -OnlyTool ClaudeCode exits 0 as a child process' '0' ([string]$onlyExit)
+    $onlyReport = $null
+    try { $onlyReport = ($onlyOut | Out-String) | ConvertFrom-Json } catch { }
+    if ($onlyReport) {
+        Assert-Equal 'only: the other built-in tools are declared skipped' 'Codex,Cursor,OpenCode,Antigravity' (@($onlyReport.skippedByChoice.tools) -join ',')
+        Assert-Equal 'only: ClaudeCode is audited, not skipped' 'False' ([string](@($onlyReport.tools | Where-Object { $_.name -eq 'ClaudeCode' })[0].skippedByChoice))
+        Assert-Equal 'only: every other built-in tool is flagged skipped' 'Antigravity=True,Codex=True,Cursor=True,OpenCode=True' (@($onlyReport.tools | Where-Object { $_.name -ne 'ClaudeCode' } | Sort-Object name | ForEach-Object { '{0}={1}' -f $_.name, $_.skippedByChoice }) -join ',')
+        Assert-Equal 'only: ClaudeCode/skill-a still OK' 'OK' (Get-SkillStatus -Report $onlyReport -Tool 'ClaudeCode' -Skill 'skill-a')
+        Assert-Equal 'only: -SkipSkill still applies' 'skipped_by_choice' (Get-SkillStatus -Report $onlyReport -Tool 'ClaudeCode' -Skill 'skill-b')
+        # The broken Cursor link created above keeps its status, as with -SkipTool.
+        Assert-Equal 'only: a broken link in an unlisted tool stays broken' 'broken' (Get-SkillStatus -Report $onlyReport -Tool 'Cursor' -Skill 'skill-a')
+        Assert-Equal 'only: a broken link in an unlisted tool is a gap' 'REGISTRATION_GAPS' ([string]$onlyReport.overall)
+    }
+    else {
+        Assert-Equal 'only: -OnlyTool ClaudeCode prints its JSON' 'json' '<no-json>'
+    }
+
+    $onlyListOut = & $pwshExe -NoProfile -NonInteractive -File $scriptUnderTest -RepoRoot $skipRepo -OnlyTool 'ClaudeCode,Codex' -AsJson 2> $childErrPath
+    $onlyListExit = $LASTEXITCODE
+    Assert-Equal 'only: -OnlyTool ClaudeCode,Codex exits 0 as a child process' '0' ([string]$onlyListExit)
+    $onlyListReport = $null
+    try { $onlyListReport = ($onlyListOut | Out-String) | ConvertFrom-Json } catch { }
+    Assert-Equal 'only: a comma list skips the rest' 'Cursor,OpenCode,Antigravity' $(if ($onlyListReport) { @($onlyListReport.skippedByChoice.tools) -join ',' } else { '<no-json>' })
+    Assert-Equal 'only: a comma list audits Codex' 'missing' $(if ($onlyListReport) { Get-SkillStatus -Report $onlyListReport -Tool 'Codex' -Skill 'skill-b' } else { '<no-json>' })
+    Assert-Equal 'only: a missing link in an unlisted tool is skipped by choice' 'skipped_by_choice' $(if ($onlyListReport) { Get-SkillStatus -Report $onlyListReport -Tool 'Cursor' -Skill 'skill-b' } else { '<no-json>' })
+
+    New-Junction -LinkDir (Join-Path $skipProfile 'custom/skills') -Name 'skill-a' -Target (Join-Path $skipRepo 'skill-a')
+    $onlyCustomOut = & $pwshExe -NoProfile -NonInteractive -File $scriptUnderTest -RepoRoot $skipRepo -OnlyTool 'ClaudeCode' -AdditionalSkillsRoot 'custom/skills' -AsJson 2> $childErrPath
+    $onlyCustomReport = $null
+    try { $onlyCustomReport = ($onlyCustomOut | Out-String) | ConvertFrom-Json } catch { }
+    Assert-Equal 'only: a declared custom root stays audited' 'missing' $(if ($onlyCustomReport) { Get-SkillStatus -Report $onlyCustomReport -Tool 'Custom:custom/skills' -Skill 'skill-b' } else { '<no-json>' })
+
+    foreach ($badOnly in @(
+            @{ Label = 'unknown -OnlyTool name'; Args = @('-OnlyTool', 'ClaudeCode,NoSuchTool'); Pattern = "BLOCK: unknown -OnlyTool name 'NoSuchTool'" },
+            @{ Label = '-OnlyTool with -SkipTool'; Args = @('-OnlyTool', 'ClaudeCode', '-SkipTool', 'Cursor'); Pattern = 'BLOCK: .*-OnlyTool.*-SkipTool' })) {
+        $badOnlyArgs = $badOnly.Args
+        $badOnlyOut = & $pwshExe -NoProfile -NonInteractive -File $scriptUnderTest -RepoRoot $skipRepo @badOnlyArgs -AsJson 2> $childErrPath
+        $badOnlyExit = $LASTEXITCODE
+        $badOnlyErr = ([System.IO.File]::ReadAllText($childErrPath)) -replace "`e\[[0-9;?]*[A-Za-z]", ''
+        Assert-Equal ("only: {0} exits 1" -f $badOnly.Label) '1' ([string]$badOnlyExit)
+        Assert-Equal ("only: {0} writes BLOCK on stderr" -f $badOnly.Label) 'True' ([string]($badOnlyErr -match $badOnly.Pattern))
+        Assert-Equal ("only: {0} writes nothing on stdout" -f $badOnly.Label) '' ((@($badOnlyOut) | Out-String).Trim())
+    }
 }
 finally {
     $env:PATH = $originalPath

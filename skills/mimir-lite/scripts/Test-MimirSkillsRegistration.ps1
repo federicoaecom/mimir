@@ -56,6 +56,13 @@
     comma-separated list (-SkipTool Codex,OpenCode), which also works under
     pwsh -File, where the list arrives as one string.
 
+.PARAMETER OnlyTool
+    The tools the user chose to link, by their tools[].name, as the opposite of
+    -SkipTool: every built-in tool not listed is reported exactly as if it had been
+    passed to -SkipTool. Same name rule and comma-separated lists; an unknown name
+    stops with BLOCK, and so does combining it with -SkipTool. -SkipSkill still
+    applies, and every -AdditionalSkillsRoot entry stays audited.
+
 .PARAMETER SkipSkill
     Skills the user chose not to link in any tool (for example mimir-delegate);
     same rule as -SkipTool. A name outside the skills inventory stops with BLOCK.
@@ -68,8 +75,9 @@
     Exit codes when run with pwsh -File:
       0  the audit ran; "overall" is REGISTRATION_OK or REGISTRATION_GAPS (gaps
          are reported in the output, not through the exit code).
-      1  the audit did not run. A BLOCK (unknown -SkipTool or -SkipSkill name,
-         repository root not inferable, no user profile directory) writes its
+      1  the audit did not run. A BLOCK (unknown -SkipTool, -OnlyTool or
+         -SkipSkill name, -OnlyTool combined with -SkipTool, repository root not
+         inferable, no user profile directory) writes its
          message, starting with "BLOCK:", to stderr; any other terminating
          error (for example a -RepoRoot that does not exist) also exits 1.
          Stdout stays empty in both cases (no JSON, even with -AsJson).
@@ -85,6 +93,8 @@ param(
     [string[]]$AdditionalSkillsRoot = @(),
 
     [string[]]$SkipTool = @(),
+
+    [string[]]$OnlyTool = @(),
 
     [string[]]$SkipSkill = @(),
 
@@ -309,6 +319,26 @@ foreach ($name in (Split-NameList -Values $SkipTool)) {
         throw ("BLOCK: unknown -SkipTool name '{0}'; use one of: {1}" -f $name, (@($toolDefs | ForEach-Object { $_.Name }) -join ', '))
     }
     if (-not $skippedTools.Contains($match[0].Name)) { $skippedTools.Add($match[0].Name) }
+}
+# -OnlyTool is the complement of -SkipTool: every built-in tool not listed is skipped.
+# User-declared roots (-AdditionalSkillsRoot) are never skipped by it.
+$onlyNames = @(Split-NameList -Values $OnlyTool)
+if ($onlyNames.Count -gt 0) {
+    if ($skippedTools.Count -gt 0) {
+        throw 'BLOCK: -OnlyTool and -SkipTool cannot be combined; use one of them.'
+    }
+    $onlyTools = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $onlyNames) {
+        $match = @($toolDefs | Where-Object { $_.Name -ieq $name })
+        if ($match.Count -eq 0) {
+            throw ("BLOCK: unknown -OnlyTool name '{0}'; use one of: {1}" -f $name, (@($toolDefs | ForEach-Object { $_.Name }) -join ', '))
+        }
+        [void]$onlyTools.Add($match[0].Name)
+    }
+    foreach ($def in $toolDefs) {
+        if ($def.Contains('Declared') -or $onlyTools.Contains($def.Name)) { continue }
+        $skippedTools.Add($def.Name)
+    }
 }
 $skippedSkills = [System.Collections.Generic.List[string]]::new()
 foreach ($name in (Split-NameList -Values $SkipSkill)) {
