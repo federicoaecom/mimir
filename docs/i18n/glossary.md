@@ -26,6 +26,7 @@ Term mappings used across the documentation. Add a term here before translating 
 | upgrade | upgrade | A GeneXus release within a version (e.g. GeneXus 18 upgrade 13); not translated. |
 | envelope | envoltorio | The outer XML wrapper of an object (`<Object>`/`<Attribute>`, legacy `<GxLegacyPayload>`). |
 | Pattern | Pattern | The GeneXus Pattern feature (e.g. Work With, WorkWithForWeb); "pattern-generated" describes its output. |
+| pattern instance | instancia de Pattern | An object that applies a Pattern to a base object (for example a `WorkWithForWeb` instance of a Transaction); the objects it generates are its output. "Pattern" keeps its capital, as in the row above. |
 | writability | capacidad de escritura | Whether a Transaction attribute is physically stored (`own-physical`, `extended-fk-key`, etc.); a read-only classification. |
 
 ## Reading and evidence

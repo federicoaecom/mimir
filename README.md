@@ -74,7 +74,7 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
    Cloning is installing software, and a fetch, pull, or reset changes the clone: ask the user before any clone, fetch, pull, or reset of the skill checkout, and run it only after an explicit yes. For a clone, name the target path (for example `$HOME/mimir-lite`). Read this README from its URL instead of cloning the repository somewhere else to read it; clone once, into the approved path.
 
-   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, then tell the user its state, its current commit, and whether `origin` is the URL in this README:
+   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, running each command below as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule. Then, before asking about an update, tell the user in one short message whether the clone is clean, its current commit, and whether `origin` is the URL in this README:
 
    ```powershell
    git -C "$HOME/mimir-lite" status
@@ -82,12 +82,14 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
    git -C "$HOME/mimir-lite" remote get-url origin
    ```
 
-   Ask before updating it. With a yes, fetch, then update by fast-forward only:
+   Ask before updating it. With a yes, fetch, then update by fast-forward only, again one command per call:
 
    ```powershell
    git -C "$HOME/mimir-lite" fetch origin
    git -C "$HOME/mimir-lite" pull --ff-only
    ```
+
+   After updating, re-read the workflow files already read in this session, at least [`install.md`](skills/mimir-lite/workflows/install.md), before continuing: the update may have changed them. If the user declines the update, take the commands from that clone's own `README.md` and `install.md`, not from this README: an older clone may lack newer options (for example `-OnlyTool`).
 
    If the update cannot fast-forward (unrelated history, local commits, or uncommitted changes), stop and explain why in plain words. Never reset, delete, or overwrite the existing clone; offer a fresh clone into a new approved path instead. Remove or rename the old clone only after an explicit yes, and only when its `git status` is clean.
 
@@ -103,7 +105,7 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
 3. **Link the skill folder into the agent tool's skills folder.** `~/.agents/skills` is read by Codex, Cursor, OpenCode, Pi, GitHub Copilot, Gemini CLI, and the Antigravity CLI; Claude Code (CLI, VS Code extension, desktop) reads `~/.claude/skills`; the Antigravity IDE reads `~/.gemini/config/skills` (see [Support](#support)). Linking into both of the first two is fine. Cursor users also link into `~/.cursor/skills`, or the audit reports a gap. A copy of the skill folder is not supported: it goes stale after `git pull`, and the audit cannot tell a stale copy from a current one; use a symbolic link or a junction.
 
-   Ask before linking. Name each link you would create, as the link path and its target (for example `~/.claude/skills/mimir-lite` pointing to `<mimir-lite-root>/skills/mimir-lite`), and create only the links the user approves. A request to install the skill, or to follow this README, is not consent to create links. Keep in the blocks below only the skills folders the user approved.
+   Ask before linking. Name each link you would create, as the link path and its target (for example `~/.claude/skills/mimir-lite` pointing to `<mimir-lite-root>/skills/mimir-lite`), and create only the links the user approves. A request to install the skill, or to follow this README, is not consent to create links. Keep in the blocks below only the skills folders the user approved. When the question offers a "no new links" choice, it excludes every other choice: with it, create no link.
 
    On Windows, a symbolic link needs Developer Mode or an elevated shell; the block falls back to a directory junction, which needs neither, and skips a link that already exists:
 

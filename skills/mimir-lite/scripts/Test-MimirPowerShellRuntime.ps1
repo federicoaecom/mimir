@@ -16,6 +16,13 @@
     The script declares no `#requires` on purpose: it must also run on an
     older host, such as Windows PowerShell 5.1, to report the problem.
 
+    A prerelease version such as `7.6.0-preview.5` or `7.5.0-rc.1` is
+    accepted: the numeric part before `-` is compared, and build metadata
+    after `+` is ignored. As in semantic versioning, a prerelease comes
+    before its release, so a prerelease of exactly the minimum (for example
+    `7.4.0-preview.1` against 7.4) does not meet it; a prerelease of a
+    higher version does. Missing version components count as 0.
+
 .PARAMETER MinimumVersion
     Minimum pwsh version. Defaults to 7.4; raised to 7.4.6 off Windows.
 #>
@@ -68,10 +75,23 @@ if ($null -eq $childIsWindows) {
     $childIsWindows = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
 }
 
+# Split `<numeric>[-<prerelease>][+<build>]`; only the numeric part goes to [version].
 $actualVersion = $null
-if (-not [version]::TryParse($versionText, [ref]$actualVersion)) {
+$isPrerelease = $false
+$numericText = $versionText
+if ($versionText -match '^(?<numeric>[^-+]+)(?:-(?<prerelease>[^+]*))?(?:\+.*)?$') {
+    $numericText = $Matches['numeric']
+    $isPrerelease = ($Matches.ContainsKey('prerelease') -and $Matches['prerelease'] -ne '')
+}
+if (-not [version]::TryParse($numericText, [ref]$actualVersion)) {
     Write-Output "BLOCK: could not determine pwsh version: '$rawText'"
     exit 1
+}
+
+# [version] ranks 7.4 below 7.4.0; treat a missing component as 0 so both compare equal.
+function ConvertTo-ComparableVersion {
+    param([version]$Version)
+    return (New-Object System.Version $Version.Major, $Version.Minor, ([Math]::Max($Version.Build, 0)), ([Math]::Max($Version.Revision, 0)))
 }
 
 $effectiveMinimum = $MinimumVersion
@@ -81,8 +101,17 @@ if (-not $childIsWindows -and $effectiveMinimum -lt $nonWindowsFloor) {
     $floorApplied = $true
 }
 
-if ($actualVersion -lt $effectiveMinimum) {
-    $message = "BLOCK: PowerShell $effectiveMinimum or later required; found $actualVersion at $($pwsh.Source)"
+$comparableActual = ConvertTo-ComparableVersion -Version $actualVersion
+$comparableMinimum = ConvertTo-ComparableVersion -Version $effectiveMinimum
+# A prerelease precedes its release, so it meets the minimum only when its numeric part is higher.
+if ($isPrerelease) {
+    $meetsMinimum = ($comparableActual -gt $comparableMinimum)
+} else {
+    $meetsMinimum = ($comparableActual -ge $comparableMinimum)
+}
+
+if (-not $meetsMinimum) {
+    $message = "BLOCK: PowerShell $effectiveMinimum or later required; found $versionText at $($pwsh.Source)"
     if ($floorApplied) {
         $message += " (Linux and macOS need $nonWindowsFloor or later: pwsh 7.4.2 loses a native command's stderr when stdout and stderr are redirected to separate files)"
     }
@@ -90,5 +119,5 @@ if ($actualVersion -lt $effectiveMinimum) {
     exit 1
 }
 
-Write-Output "POWERSHELL_RUNTIME_OK: pwsh $actualVersion at $($pwsh.Source)"
+Write-Output "POWERSHELL_RUNTIME_OK: pwsh $versionText at $($pwsh.Source)"
 exit 0

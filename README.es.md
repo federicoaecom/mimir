@@ -74,7 +74,7 @@ Seguir estos pasos en orden. Los bloques de comandos son de PowerShell 7, salvo 
 
    Clonar es instalar software, y un fetch, pull o reset modifica el clon: preguntar al usuario antes de cualquier clone, fetch, pull o reset de la copia de la skill, y ejecutarlo solo después de un sí explícito. Para un clon, nombrar la ruta de destino (por ejemplo `$HOME/mimir-lite`). Leer este README desde su URL en lugar de clonar el repositorio en otro lugar para leerlo; clonar una sola vez, en la ruta aprobada.
 
-   Si `<mimir-lite-root>` ya existe, no clonar de nuevo y todavía no actualizarlo. Inspeccionarlo en modo de solo lectura y después informar al usuario su estado, su commit actual y si `origin` es la URL de este README:
+   Si `<mimir-lite-root>` ya existe, no clonar de nuevo y todavía no actualizarlo. Inspeccionarlo en modo de solo lectura, ejecutando cada comando siguiente en una llamada propia (sin `&&`, `;`, pipes ni `cd`), para que cada uno coincida con una regla de permiso simple. Después, antes de preguntar por una actualización, informar al usuario en un solo mensaje breve si el clon está limpio, su commit actual y si `origin` es la URL de este README:
 
    ```powershell
    git -C "$HOME/mimir-lite" status
@@ -82,12 +82,14 @@ Seguir estos pasos en orden. Los bloques de comandos son de PowerShell 7, salvo 
    git -C "$HOME/mimir-lite" remote get-url origin
    ```
 
-   Preguntar antes de actualizarlo. Con un sí, hacer fetch y después actualizar solo por fast-forward:
+   Preguntar antes de actualizarlo. Con un sí, hacer fetch y después actualizar solo por fast-forward, también un comando por llamada:
 
    ```powershell
    git -C "$HOME/mimir-lite" fetch origin
    git -C "$HOME/mimir-lite" pull --ff-only
    ```
+
+   Después de actualizar, volver a leer los archivos de flujo ya leídos en esta sesión, al menos [`install.md`](skills/mimir-lite/workflows/install.md), antes de continuar: la actualización puede haberlos cambiado. Si el usuario rechaza la actualización, tomar los comandos del propio `README.md` y del `install.md` de ese clon, no de este README: un clon más antiguo puede no tener opciones más nuevas (por ejemplo `-OnlyTool`).
 
    Si la actualización no puede hacerse por fast-forward (historial no relacionado, commits locales o cambios sin confirmar), detenerse y explicar el motivo en palabras simples. Nunca hacer reset, borrar ni sobrescribir el clon existente; ofrecer en su lugar un clon nuevo en una ruta nueva aprobada. Eliminar o renombrar el clon anterior solo después de un sí explícito, y solo cuando su `git status` esté limpio.
 
@@ -103,7 +105,7 @@ Seguir estos pasos en orden. Los bloques de comandos son de PowerShell 7, salvo 
 
 3. **Enlazar la carpeta de la skill en la carpeta de skills de la herramienta de agente.** `~/.agents/skills` la leen Codex, Cursor, OpenCode, Pi, GitHub Copilot, Gemini CLI y la Antigravity CLI; Claude Code (CLI, extensión de VS Code, escritorio) lee `~/.claude/skills`; el IDE de Antigravity lee `~/.gemini/config/skills` (ver [Soporte](#soporte)). Enlazar en las dos primeras está bien. Quienes usan Cursor también enlazan en `~/.cursor/skills`; si no, la auditoría informa una brecha. Una copia de la carpeta de la skill no está soportada: queda desactualizada después de `git pull`, y la auditoría no puede distinguir una copia desactualizada de una al día; usar un enlace simbólico o una junction.
 
-   Preguntar antes de enlazar. Nombrar cada enlace que se crearía, con la ruta del enlace y su destino (por ejemplo `~/.claude/skills/mimir-lite` apuntando a `<mimir-lite-root>/skills/mimir-lite`), y crear solo los enlaces que el usuario apruebe. Un pedido de instalar la skill, o de seguir este README, no es consentimiento para crear enlaces. Dejar en los bloques siguientes solo las carpetas de skills que el usuario aprobó.
+   Preguntar antes de enlazar. Nombrar cada enlace que se crearía, con la ruta del enlace y su destino (por ejemplo `~/.claude/skills/mimir-lite` apuntando a `<mimir-lite-root>/skills/mimir-lite`), y crear solo los enlaces que el usuario apruebe. Un pedido de instalar la skill, o de seguir este README, no es consentimiento para crear enlaces. Dejar en los bloques siguientes solo las carpetas de skills que el usuario aprobó. Cuando la pregunta ofrece una opción "ningún enlace nuevo", esa opción excluye todas las demás: con ella, no crear ningún enlace.
 
    En Windows, un enlace simbólico requiere el modo desarrollador o un shell elevado; el bloque recurre a una junction de directorio, que no requiere ninguno de los dos, y omite un enlace que ya existe:
 

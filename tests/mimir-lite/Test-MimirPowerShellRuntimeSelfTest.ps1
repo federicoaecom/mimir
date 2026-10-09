@@ -13,7 +13,9 @@
       - an explicit -MinimumVersion 7.4, as existing workspace wrappers pass, is still raised
         to 7.4.6 off Windows;
       - a version-only answer is judged against the host OS;
-      - no pwsh on PATH and an unparsable version both block.
+      - no pwsh on PATH and an unparsable version both block;
+      - a prerelease (`-preview.5`, `-rc.1`) of a version above the minimum passes, a prerelease
+        of exactly the minimum blocks as too old, and build metadata (`+...`) is ignored.
     The fake is a `.cmd` file on Windows and an executable `#!/bin/sh` script elsewhere; it
     uses only shell built-ins, because its PATH holds nothing else.
 #>
@@ -35,7 +37,7 @@ function Assert-True {
 
 # Writes a fake `pwsh` into a new folder under the fixture root that prints -Line and exits 0;
 # returns the folder, to use as the gate's whole PATH. -Line holds only letters, digits, dots,
-# dashes and `|`.
+# dashes, `+` and `|`.
 function New-FakePwshDirectory {
     param([string]$Name, [string]$Line)
 
@@ -126,6 +128,30 @@ try {
     # 8) An unparsable version.
     $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'unparsable' -Line 'not-a-version|False')
     Assert-Blocks -Run $run -Case 'unparsable version' -Pattern 'could not determine pwsh version'
+
+    # 9) A prerelease of a version above the minimum passes; the report keeps the full version.
+    $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'windows-preview' -Line '7.6.0-preview.5|True')
+    Assert-Passes -Run $run -Case '7.6.0-preview.5 on Windows' -Version '7.6.0-preview.5'
+
+    # 10) A release candidate above the floor passes off Windows.
+    $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'off-windows-rc' -Line '7.5.0-rc.1|False')
+    Assert-Passes -Run $run -Case '7.5.0-rc.1 off Windows' -Version '7.5.0-rc.1'
+
+    # 11) A prerelease of exactly the minimum precedes the release (semver), so it is too old.
+    $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'windows-740-preview' -Line '7.4.0-preview.1|True')
+    Assert-Blocks -Run $run -Case '7.4.0-preview.1 on Windows' -Pattern '7\.4 or later required; found 7\.4\.0-preview\.1 '
+
+    # 12) Off Windows, a prerelease of exactly the 7.4.6 floor is too old as well.
+    $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'off-windows-746-rc' -Line '7.4.6-rc.1|False')
+    Assert-Blocks -Run $run -Case '7.4.6-rc.1 off Windows' -Pattern '7\.4\.6 or later required; found 7\.4\.6-rc\.1 '
+
+    # 13) Build metadata alone does not make a prerelease.
+    $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'windows-build' -Line '7.4.0+build.7|True')
+    Assert-Passes -Run $run -Case '7.4.0+build.7 on Windows' -Version '7.4.0+build.7'
+
+    # 14) A suffix on a non-numeric core still blocks as unparsable.
+    $run = Invoke-RuntimeGate -PathValue (New-FakePwshDirectory -Name 'unparsable-suffix' -Line 'seven-preview.1|False')
+    Assert-Blocks -Run $run -Case 'unparsable version with a suffix' -Pattern 'could not determine pwsh version'
 }
 finally {
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue

@@ -32,7 +32,7 @@ If the KB workspace is not yet mounted, validated or mapped, stop and use the **
 
 Run the check as atomic, sequential steps. The first atomic step is the structure check via `Test-*KbStructure.ps1`. Each step may only consult its own artifact after the previous step has passed. In particular, do not test, list or open child paths such as `KbIntelligence\kb-intelligence.sqlite` before confirming the structure is `STRUCTURE_OK`. If the structure check fails, report only that first block and close the business question. If the documented local wrapper is missing, do not search for variants, backups or similarly named files; report only the expected missing wrapper and offer an update via the **setup** workflow.
 
-After `index-metadata` passes, validate `kb-source-metadata.md` in two atomic steps: first confirm the file exists; only then look for the literal field `last_xpz_materialization_run_at`. If the file is missing, block on the missing file without looking for the field. If the field is missing, block on the missing field without inferring freshness from other metadata. Do not interleave `Get-Date` between the check's internal steps; a local timestamp is only needed before updates/replies to the user.
+After `index-metadata` passes, validate `kb-source-metadata.md` in two atomic steps: first confirm the file exists; only then look for the literal field `last_xpz_materialization_run_at`. If the file is missing, block on the missing file without looking for the field. If the field is missing, block on the missing field without inferring freshness from other metadata. Do not interleave `Get-Date` between the check's internal steps; get the local time only when a reply or an operational record states a time.
 
 ## PATH RESOLUTION
 
@@ -111,7 +111,7 @@ Do NOT use this workflow for:
 ## COMMUNICATION
 
 - Respond in the same language the user writes in.
-- Get the local time immediately before each update or reply to the user; never reuse a previous timestamp or infer the time from the conversation's sequence.
+- Get the local time only when a reply or an operational record states a time, immediately before stating it; never reuse a previous timestamp or infer the time from the conversation's sequence.
 - Lead with the triage result, not the index's history.
 - When the freshness/compatibility gate was relevant to the flow, briefly state the gate's decision in the reply or handoff:
   - if cleared, report that `last_index_build_run_at >= last_xpz_materialization_run_at` and `inventory_validation_status=OK`
@@ -123,7 +123,7 @@ Do NOT use this workflow for:
 - Open an official object XML only after the gate has cleared; with a blocked gate, do not use a targeted XML read to answer the business question.
 - When the index returns the official XML's nominal path, keep that full path consistent in the reply; do not shorten it afterward to just the file name.
 - Separate what came from the index from what is the agent's own inference.
-- Whenever a reverse-relation answer has `coverage.complete=false`, tell the user in plain words that the list of callers may be partial, and why: calls made from the listed object types (for example mobile panels) are not indexed. Name each type in `coverage.unextracted_source_types` with its `count` (for example "the KB has 12 `Panel` and 3 `WorkWith` objects whose calls are not indexed"); a relay without the per-type counts is incomplete. For an `Attribute` target (`coverage.scope` = `attribute_references`), say instead that only structural relations (Transaction levels, Table keys and indexes) are indexed, so uses in grids, filters, code, rules and formulas are not listed, and name each unextracted consumer type with its `count` (for example "the KB has 40 `WorkWithForWeb` and 310 `Procedure` objects whose attribute uses are not indexed").
+- Whenever a reverse-relation answer has `coverage.complete=false`, tell the user in plain words that the list of callers may be partial, and why: calls made from the listed object types (for example mobile panels) are not indexed. Name each type in `coverage.unextracted_source_types` with its `count` (for example "the KB has 12 `Panel` and 3 `WorkWith` objects whose calls are not indexed"); a relay without the per-type counts is incomplete. For an `Attribute` target (`coverage.scope` = `attribute_references`), say instead that only structural relations (Transaction levels, Table keys and indexes) are indexed, so uses in grids, filters, code, rules and formulas are not listed, and name each unextracted consumer type with its `count` (for example "the KB has 40 `WorkWithForWeb` and 310 `Procedure` objects whose attribute uses are not indexed"). When suggesting which objects likely hold the unlisted uses, label it `Hypothesis` and point at pattern instances (`WorkWithForWeb`, `WorkWith`) and authored code objects (for example `Procedure`), never at objects generated from those instances (`is_generated_object=1`, such as the Web Panels a `WorkWithForWeb` instance generates).
 - Give the session-folder notice of the **FIRST-QUESTION CHECKLIST** once per session, in the first answer (after the gate, not as a step before it).
 - For a functional question, keep the classification: `Direct evidence`, `Additional XML reading`, `Strong inference`, `Hypothesis`.
 - When the target-resolution sub-flow ran, produce an auditable handoff block before any official-corpus read or analysis:
@@ -252,14 +252,14 @@ These notes apply only when the agent tool is Claude Code; other tools use their
 - NEVER continue substantive triage when `index-metadata` fails, returns empty, or does not carry the index's build timestamp.
 - NEVER run `search-objects`, `list-by-type`, `object-info`, `attribute-info`, `transaction-attributes`, `transaction-writable-attributes`, `who-uses`, `what-uses`, `show-evidence`, `impact-basic`, `functional-trace-basic`, `css-classes` or `css-class-usage` before `GATE_OK`.
 - NEVER look for `last_xpz_materialization_run_at` before confirming `kb-source-metadata.md` exists as a file.
-- NEVER interleave `Get-Date` between the gate's internal steps; use the local time only for updates/replies to the user or a required operational record.
+- NEVER interleave `Get-Date` between the gate's internal steps; get the local time only when a reply or an operational record states a time.
 - NEVER describe a post-`index-metadata` block as a total ban on querying the index; `index-metadata` is a gate query, the block prevents substantive triage.
 - NEVER add parsing, side output, timestamp printing, or extra commands to the gate call block; all logic is encapsulated in `Test-*KbIndexGate.ps1`.
 - NEVER, after `GATE_OK`, open `kb-index-reference.md`, list `scripts`, or re-inspect the local wrapper when the question can be resolved directly by `search-objects`, `list-by-type`, `object-info`, `attribute-info`, `transaction-attributes` or `transaction-writable-attributes`.
 - NEVER, for a simple existence/nominal-location question, a type listing, or a single attribute/writability query, open the local wrapper only to confirm its signature before calling one of those queries; the parameters are documented in **QUERY PARAMETER REFERENCE**.
 - NEVER shorten or inconsistently rewrite the official XML's nominal path returned by the index.
 - NEVER present a reverse-relation answer with `coverage.complete=false` as "no callers", "unused" or "safe to remove"; it is a partial answer.
-- NEVER reuse a previous timestamp in an update or reply; get the local time immediately before each message.
+- NEVER reuse a previous timestamp when an update, reply, or operational record states a time; get the local time immediately before stating it.
 - NEVER access `kb-intelligence.sqlite` directly through any language or tool — Python, the sqlite3 CLI, inline PowerShell, Bash, or any other means — without going through the gate and the local wrapper; direct SQLite access is equivalent to bypassing the gate regardless of the result obtained.
 - NEVER compensate for an `index-metadata` failure or a missing `last_xpz_materialization_run_at` by manually reading validation JSON, the raw SQLite file, an isolated `kb-source-metadata.md`, file dates, `updated`, `generated_at`, `source_xpz`, or official XML to answer the business question.
 - NEVER open an official object XML to answer a business question when the compatibility/freshness gate is blocked.
