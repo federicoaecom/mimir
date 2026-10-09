@@ -72,13 +72,32 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
 2. **Clone the repository outside the user's project**, never into the project folder: its root `AGENTS.md` and `CLAUDE.md` are instructions for contributors to this repository, and an agent working in the project would load them as project instructions. The clone path is `<mimir-lite-root>` in every workflow.
 
-   Cloning is installing software: ask the user first, naming the target path (for example `$HOME/mimir-lite`), and clone only after an explicit yes. Read this README from its URL instead of cloning the repository somewhere else to read it; clone once, into the approved path.
+   Cloning is installing software, and a fetch, pull, or reset changes the clone: ask the user before any clone, fetch, pull, or reset of the skill checkout, and run it only after an explicit yes. For a clone, name the target path (for example `$HOME/mimir-lite`). Read this README from its URL instead of cloning the repository somewhere else to read it; clone once, into the approved path.
+
+   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, then tell the user its state, its current commit, and whether `origin` is the URL in this README:
+
+   ```powershell
+   git -C "$HOME/mimir-lite" status
+   git -C "$HOME/mimir-lite" log -1 --oneline
+   git -C "$HOME/mimir-lite" remote get-url origin
+   ```
+
+   Ask before updating it. With a yes, fetch, then update by fast-forward only:
+
+   ```powershell
+   git -C "$HOME/mimir-lite" fetch origin
+   git -C "$HOME/mimir-lite" pull --ff-only
+   ```
+
+   If the update cannot fast-forward (unrelated history, local commits, or uncommitted changes), stop and explain why in plain words. Never reset, delete, or overwrite the existing clone; offer a fresh clone into a new approved path instead. Remove or rename the old clone only after an explicit yes, and only when its `git status` is clean.
+
+   When `<mimir-lite-root>` does not exist, clone into the approved path:
 
    ```powershell
    git clone https://github.com/federicoaecom/mimir "$HOME/mimir-lite"
    ```
 
-   This line runs unchanged in bash too.
+   The `git` lines in this step run unchanged in bash too.
 
    Without Git, a ZIP download extracted to the same place works, but Windows marks the downloaded scripts as blocked; unblock them with `Get-ChildItem -Recurse "$HOME\mimir-lite" | Unblock-File`.
 

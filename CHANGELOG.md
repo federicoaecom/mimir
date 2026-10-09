@@ -6,6 +6,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- The README agent steps and the install workflow handle an existing clone: when `<mimir-lite-root>` already exists, the agent inspects it read-only (`status`, current commit, `origin` URL), tells the user, and asks before updating; with a yes it fetches and updates by fast-forward only. When a fast-forward is not possible (unrelated history, local commits, or uncommitted changes), it stops, explains why, and offers a fresh clone into a new approved path; the old clone is never reset, deleted, or overwritten, and is removed or renamed only after an explicit yes and with a clean `git status`. Any clone, fetch, pull, or reset of the skill checkout needs the user's explicit yes first.
+- When the user asks to install or update the skill following the README, the `SKILL.md` workflow table and the install workflow tell the agent to read the README from its URL first, even when the skill is already installed or linked, and to follow its steps from the existing-clone check to the install audit.
+- A new core rule in `SKILL.md`: KB or workspace details (paths, KB names, KB identity, KB content, the skill clone's state) are never saved to a memory tool outside the KB workspace without first asking the user, naming what and where, even when other instructions ask for proactive saving. Setup step 14 now points to that rule instead of repeating it. Existing workspaces see a setup-contract change and re-audit once.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added

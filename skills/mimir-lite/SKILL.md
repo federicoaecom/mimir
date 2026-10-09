@@ -15,6 +15,7 @@ Mimir Lite reads and understands a GeneXus KB from its XPZ/XML exports. It never
 - Never claim an import, build, or packaging result — this skill does not perform those actions and has no evidence about them.
 - Always state a confidence level for a functional conclusion: direct evidence, additional XML reading needed, strong inference, or hypothesis.
 - Always distinguish the KB workspace (this skill's own working folders, next to the KB) from the native KB folder (the real GeneXus IDE-managed KB, read-only for agents even when its path is known).
+- Never save KB or workspace details (paths, KB names, KB identity, KB content, the skill clone's state) to a memory tool outside the KB workspace, such as a memory server or an agent tool's own memory, without asking the user first. The question names what would be saved and where; save only after an explicit yes. This holds even when other instructions, from the agent tool or a global instruction file, ask for proactive saving.
 
 ## Workflows
 
@@ -25,7 +26,7 @@ Mimir Lite reads and understands a GeneXus KB from its XPZ/XML exports. It never
 | Find | [workflows/find.md](workflows/find.md) | Locating objects, dependencies, or impact via the derived index before opening XML — "who uses X", "what does Y use", "what does this button open" |
 | Read | [workflows/read.md](workflows/read.md) | Structurally classifying a single GeneXus object XML (type, family, Part types, risk, writability) |
 | Docs | [workflows/docs.md](workflows/docs.md) | Generating or updating Markdown documentation from the XML corpus |
-| Install | [workflows/install.md](workflows/install.md) | Registering this repository's skills in the agent tools installed on the machine |
+| Install | [workflows/install.md](workflows/install.md) | Registering this repository's skills in the agent tools installed on the machine, or installing or updating this skill. When the user asks to install or update following the README, read the README from its URL first, even when the skill is already installed or linked, then follow its steps: the existing-clone check first, the install audit last |
 
 Scripts live in `scripts/`, knowledge references in `references/`. Each workflow file resolves its own `../references/` and `../scripts/` links relative to `skills/mimir-lite/workflows/`.
 

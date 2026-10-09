@@ -72,13 +72,32 @@ Seguir estos pasos en orden. Los bloques de comandos son de PowerShell 7, salvo 
 
 2. **Clonar el repositorio fuera del proyecto del usuario**, nunca dentro de la carpeta del proyecto: su `AGENTS.md` y su `CLAUDE.md` de la raíz son instrucciones para quienes contribuyen a este repositorio, y un agente que trabaja en el proyecto los cargaría como instrucciones del proyecto. La ruta del clon es `<mimir-lite-root>` en todos los flujos de trabajo.
 
-   Clonar es instalar software: preguntar primero al usuario, nombrando la ruta de destino (por ejemplo `$HOME/mimir-lite`), y clonar solo después de un sí explícito. Leer este README desde su URL en lugar de clonar el repositorio en otro lugar para leerlo; clonar una sola vez, en la ruta aprobada.
+   Clonar es instalar software, y un fetch, pull o reset modifica el clon: preguntar al usuario antes de cualquier clone, fetch, pull o reset de la copia de la skill, y ejecutarlo solo después de un sí explícito. Para un clon, nombrar la ruta de destino (por ejemplo `$HOME/mimir-lite`). Leer este README desde su URL en lugar de clonar el repositorio en otro lugar para leerlo; clonar una sola vez, en la ruta aprobada.
+
+   Si `<mimir-lite-root>` ya existe, no clonar de nuevo y todavía no actualizarlo. Inspeccionarlo en modo de solo lectura y después informar al usuario su estado, su commit actual y si `origin` es la URL de este README:
+
+   ```powershell
+   git -C "$HOME/mimir-lite" status
+   git -C "$HOME/mimir-lite" log -1 --oneline
+   git -C "$HOME/mimir-lite" remote get-url origin
+   ```
+
+   Preguntar antes de actualizarlo. Con un sí, hacer fetch y después actualizar solo por fast-forward:
+
+   ```powershell
+   git -C "$HOME/mimir-lite" fetch origin
+   git -C "$HOME/mimir-lite" pull --ff-only
+   ```
+
+   Si la actualización no puede hacerse por fast-forward (historial no relacionado, commits locales o cambios sin confirmar), detenerse y explicar el motivo en palabras simples. Nunca hacer reset, borrar ni sobrescribir el clon existente; ofrecer en su lugar un clon nuevo en una ruta nueva aprobada. Eliminar o renombrar el clon anterior solo después de un sí explícito, y solo cuando su `git status` esté limpio.
+
+   Cuando `<mimir-lite-root>` no existe, clonar en la ruta aprobada:
 
    ```powershell
    git clone https://github.com/federicoaecom/mimir "$HOME/mimir-lite"
    ```
 
-   Esta línea también funciona sin cambios en bash.
+   Las líneas de `git` de este paso también funcionan sin cambios en bash.
 
    Sin Git, sirve una descarga ZIP extraída en el mismo lugar, pero Windows marca los scripts descargados como bloqueados; desbloquearlos con `Get-ChildItem -Recurse "$HOME\mimir-lite" | Unblock-File`.
 
