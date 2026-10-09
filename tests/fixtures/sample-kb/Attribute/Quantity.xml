@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Attribute name="Quantity" guid="d48edd4f-2995-4250-98b7-8b18949d3c88" lastUpdate="2026-01-01T00:00:00" description="Sample invoice line quantity">
+  <Properties>
+    <Property><Name>DataType</Name><Value>Numeric</Value></Property>
+    <Property><Name>Length</Name><Value>9</Value></Property>
+  </Properties>
+</Attribute>

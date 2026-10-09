@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="InvoiceSummaryMobile" moduleGuid="00000000-0000-0000-0000-000000000000" guid="ea2be227-065d-4e9b-85af-ed5ac9d9a99c" name="InvoiceSummaryMobile" type="d82625fd-5892-40b0-99c9-5c8559c197fc" description="Sample mobile panel whose events call CalculateInvoiceTotal; the index does not extract Panel sources" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Source><![CDATA[
+Event ClientStart
+  CalculateInvoiceTotal(&InvoiceId)
+EndEvent
+]]></Source>
+</Object>

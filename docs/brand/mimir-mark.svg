@@ -1,0 +1,6 @@
+<!-- Mimir mark, variant B, decided 2026-09-22. Geometry is the contract. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Mimir">
+  <rect x="2" y="3" width="4.6" height="18" fill="#1f2430"/>
+  <rect x="17.4" y="3" width="4.6" height="18" fill="#1f2430"/>
+  <path d="M6.6 3 L12 12.2 L17.4 3 L17.4 7.6 L12 16.8 L6.6 7.6 Z" fill="#3a3f95"/>
+</svg>

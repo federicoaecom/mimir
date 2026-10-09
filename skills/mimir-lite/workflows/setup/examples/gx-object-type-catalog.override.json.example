@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "upstreamPending": true,
+  "lastLocalRegistrationAt": "2026-05-25T12:00:00-03:00",
+  "registrationRequiresUpstreamSync": true,
+  "types": {
+    "ExampleNewType": {
+      "objectTypeGuid": "00000000-0000-0000-0000-000000000099",
+      "rootKind": "Object",
+      "folderName": "ExampleNewType",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "evidenceSummary": "Replace with real evidence from the XPZ/XML after user approval.",
+      "wikiLinks": [],
+      "nexaFindings": null,
+      "notes": "Local stopgap. If the type becomes redundant with the base catalog, remove this entry in an approved workstream."
+    }
+  }
+}

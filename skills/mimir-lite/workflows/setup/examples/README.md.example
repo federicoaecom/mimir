@@ -1,0 +1,84 @@
+# <KbName> KB workspace
+<!-- FILL IN: replace <KbName> with the real KB name -->
+<!-- FILL IN: keep the WHEN block that matches this workspace (native-kb when a native KB folder is recorded, xpz-only when there is none), delete the other, and remove the marker lines -->
+
+This folder works alongside the GeneXus Knowledge Base `<KbName>`. It holds the
+XPZ files exported from the GeneXus IDE, the official XML snapshot materialized
+from them, and a derived index that lets an agent answer questions about the KB
+with Mimir Lite. It is not the KB itself.
+
+## Native KB folder
+
+<!-- WHEN native-kb -->
+- The GeneXus KB lives in `<NativeKbPath>`.
+- Agents never write to that folder. They read it only when an explicit
+  operational flow requires it, such as resolving the KB identity.
+<!-- END WHEN -->
+<!-- WHEN xpz-only -->
+- None recorded: this is an XPZ-only workspace, built only from XPZ files
+  exported from the GeneXus IDE.
+- The KB identity in `kb-source-metadata.md` comes from the `Source` block of
+  the XPZ, written by the first sync.
+<!-- END WHEN -->
+
+## Folders
+
+| Folder | Role |
+|---|---|
+| `scripts` | Local wrappers that call the shared Mimir Lite engine. |
+| `IdeXpzExports` | Inbox: put the `.xpz` files exported from the GeneXus IDE here. |
+| `KbObjectsXml` | Official XML snapshot, one file per object. Only the sync workflow changes it. |
+| `KbIntelligence` | Derived index (`kb-intelligence.sqlite`), rebuilt from `KbObjectsXml`. |
+| `Temp` | Temporary files and disposable reports. |
+
+Root files: `AGENTS.md` (rules for agents), `kb-source-metadata.md` (KB
+identity and materialization metadata), and this `README.md`.
+
+## Local wrappers
+
+The wrappers use the shared Mimir Lite checkout at `<MimirLiteRoot>`.
+
+| Wrapper | What it does |
+|---|---|
+| `Test-<KbName>KbPowerShellRuntime.ps1` | Checks that PowerShell 7.4 or later (7.4.6 or later on Linux and macOS) is available; run it first. |
+| `Test-<KbName>KbSetupFreshness.ps1` | Tells whether the setup needs a new audit. |
+| `Test-<KbName>KbSetupAudit.ps1` | Full setup audit in one report. |
+| `Set-<KbName>KbSetupAuditTimestamp.ps1` | Records a successful setup audit in `kb-source-metadata.md`. |
+| `Test-<KbName>KbStructure.ps1` | Lists missing folders, files, and wrappers. |
+| `Update-<KbName>KbFromXpz.ps1` | Materializes an XPZ into `KbObjectsXml` and rebuilds the index. |
+| `Test-<KbName>KbFullSnapshot.ps1` | Verifies a full XPZ against `KbObjectsXml` without changing it. |
+| `Rebuild-<KbName>KbIntelligenceIndex.ps1` | Rebuilds and validates the derived index. |
+| `Query-<KbName>KbIntelligence.ps1` | Queries the derived index. |
+| `Test-<KbName>KbIndexGate.ps1` | Index freshness gate: `GATE_OK` or `BLOCK: <reason>`. |
+| `Get-<KbName>KbMetadata.ps1` | Reads key fields of `kb-source-metadata.md`. |
+| `Test-<KbName>KbMetadataWrapper.ps1` | Checks that the metadata reader works. |
+| `Resolve-<KbName>KbIdentity.ps1` | Reads the KB identity from the native KB folder. |
+| `Test-<KbName>KbObjectsXmlNaming.ps1` | Checks the folder names in `KbObjectsXml`. |
+
+Run any of them with the literal absolute path in double quotes, forward
+slashes, on one line. This form works the same from PowerShell, cmd, and bash:
+
+```text
+pwsh -NoProfile -File "<WorkspaceRoot>/scripts/Test-<KbName>KbSetupAudit.ps1"
+```
+
+## Updating the snapshot
+
+1. Export the KB from the GeneXus IDE as an XPZ file. The first load must be a
+   full export; later loads can be partial.
+2. Put the `.xpz` file in `IdeXpzExports`.
+3. Ask the agent to run the Mimir Lite **sync** workflow. It materializes the XPZ
+   into `KbObjectsXml` and rebuilds the index.
+
+## Current state
+
+The current state is not written in this file, so it never goes stale. Ask the
+authoritative sources instead:
+
+- Last materialization: `last_xpz_materialization_run_at` in
+  `kb-source-metadata.md` (read it with `Get-<KbName>KbMetadata.ps1`).
+- Last index build: `last_index_build_run_at`, from
+  `Query-<KbName>KbIntelligence.ps1 -Query index-metadata`.
+- Overall state: `suggested_operational_state` in the output of
+  `Test-<KbName>KbSetupAudit.ps1`.
+- Ready for questions: `Test-<KbName>KbIndexGate.ps1` returns `GATE_OK`.

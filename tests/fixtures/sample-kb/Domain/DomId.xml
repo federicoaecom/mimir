@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="DomId" moduleGuid="00000000-0000-0000-0000-000000000000" guid="d2c8afc7-52cc-46e8-8c5f-7876f452bad9" name="DomId" type="00972a17-9975-449e-aab1-d26165d51393" description="Sample numeric id domain" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Properties>
+    <Property><Name>DataType</Name><Value>Numeric</Value></Property>
+    <Property><Name>Length</Name><Value>9</Value></Property>
+    <Property><Name>Decimals</Name><Value>0</Value></Property>
+  </Properties>
+</Object>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="CustomerView" moduleGuid="00000000-0000-0000-0000-000000000000" guid="e185db10-2689-4cb7-8212-c025cabfcb18" name="CustomerView" type="c9584656-94b6-4ccd-890f-332d11fc2c25" description="Sample web panel that calls CalculateInvoiceTotal for the current customer" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Source><![CDATA[
+Event 'Load'
+  CalculateInvoiceTotal.Call(&CustomerId)
+EndEvent
+]]></Source>
+</Object>

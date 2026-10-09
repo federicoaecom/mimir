@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Attribute name="InvoiceDate" guid="61b10793-5fa9-4395-af40-1afc1f07fad2" lastUpdate="2026-01-01T00:00:00" description="Sample invoice date">
+  <Properties>
+    <Property><Name>DataType</Name><Value>Date</Value></Property>
+  </Properties>
+</Attribute>

@@ -1,0 +1,113 @@
+{
+  "description": "Query-engine validation cases for the self-contained synthetic sample-kb fixture (tests/fixtures/sample-kb/). Runs through skills/mimir-lite/scripts/KbIntelligenceQueryCases.py against an index built from that fixture; needs no real KB.",
+  "cases": [
+    {
+      "id": "object-info-invoice-transaction",
+      "query": "object-info",
+      "object": "Transaction:Invoice",
+      "should_exist": true,
+      "expected_file_contains": "Transaction/Invoice.xml",
+      "expectation": "object-info must resolve the sample Invoice transaction and its file path"
+    },
+    {
+      "id": "object-info-missing",
+      "query": "object-info",
+      "object": "Transaction:TransactionNotInSampleKb",
+      "should_exist": false
+    },
+    {
+      "id": "attribute-info-invoice-total-formula",
+      "query": "attribute-info",
+      "object": "Attribute:InvoiceTotal",
+      "should_exist": true,
+      "expected_file_contains": "Attribute/InvoiceTotal.xml",
+      "expected_isFormula": true,
+      "expected_formulaExpression": "CalculateInvoiceTotal(InvoiceId)",
+      "expectation": "attribute-info must expose the Formula expression on the computed InvoiceTotal attribute"
+    },
+    {
+      "id": "attribute-info-invoice-id-based-on-domain",
+      "query": "attribute-info",
+      "object": "Attribute:InvoiceId",
+      "should_exist": true,
+      "expected_isFormula": false,
+      "expected_basedOn": "Domain:DomId",
+      "expectation": "attribute-info must expose idBasedOn for a Domain-based key attribute"
+    },
+    {
+      "id": "transaction-attributes-invoice",
+      "query": "transaction-attributes",
+      "object": "Transaction:Invoice",
+      "should_exist": true,
+      "min_attributes": 9,
+      "expected_attributes": [
+        "InvoiceId",
+        "CustomerId",
+        "CustomerName",
+        "InvoiceDate",
+        "InvoiceTotal",
+        "LineNumber",
+        "ProductId",
+        "Quantity"
+      ],
+      "expectation": "transaction-attributes must list every Level attribute across both the Invoice header and the InvoiceLine subordinate level"
+    },
+    {
+      "id": "transaction-writable-attributes-invoice",
+      "query": "transaction-writable-attributes",
+      "object": "Transaction:Invoice",
+      "should_exist": true,
+      "min_attributes": 9,
+      "expected_classifications": {
+        "InvoiceId": "key-attribute",
+        "LineNumber": "key-attribute",
+        "InvoiceTotal": "formula",
+        "CustomerId": "extended-fk-key",
+        "ProductId": "extended-fk-key",
+        "CustomerName": "extended-fk-descriptive",
+        "InvoiceDate": "own-physical",
+        "Quantity": "own-physical"
+      },
+      "expected_writable": {
+        "InvoiceId": true,
+        "LineNumber": true,
+        "InvoiceTotal": false,
+        "CustomerId": true,
+        "ProductId": true,
+        "CustomerName": false,
+        "InvoiceDate": true,
+        "Quantity": true
+      },
+      "expectation": "transaction-writable-attributes must classify key, formula, FK and own-physical attributes correctly for a two-level transaction"
+    },
+    {
+      "id": "transaction-writable-attributes-missing",
+      "query": "transaction-writable-attributes",
+      "object": "Transaction:TransactionNotInSampleKb",
+      "should_exist": false
+    },
+    {
+      "id": "impact-basic-calculate-invoice-total",
+      "query": "impact-basic",
+      "object": "Procedure:CalculateInvoiceTotal",
+      "should_exist": true,
+      "min_incoming_relations": 2,
+      "min_outgoing_relations": 1,
+      "expected_dependents": [
+        "WebPanel:CustomerView",
+        "Attribute:InvoiceTotal"
+      ],
+      "expected_dependencies": [
+        "Table:Invoice"
+      ],
+      "expectation": "impact-basic must show CustomerView and InvoiceTotal as dependents of CalculateInvoiceTotal, and the Invoice table as its dependency"
+    },
+    {
+      "id": "functional-trace-basic-calculate-invoice-total",
+      "query": "functional-trace-basic",
+      "object": "Procedure:CalculateInvoiceTotal",
+      "should_exist": true,
+      "expectation": "functional-trace-basic must find CalculateInvoiceTotal and carry the response contract sections and the functional-proof-limit notice"
+    }
+  ]
+}

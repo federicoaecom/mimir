@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Attribute name="LineNumber" guid="f7612ff7-5745-43d6-bfbb-279739b2c81a" lastUpdate="2026-01-01T00:00:00" description="Sample invoice line sequence number">
+  <Properties>
+    <Property><Name>idBasedOn</Name><Value>Domain:DomId</Value></Property>
+  </Properties>
+</Attribute>

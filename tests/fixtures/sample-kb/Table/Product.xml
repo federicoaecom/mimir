@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="Product" moduleGuid="00000000-0000-0000-0000-000000000000" guid="1fd560b2-03c7-4bdf-93e9-286eff1d3f53" name="Product" type="857ca50e-7905-0000-0007-c5d9ff2975ec" description="Physical table for the sample Product transaction" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Key>
+    <Item>ProductId</Item>
+  </Key>
+</Object>

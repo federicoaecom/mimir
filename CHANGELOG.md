@@ -1,0 +1,106 @@
+# Changelog
+
+All notable changes to Mimir Lite are documented in this file.
+
+The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.3.0] - 2026-10-09
+
+### Added
+
+- Five object types in the catalog, so KBs that hold them sync and index instead of stopping on an unknown type: `OfflineDatabase` (mobile Offline Database), `ThemeTransformation`, and the GXflow types `BusinessProcessDiagram`, `WorkflowRole`, and `WorkflowDocument`. Each GUID comes from the XPZ Dependencies block of a public GeneXus sample. All five are `queryableByKbIntelligence=false`: inventory and `object-info` work, semantic queries on them return the `QUERY_NOT_SEMANTIC_FOR_TYPE` block.
+- A sync or pre-scan blocked on an unknown object type now names each type: `<type GUID> type="<type name>" package="<package>" [<count>] names=...`, with the name and package read from the package's own `Dependencies` block (`unknown` when absent). The inventory adds `unknownTypesMessage` and per-type `typeName`/`typePackageName`; the sync wrapper template prints that message instead of a generic "Pre-scan blocked" line. Exit codes are unchanged.
+- The install audit (`Test-MimirSkillsRegistration.ps1`) takes `-SkipTool` and `-SkipSkill` for the tools and skills the user chose not to link: where a link would be missing or covered by compatibility, it reports the new status `skipped_by_choice`, which is not a gap, so `overall` is no longer `REGISTRATION_GAPS` because of a declared choice alone. An existing link keeps its status (a broken one is still a gap), and an unknown name stops with `BLOCK:` on stderr, exit `1`, and nothing on stdout (the script help now lists its exit codes). The JSON adds `skippedByChoice` (`tools`, `skills`), `tools[].skippedByChoice`, and `summary.skippedByChoice`. The README agent steps and the install workflow pass `-SkipSkill mimir-delegate` when the user did not want delegation.
+- An XPZ-only KB workspace, for users with no native KB folder: the setup workflow has an XPZ-only branch, and the scaffolder takes `-XpzOnly` (not combinable with `-KbNativePath`). The workspace `README.md` and `AGENTS.md` then say that no native KB folder is recorded and that the KB identity comes from the XPZ `Source` block written by the first sync; the stable identity is reported pending on that sync. The identity wrapper template reports `NATIVE_KB_NOT_RECORDED` (exit `3`) and changes nothing when no native KB folder is recorded, instead of failing on the placeholder path. The workspace templates no longer claim that the native KB folder "existed and was accessible": the scaffolder writes the result of its own check. Part of the same setup-contract change: existing workspaces re-audit once.
+
+### Changed
+
+- Reverse-relation answers (`who-uses`, `impact-basic`, `functional-trace-basic`, and the `incoming_relations` count of `object-info`) now carry a `coverage` object: `complete`, and the object types in the index whose calls are not extracted (`Panel`, `SmartDevicesApplication`, `WorkPanel`, `WorkWith`) with their counts. The `text` format adds one `coverage: incomplete` line when coverage is incomplete. Exit codes and the index schema are unchanged; no rebuild is needed.
+- The coverage of reverse-relation answers also counts `OfflineDatabase` (events) and `BusinessProcessDiagram` (GXflow task bindings and conditions): their references to other objects are not extracted either. The rule now covers code or bindings that reference other objects, not only events or a `Source` part, and the find workflow points to the single list in the KB index reference instead of repeating it.
+- The find workflow tells the agent to relay a partial-coverage answer to the user in plain words and never to present it as "no callers".
+- The README "GeneXus versions" table now lists GeneXus X Evolution 2 and 3 and GeneXus 15 to 17 as tested with public samples, and states the known limit: calls from mobile objects (panels, their Work With, the Offline Database) and from GXflow business process diagrams are not indexed, and reverse-relation answers say so.
+- The README agent steps ("Use it with an AI agent", "For the agent") now ask before linking, naming each link path and its target, and say that a request to install the skill is not consent to create links; after linking they run the install audit and relay its result; and they note that some tools load a newly linked skill without a new session. The install workflow's first-install rules say the same.
+- The setup workflow starts with a completion checklist: read the whole file (in parts when the tool truncates it), and confirm the runtime gate and setup audit, the allow rules, the global instruction check, the `## Index triage` section, the setup-audit timestamp, and the closing message before declaring any completion state. A write to a global instruction file is now its own question, never bundled with other approvals, showing the file path and the exact block; the block names the `mimir-lite` skill instead of "this skill". The allow rules come first after the scaffolder, so the shared-scripts rule is offered before the first direct call to a shared script (the catalog reminder, the sync pre-scan), and the closing message tells the user to start the agent tool in the KB workspace folder, where those rules apply. Existing workspaces see a setup-contract change and re-audit once.
+- The sync workflow shows the complete pre-scan command (`Get-GeneXusXpzObjectInventory.ps1 -InputPath <xpz> -FailOnUnknownTypes -KbWorkspaceRoot <workspace>`); on the first sync it asks the user whether the XPZ is a full KB export unless the user already said so, with the pre-scan counts supporting the question but never replacing the answer; and the report relays the warnings printed on stderr as well as the result JSON's `Warnings`.
+- Setup and sync consent and closing rules, from a second end-to-end run in the default permission mode: the workspace allow rule (setup step 20) is shown verbatim and asked about before it is written, like the shared-scripts rule (one question may cover both); saving workspace paths, the KB name, or KB content to an external memory tool needs an explicit question naming what and where (step 14); the setup-audit timestamp is the last write of a setup run, after every `AGENTS.md` and `README.md` edit; a block appended to a global instruction file is separated by a blank line; the closing message recommends the install workflow in a sentence of its own. The catalog-override reminder runs each session only when the workspace has `scripts/gx-object-type-catalog.override.json`, in setup, sync, and the workspace `AGENTS.md` template alike (without the file the script only reports `OK`). The first-sync full-export question carries the pre-scan counts; the find workflow relays partial coverage with each unindexed type and its count, and, when the session was not started in the KB workspace folder, says once that permission prompts continue there and offers to reopen the agent tool in that folder. Existing workspaces see a setup-contract change and re-audit once.
+- The README agent steps and the install workflow treat cloning as installing software: the agent asks first, naming the target path, reads the README from its URL instead of cloning elsewhere to read it, and clones once. The sync workflow states that the `processado_` rename after a successful sync applies only to an XPZ inside `IdeXpzExports`; an XPZ anywhere else is never renamed. The find workflow tries `attribute-info` (which returns every exported property) or `transaction-attributes` before searching attribute XML, and the operational rules say that a property at its default value is not exported: its absence means "default, value not in the export", never a default stated from general knowledge.
+- Example names in the setup and sync workflows and in the help of the setup scripts are now generic: the sample processed package in the workspace layout and the KB workspace path in the usage examples (`C:\KBs\SampleKb`). The reference examples, sanitized templates, and self-test fixtures likewise use neutral example object names, and the two sanitized Stencil templates omit their embedded screenshot images. Existing workspaces see a setup-contract change and re-audit once.
+
+### Fixed
+
+- `who-uses` and the other reverse-relation queries no longer answer "0 callers" without a caveat for an object called only from mobile objects (`Panel`, mobile `WorkWith`, `SmartDevicesApplication`): the answer now states that its coverage is incomplete.
+- The mobile `WorkWith` and `SmartDevicesApplication` types are now `queryableByKbIntelligence=false`, like `Panel`: the index extracts no calls from them, so semantic queries on them return the `QUERY_NOT_SEMANTIC_FOR_TYPE` block (exit `11`) instead of an empty graph. A KB workspace override that sets either type back to `true` now reports a field divergence. The KB index reference no longer claims that mobile Work With objects yield relations through the web Work With extractors.
+- Self-tests no longer fail on a hosted runner that starts `pwsh` slowly: fake CLIs write their limit logs during the run, and timeouts and overlap windows leave room for a start of a few seconds.
+- The sync wrapper template's stdout is again exactly one JSON line: the chained index rebuild report now goes to stderr. The sync workflow tells the agent to read the last JSON line of stdout, which also works with wrappers copied into a workspace before this fix. Existing workspaces see a setup-contract change and re-audit once.
+- The documentary KB inventory (`generate-kb-inventory.ps1`) no longer lists every Attribute XML under "Problem Files": files with an `<Attribute>` root are read as records (an Attribute has no type GUID), and only XML with any other root is reported, now as "No /Object or /Attribute root node".
+- The default `evidence_role` of call evidence in the KB index is now `effective Source`, the English term the read workflow uses, instead of the Portuguese `Source efetivo`. The value is stored in the index; the extractor hash changes, so the index gate reports existing indexes as built by an older extractor until they are rebuilt once.
+- The legacy `WorkPanel` type is now `queryableByKbIntelligence=false`, like `Panel`: the index does not read its events, so semantic queries on it return the `QUERY_NOT_SEMANTIC_FOR_TYPE` block (exit `11`) instead of an empty graph. A KB workspace override that sets it back to `true` now reports a field divergence.
+- `Register-GeneXusObjectTypeCatalogOverride.ps1` no longer always writes `queryableByKbIntelligence=true`: registering a type the base catalog already knows keeps the base `inventoryEligible`, `queryableByKbIntelligence`, and `containerType` flags (so the registration is reported as redundant instead of writing an override that re-enables semantic queries). A type missing from the base keeps the previous defaults.
+- A same-GUID rename inside a delta sync (without `-FullSnapshot`) is now reconciled by the engine and reported in the JSON as `RenamedByGuid` with its `RenamedByGuidItems` entry, instead of `Created 1` plus a stderr line from the wrapper's residue cleanup. Only incoming items whose target file does not exist yet are checked, and only in their type folders; files of objects the delta does not carry are still preserved.
+- A delta sync no longer aborts after writing `kb-source-metadata.md` when a same-GUID rename cannot be done safely (an unreadable XML in the scanned type folder, two corpus files with the same GUID, a name collision, or a failed move): the rename is skipped, the item is created under its new name as before delta renames existed, and a warning names the GUID and the files involved. `-FullSnapshot` keeps failing closed. A delta rename under `-VerifyOnly` is only reported in `RenameResidualsDetected`; nothing is moved or written.
+- The setup audit of a fresh KB workspace (scaffolded, nothing synced yet) no longer prints "1 missing component(s). Run the setup workflow to fix." and `BLOCK: KB workspace structure check failed:` with nothing after the colon for the index that the first sync builds: the structure check prints `PENDING: first index build pending: ...`, the index gate blocks with the reason `first index build pending: ...`, and the audit reports `index/gate: PENDING` with that reason. A structure-check failure now always carries a reason: the structure wrapper template prints one `MISSING:` or `PARSE_ERROR:` line per problem on stdout instead of a warning, and the gate falls back to the wrapper's warnings, or says the wrapper printed no details. Structure wrappers copied before this fix get the same pending reason; the template change is part of the setup-contract change above.
+- The identity wrapper template with `-AsJson` now prints one JSON object on stdout when no native KB folder is recorded, with `status` (`NATIVE_KB_NOT_RECORDED`) and `message`, instead of an empty stdout; the `NATIVE_KB_NOT_RECORDED` line on stderr and exit `3` are unchanged, and without `-AsJson` nothing changes. Existing workspaces see a setup-contract change and re-audit once.
+
+## [0.2.0] - 2026-10-08
+
+### Added
+
+- Linux support, tested in CI: the checks run on `ubuntu-latest` next to `windows-latest`. macOS is best effort.
+- Linux and macOS install guidance (symbolic links with `ln -s`) and a "Known platform differences" section in the README.
+- `index-metadata` reports `resolved_source_root`, the corpus folder the queries actually read.
+- A "GeneXus versions" section in the README: GeneXus 18 and GeneXus 9 are tested; GeneXus X to 17 are untested.
+- The Mimir brand assets under `docs/brand/` and the logo in the README header.
+
+### Changed
+
+- The KB index schema is now version `5`: `source_root` is stored relative to the index folder, so an index and its corpus can move together, also to another OS. Rebuild existing indexes.
+- Python is found as `python3`, then `python`, then `py -3`, and must be 3.8 or later.
+- Linux and macOS need PowerShell 7.4.6 or later, and the PowerShell runtime gate (`Test-MimirPowerShellRuntime.ps1`) now enforces it: outside Windows it raises a lower `-MinimumVersion`, including the 7.4 that existing workspace wrappers pass. The setup workflow, the workspace templates and the gate's help state 7.4 on Windows and 7.4.6 on Linux and macOS; the setup workflow, the sync wrapper template and the Python prerequisite message state Python 3.8 or later, found as `python3`, `python`, or `py -3`.
+- This changes the setup contract signature: existing KB workspaces report `AUDIT_REQUIRED` once; run the setup audit and re-stamp its timestamp (`Set-*KbSetupAuditTimestamp`).
+- `mimir-delegate` keeps its state in the local application data folder of each OS: `%LOCALAPPDATA%\mimir-delegate` on Windows, `~/.local/share/mimir-delegate` on Linux (`$XDG_DATA_HOME/mimir-delegate` when set), and typically `~/Library/Application Support/mimir-delegate` on macOS, or the Linux location when `~/Library/Application Support` does not exist.
+- Outside Windows, `mimir-delegate` finds the backend CLIs on `PATH`; Codex uses the first `codex` that answers `--version`. Windows discovery is unchanged.
+- The peer review closeout skips the optional offer to save preferred reviewers, with a warning, when no state folder can be determined; the Claude Code async adapter keeps running without circuit-breaker state in that case, and the preferred-reviewers resolver reports no preferences with a `state-root-unavailable` diagnostic.
+- On Linux and macOS, the prompt that adapters send on stdin arrives with one extra trailing newline.
+- CI check names are now `test (windows-latest)` and `test (ubuntu-latest)`.
+
+### Fixed
+
+- The inventory and advanced-docs generators handle relative paths, including a relative `SourceRoot` on Windows.
+- The skill registration audit reads `HOME` as well as `USERPROFILE`.
+- File names derived from object names are the same on every OS.
+- Transaction writability finds `Attribute/` and `Table/` files whose name differs only in letter case.
+- When an indexed XML file is missing, the query error names the resolved source root and says the corpus must move with the index; text output prints `(not recorded)` for an index without a source root.
+
+## [0.1.0] - 2026-10-05
+
+First public release.
+
+Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base (KB) from its XPZ/XML exports. It never generates, builds, or imports GeneXus objects.
+
+### Added
+
+- `skills/mimir-lite/`: the core skill. A single router `SKILL.md` sends the agent to six workflows:
+  - **setup**: creates a KB workspace next to a KB in one command with the `New-MimirKbWorkspace.ps1` scaffolder (folder layout, prefixed local wrappers, `README.md`, `AGENTS.md`, KB source metadata), and audits an existing workspace.
+  - **sync**: materializes an XPZ export into an XML corpus, one file per object.
+  - **find**: queries a derived SQLite index (`who-uses`, `what-uses`, `impact-basic`, and related queries) behind a mandatory freshness gate; the XML corpus stays the normative source.
+  - **read**: structurally classifies a single object's XML (type, family, parts, risk).
+  - **docs**: generates Markdown documentation from the XML corpus.
+  - **install**: registers the skills in the agent tools on the machine (Codex, Claude Code, Cursor, OpenCode, Antigravity, or any tool that reads `SKILL.md` from a skills directory) and audits stale registrations.
+- Agent onboarding: the README explains how to hand an agent the repository URL and an XPZ (a copy-paste prompt for the user and the install steps for the agent, including the skills folders each tool reads), and every script invocation uses one shell-neutral form, `pwsh -NoProfile -File "<absolute path>"`, so it runs the same from bash, PowerShell, or cmd.
+- `skills/mimir-lite/references/`: an agent-facing knowledge base of object families, sanitized structural templates, operational rules, risk by object type, and the KB index methodology and reference.
+- `skills/mimir-delegate/`: an optional skill for delegation to other LLM CLIs and for peer review by a panel of models, behind a confidentiality gate.
+- `tests/`: a single test runner (`tests/Invoke-Tests.ps1`) with self-tests for the scripts, and a synthetic sample KB fixture (`tests/fixtures/sample-kb/`) that needs no real KB.
+- `tools/`: contributor checks for text encoding (UTF-8 without BOM, LF), PowerShell and Python parsing, Markdown links and fences, script inventory, code language, and a mechanical pre-push check.
+- Human documentation: English and Spanish `README`, `CONTRIBUTING`, `SECURITY`, and `CODE_OF_CONDUCT`; decision records under `docs/adr/` (scope and non-goals, packaging, language, license); the maintainer pre-push and peer-review methods under `docs/process/`; the translation policy and glossary under `docs/i18n/`; and the curated ideas backlog and discarded ideas under `docs/ideas/`.
+- A GitHub Actions workflow that runs the test suite and the checks on `windows-latest`.
+
+### Notes
+
+- Licensed under the MIT License ([`LICENSE.md`](LICENSE.md)); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+- Requirements: Windows, PowerShell 7.4+, and Python 3.8+ using only the standard library (including `sqlite3`). No GeneXus IDE, MSBuild, or GeneXus build tooling is needed.
+- Windows only: the PowerShell layer relies on Windows paths, junctions, and the Microsoft Store Python stub detection. The Python engines use only the standard library and are portable in principle, but this has not been tested on another operating system. Known gaps on Linux and macOS: the scripts look for `python`, not `python3`; the registration audit requires `USERPROFILE`; the inventory and advanced-docs generators split paths on backslashes; and the Codex and OpenCode delegate adapters are Windows-specific.
+- Out of scope by design: generating, cloning, or packaging GeneXus objects, building or importing XPZ into a KB, and MSBuild-based builds.
+- `mimir-delegate` can send prompt content to external LLM CLIs. It is optional and gated; read [`SECURITY.md`](SECURITY.md) for what it sends and where the tools write state outside the repository.
+- `mimir-delegate` keeps its machine-level state (detected capabilities, preferred reviewers, circuit-breaker state) under `%LOCALAPPDATA%\mimir-delegate`.

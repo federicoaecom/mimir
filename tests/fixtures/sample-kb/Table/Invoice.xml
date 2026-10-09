@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="Invoice" moduleGuid="00000000-0000-0000-0000-000000000000" guid="07d74e10-ac64-47f8-88f7-2756951d3496" name="Invoice" type="857ca50e-7905-0000-0007-c5d9ff2975ec" description="Physical table for the sample Invoice transaction, with duplicate indexes marking the Customer and Product foreign keys" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Key>
+    <Item>InvoiceId</Item>
+  </Key>
+  <Index Type="Duplicate" name="IDX_Invoice_CustomerId">
+    <Member>CustomerId</Member>
+  </Index>
+  <Index Type="Duplicate" name="IDX_Invoice_ProductId">
+    <Member>ProductId</Member>
+  </Index>
+</Object>

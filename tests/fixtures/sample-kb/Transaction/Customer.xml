@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="Customer" moduleGuid="00000000-0000-0000-0000-000000000000" guid="f573101e-ee0e-41df-a672-ed35167c3dd7" name="Customer" type="1db606f2-af09-4cf9-a3b5-b481519d28f6" description="Sample single-level Customer transaction" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Level name="Customer" Type="Customer">
+    <Attribute key="True">CustomerId</Attribute>
+    <Attribute key="False">CustomerName</Attribute>
+  </Level>
+</Object>

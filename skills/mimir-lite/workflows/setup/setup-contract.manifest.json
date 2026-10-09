@@ -1,0 +1,19 @@
+{
+  "signatureVersion": "mimir-setup-contract-signature-v1",
+  "description": "Shared surface that defines the setup contract of the KB workspace.",
+  "include": [
+    "skills/mimir-lite/workflows/setup.md",
+    "skills/mimir-lite/workflows/setup/examples/*",
+    "skills/mimir-lite/scripts/New-MimirKbWorkspace.ps1",
+    "skills/mimir-lite/scripts/Get-MimirSetupContractSignature.ps1",
+    "skills/mimir-lite/scripts/Test-MimirSetupFreshness.ps1",
+    "skills/mimir-lite/scripts/Set-MimirSetupAuditTimestamp.ps1",
+    "skills/mimir-lite/scripts/Test-MimirSetupAudit.ps1",
+    "skills/mimir-lite/scripts/Test-MimirKbIndexGate.ps1",
+    "skills/mimir-lite/scripts/Test-MimirWrapperInventory.ps1",
+    "skills/mimir-lite/scripts/MimirWrapperEngineParamSupport.ps1",
+    "skills/mimir-lite/scripts/Test-MimirPowerShellRuntime.ps1",
+    "skills/mimir-lite/scripts/Test-MimirKbMetadataWrapper.ps1",
+    "skills/mimir-lite/scripts/Test-MimirKbObjectsXmlNaming.ps1"
+  ]
+}

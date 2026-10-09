@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Attribute name="CustomerName" guid="d60c5f78-39ac-4928-9873-2675be63d5ad" lastUpdate="2026-01-01T00:00:00" description="Sample customer descriptive name">
+  <Properties>
+    <Property><Name>DataType</Name><Value>Character</Value></Property>
+    <Property><Name>Length</Name><Value>60</Value></Property>
+  </Properties>
+</Attribute>

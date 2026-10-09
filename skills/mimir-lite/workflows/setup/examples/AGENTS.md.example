@@ -1,0 +1,197 @@
+# AGENTS.md - <KbName>
+<!-- FILL IN: replace <KbName> with the real KB name -->
+<!-- FILL IN: keep the WHEN block that matches this workspace (native-kb when a native KB folder is recorded, xpz-only when there is none), delete the other, and remove the marker lines -->
+
+## Identification
+
+- KB name: `<KbName>`
+- KB workspace folder: `<WorkspaceRoot>`
+<!-- WHEN native-kb -->
+- Native KB folder as seen by GeneXus: `<NativeKbPath>`
+- Native KB folder check on <YYYY-MM-DD>: <NativeKbCheck>.
+<!-- FILL IN: check date in YYYY-MM-DD format, and its result: found and accessible, or not found or not accessible -->
+<!-- END WHEN -->
+<!-- WHEN xpz-only -->
+- Native KB folder: none recorded. This is an XPZ-only workspace, built from
+  XPZ files exported from the GeneXus IDE; the KB identity (`Source` fields of
+  `kb-source-metadata.md`) comes from the `Source` block of the XPZ, written by
+  the first sync.
+<!-- END WHEN -->
+
+## Critical rule for the native KB folder
+
+<!-- WHEN native-kb -->
+`<NativeKbPath>` is off-limits for agent writes.
+
+Agents must not create, edit, move, rename, or delete files in that folder.
+Reading is allowed only when an explicit operational flow genuinely requires it
+(for example, the read-only identity resolution done by
+`Resolve-<KbName>KbIdentity.ps1`).
+<!-- END WHEN -->
+<!-- WHEN xpz-only -->
+No native KB folder is recorded for this XPZ-only workspace. If one is added
+later, record it in the Identification section and in
+`scripts/Resolve-<KbName>KbIdentity.ps1`; it is then off-limits for agent
+writes, and agents read it only when an explicit operational flow genuinely
+requires it.
+<!-- END WHEN -->
+
+## Functional structure of the KB workspace
+
+- `scripts`: thin local wrappers that delegate to the shared engine.
+- `Temp`: temporary files and disposable reports.
+- `IdeXpzExports`: inbox for `.xpz` files exported from the GeneXus IDE.
+- `KbObjectsXml`: official materialized snapshot; read-only for agents
+  outside the official sync flow.
+- `KbIntelligence`: derived, regenerable index.
+
+## Operational state
+
+The operational state of this workspace and the materialization/index
+timestamps are not recorded in this section. A declarative mirror of a
+timestamp silently goes stale because nothing keeps it consistent with the
+authoritative source. To learn the current state, use:
+
+- `suggested_operational_state` and the other audit dimensions: output of
+  `Test-<KbName>KbSetupAudit.ps1` (run it on every audit).
+- `last_xpz_materialization_run_at`: frontmatter of `kb-source-metadata.md`,
+  maintained by the **sync** workflow.
+- `last_index_build_run_at`: `metadata` table of the SQLite index at
+  `KbIntelligence\kb-intelligence.sqlite`, exposed by
+  `Query-<KbName>KbIntelligence.ps1 -Query index-metadata`.
+- Operational index freshness gate:
+  `Test-<KbName>KbIndexGate.ps1` - returns `GATE_OK` or `BLOCK: <reason>`.
+
+Do not record literal timestamps (`last_xpz_materialization_run_at`,
+`last_index_build_run_at`) in this section, in other sections of this
+`AGENTS.md`, or in the local `README.md`.
+
+## Local wrappers
+
+The wrappers in `scripts` use the shared Mimir Lite checkout:
+
+```text
+<MimirLiteRoot>
+```
+
+Expected wrappers:
+
+- `Test-<KbName>KbPowerShellRuntime.ps1`: first gate of any operational use;
+  requires `pwsh` 7.4 or later on Windows (7.4.6 or later on Linux and macOS)
+  and returns `POWERSHELL_RUNTIME_OK` or `BLOCK: ...`.
+- `Test-<KbName>KbSetupFreshness.ps1`: precondition of the global trigger;
+  compares the audited contract signature (`setup_contract_signature_*`) with
+  the current signature of the **setup** workflow and returns `GATE_ONLY` or
+  `AUDIT_REQUIRED: <reason>`.
+- `Set-<KbName>KbSetupAuditTimestamp.ps1`: writes `last_setup_audit_run_at` and
+  `setup_contract_signature_*` into `kb-source-metadata.md` after a successful
+  setup audit; use it in the same session when the freshness check returned
+  `AUDIT_REQUIRED` for a missing, absent, or stale signature and the full audit
+  plus the gate passed.
+- `Update-<KbName>KbFromXpz.ps1`: materializes XPZ/XML into `KbObjectsXml`,
+  surgically updates the materialization fields of `kb-source-metadata.md`
+  (engine `Sync-GeneXusXpzToXml.ps1`), preserving `last_setup_audit_run_at` and
+  `setup_contract_signature_*`, and calls the index refresh unless running in
+  `VerifyOnly` mode. It runs the session reminder and the `-FailOnUnknownTypes`
+  pre-scan before materializing (see the XPZ catalog section below).
+- `Test-<KbName>KbFullSnapshot.ps1`: full check in verify-only mode.
+- `Rebuild-<KbName>KbIntelligenceIndex.ps1`: regenerates and validates
+  `KbIntelligence\kb-intelligence.sqlite`.
+- `Query-<KbName>KbIntelligence.ps1`: queries the derived index, including
+  `index-metadata`.
+- `Test-<KbName>KbIndexGate.ps1`: freshness gate - checks structure, SQLite, and
+  timestamps and returns `GATE_OK` or throws `BLOCK: <reason>`; it must be the
+  single execution point of the gate.
+- `Get-<KbName>KbMetadata.ps1`: reads key fields of `kb-source-metadata.md`
+  without inline regex in callers; exposes at least
+  `last_xpz_materialization_run_at`, `kb_name`, and `source_guid`.
+- `Resolve-<KbName>KbIdentity.ps1`: reconciles the stable identity of the local
+  native KB when the exported XPZ came with an empty or incomplete `Source`;
+  delegates to the shared engine `Resolve-GeneXusKbIdentity.ps1` in read-only
+  mode and, when called with the explicit update option, to
+  `Update-MimirKbSourceMetadataIdentity.ps1`. With no native KB folder recorded
+  (an XPZ-only workspace), it reports `NATIVE_KB_NOT_RECORDED`, exits `3`, and
+  changes nothing.
+- `Test-<KbName>KbMetadataWrapper.ps1`: validates the functional contract of
+  `Get-<KbName>KbMetadata.ps1` against `kb-source-metadata.md`; returns
+  `METADATA_WRAPPER_OK`, `PENDING_DATA`, or `BLOCK: ...`.
+- `Test-<KbName>KbObjectsXmlNaming.ps1`: read-only audit of the directory
+  naming of `KbObjectsXml` against the object type found in each XML;
+  returns `NAMING_OK`, `NAMING_DIVERGENT`, or `NAMING_INDETERMINATE`.
+- `Test-<KbName>KbStructure.ps1`: report of the presence or absence of expected
+  folders, scripts, and artifacts; returns `STRUCTURE_OK` or lists the missing
+  components.
+- `Test-<KbName>KbSetupAudit.ps1`: aggregated setup audit; consolidates the
+  deterministic evidence of the gates above into one output.
+
+Engine scripts whose parameters are fully dynamic on every run do not need a
+local wrapper; call them directly by the absolute path of the shared checkout.
+
+## XPZ catalog (unknown types and local override)
+
+- Effective catalog = `skills/mimir-lite/scripts/gx-object-type-catalog.json` in
+  the shared checkout + `scripts/gx-object-type-catalog.override.json` in this
+  workspace when it exists.
+- A local override is a stopgap (`upstreamPending` declared); it is never
+  silent. The reminder classifies entries as pending, redundant, or divergent.
+  `CLEANUP_RECOMMENDED` must enter the consolidated plan as an explicit,
+  approved offer of local cleanup (for example, removing only the redundant
+  entry), even when the plan also carries a mandatory signature re-stamp; it
+  does not authorize automatic removal.
+- In each new session, when `scripts/gx-object-type-catalog.override.json`
+  exists, run `Test-MimirCatalogOverrideSessionReminder.ps1` from the shared
+  checkout with `-KbWorkspaceRoot` pointing at this workspace (an optional thin
+  local wrapper) before a long sync or materialization. With no override file
+  there is nothing to remind. If `noticeRequired=true`, warn the user according
+  to `status`: upstream pending, blocked or invalid override, or recommended
+  local cleanup.
+- Before materializing a full XPZ or a first load, the pre-scan is mandatory:
+  `Get-GeneXusXpzObjectInventory.ps1` with `-FailOnUnknownTypes` and
+  `-KbWorkspaceRoot`. If it blocks, do not call sync until the type is resolved.
+- An unknown type in the package is a catalog gap, not a defect of the KB's XPZ.
+  Ask the user whether consulting an external GeneXus modeling tool and the
+  official GeneXus wiki/docs is authorized before registering an override or
+  requesting an upstream update.
+- Register a local override only with explicit consent, through
+  `Register-GeneXusObjectTypeCatalogOverride.ps1` (`-UserApproved`). JSON
+  template: `examples/gx-object-type-catalog.override.json.example`.
+- Copyable prompt for the maintainer of the shared base:
+  `New-GeneXusUnknownTypeMaintainerPrompt.ps1`.
+
+## Index triage
+
+For any question about existence, location, technical impact, dependents,
+dependencies, or short functional investigation of objects in this KB, use the
+Mimir Lite **find** workflow. The gate is the only entry point to the index:
+
+1. Check that `scripts/Test-<KbName>KbIndexGate.ps1` exists.
+   - If missing: end the query and offer an update through the **setup**
+     workflow.
+2. Run the gate:
+   ```text
+   pwsh -NoProfile -File "<WorkspaceRoot>/scripts/Test-<KbName>KbIndexGate.ps1"
+   ```
+   - `GATE_OK` -> proceed with the **find** workflow.
+   - `BLOCK: <reason>` -> end the query and offer an index rebuild.
+3. Never access `KbIntelligence\kb-intelligence.sqlite` directly by any tool -
+   Python, sqlite3, inline PowerShell, Bash, or any other means.
+4. Never compensate for a blocked gate with a manual read of SQLite, validation
+   JSON, an isolated `kb-source-metadata.md`, file dates, or official XML.
+5. `KbObjectsXml` is the normative source; consult it only after the gate is
+   released and only for the minimum set the triage points to.
+
+## GeneXus/XPZ rules
+
+- For GeneXus modeling, analysis, or structure questions, an external GeneXus
+  tool (for example `nexa`) may be used when the user has one; anything covered
+  by a Mimir Lite workflow follows that workflow instead.
+- For XPZ files, exported KB XML, or syncing an XPZ, use the Mimir Lite **sync**
+  workflow. The supported input is an XPZ exported by the user from the GeneXus
+  IDE.
+- This workspace is read-side only: do not generate, clone, package, build, or
+  import GeneXus objects from here.
+- `KbObjectsXml` is the official materialized snapshot; `KbIntelligence` is
+  only a derived, regenerable layer.
+- `last_xpz_materialization_run_at` must exist in `kb-source-metadata.md`.
+- `last_index_build_run_at`, in SQLite, must be equal to or later than
+  `last_xpz_materialization_run_at` before broad triage.

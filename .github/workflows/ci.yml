@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      # Report every platform even when one fails.
+      fail-fast: false
+      matrix:
+        # macos-latest is a possible later addition (macOS is best effort).
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    # The full suite (each test with its own 300-second limit) took
+    # about 8 minutes on an idle developer workstation. 45 minutes leaves
+    # more than 5x margin for a slower hosted runner while still failing a
+    # hung job far sooner than the 360-minute default.
+    timeout-minutes: 45
+    steps:
+      # Actions are pinned to a full commit SHA; .github/dependabot.yml proposes updates.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+
+      # Outside Windows the minimum is 7.4.6: pwsh 7.4.2 loses a native
+      # command's stderr when stdout and stderr go to separate files.
+      - name: PowerShell version (7.4.6+ outside Windows)
+        if: runner.os != 'Windows'
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion.ToString()
+          if ($PSVersionTable.PSVersion -lt [semver]'7.4.6') {
+            throw "PowerShell 7.4.6 or later is required outside Windows; found $($PSVersionTable.PSVersion)."
+          }
+
+      - name: Test suite
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1
+
+      - name: Text encoding (UTF-8 without BOM, LF)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/Test-TextEncoding.ps1
+
+      - name: PowerShell parse check
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/Test-PsScriptsParse.ps1
+
+      - name: Python parse check
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/Test-PyScriptsParse.ps1
+
+      - name: Markdown fence check (whole repository)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/Test-MarkdownFences.ps1
+
+      - name: Markdown link check (governance + skill payload + English references)
+        shell: pwsh
+        run: |
+          # Scoped to the set that must stay clean: root governance docs, the
+          # docs/ index and translation process, the agent-facing skill
+          # payload (SKILL.md files + mimir-lite workflows/), every English knowledge
+          # reference under skills/mimir-lite/references/, the process docs,
+          # the ADRs, and the curated ideas indexes.
+          $includePaths = @(
+            'README.md', 'README.es.md',
+            'AGENTS.md', 'CLAUDE.md',
+            'CONTRIBUTING.md', 'CONTRIBUTING.es.md',
+            'SECURITY.md', 'SECURITY.es.md',
+            'CODE_OF_CONDUCT.md', 'CODE_OF_CONDUCT.es.md',
+            'docs/README.md', 'docs/README.es.md', 'docs/i18n', 'docs/adr', 'docs/ideas',
+            'docs/process/13-pre-push-review.md',
+            'docs/process/13-pre-push-review.es.md',
+            'docs/process/14-reinforced-pre-push-review.md',
+            'docs/process/14-reinforced-pre-push-review.es.md',
+            'docs/process/15-peer-review.md',
+            'docs/process/15-peer-review.es.md',
+            'skills/mimir-lite/SKILL.md', 'skills/mimir-delegate/SKILL.md',
+            'skills/mimir-lite/workflows',
+            'skills/mimir-lite/references/00-index.md',
+            'skills/mimir-lite/references/01-empirical-base-overview.md',
+            'skills/mimir-lite/references/01a-catalog-and-empirical-patterns.md',
+            'skills/mimir-lite/references/01b-part-type-matrix-by-type.md',
+            'skills/mimir-lite/references/01c-stable-vs-variable-fields.md',
+            'skills/mimir-lite/references/01d-structural-diffs-by-type.md',
+            'skills/mimir-lite/references/01e-sanitized-templates-core.md',
+            'skills/mimir-lite/references/01f-sanitized-templates-data-and-design.md',
+            'skills/mimir-lite/references/01g-sanitized-templates-components-and-physical.md',
+            'skills/mimir-lite/references/01h-sanitized-templates-metadata-and-artifacts.md',
+            'skills/mimir-lite/references/01j-workwithweb-cdata-patterns.md',
+            'skills/mimir-lite/references/01k-legacy-element-registry.md',
+            'skills/mimir-lite/references/02-operational-rules.md',
+            'skills/mimir-lite/references/02a-runtime-notes-and-known-issues.md',
+            'skills/mimir-lite/references/03-risk-and-decision-by-type.md',
+            'skills/mimir-lite/references/04-webpanel-families-and-templates.md',
+            'skills/mimir-lite/references/04b-ucw-gxcontroltype-reference.md',
+            'skills/mimir-lite/references/05-transaction-families-and-templates.md',
+            'skills/mimir-lite/references/05b-procedure-and-report-families-and-templates.md',
+            'skills/mimir-lite/references/06-object-patterns-and-naming.md',
+            'skills/mimir-lite/references/08-agent-guide.md',
+            'skills/mimir-lite/references/09-script-inventory.md',
+            'skills/mimir-delegate/references/15-peer-review.md',
+            'skills/mimir-lite/references/kb-index-methodology.md',
+            'skills/mimir-lite/references/kb-index-reference.md'
+          )
+          # In-process call (not a nested `pwsh -File` process): -IncludePaths
+          # is a string array, and a nested process boundary would flatten it
+          # to argv, where PowerShell's positional binder only takes the
+          # first value for an explicitly-named array parameter and then
+          # errors on the next bare token (no positional slot left to bind
+          # it to). The call operator keeps the array as one object.
+          & tools/Test-MarkdownLinks.ps1 -IncludePaths $includePaths
+
+      - name: Script inventory completeness (09-script-inventory.md)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/Test-ScriptInventory.ps1
+
+      - name: Code language check (pt-BR in code comments/messages)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/Test-CodeLanguage.ps1

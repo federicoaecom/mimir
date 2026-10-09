@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Attribute name="InvoiceTotal" guid="8319a51e-13bc-4f41-a14d-d1f6d6debeb2" lastUpdate="2026-01-01T00:00:00" description="Sample invoice total, computed from a Formula call">
+  <Properties>
+    <Property><Name>DataType</Name><Value>Numeric</Value></Property>
+    <Property><Name>Formula</Name><Value>CalculateInvoiceTotal(InvoiceId)</Value></Property>
+  </Properties>
+</Attribute>

@@ -1,0 +1,115 @@
+{
+  "description": "Build-time relation extraction validation cases for the self-contained synthetic sample-kb fixture (tests/fixtures/sample-kb/). Exercises idBasedOn Domain, Attribute Formula procedure calls, Source procedure calls, Source for-each table navigation, and Table Key/Index extraction on invented Invoice/Customer/Product data. Consumed by Build-KbIntelligenceIndex.py --validation-cases-path.",
+  "cases": [
+    {
+      "id": "sample-kb-invoice-transaction-exists",
+      "query": "object-info",
+      "object": "Transaction:Invoice",
+      "should_exist": true
+    },
+    {
+      "id": "invoice-id-idbasedon-domain",
+      "source": "Attribute:InvoiceId",
+      "target": "Domain:DomId",
+      "expected_rule": "attribute_idbasedon_domain",
+      "should_exist": true,
+      "expectation": "idBasedOn Domain:DomId on Attribute InvoiceId must create a based_on_domain relation"
+    },
+    {
+      "id": "customer-id-idbasedon-domain",
+      "source": "Attribute:CustomerId",
+      "target": "Domain:DomId",
+      "expected_rule": "attribute_idbasedon_domain",
+      "should_exist": true,
+      "expectation": "idBasedOn Domain:DomId on Attribute CustomerId must create a based_on_domain relation"
+    },
+    {
+      "id": "product-id-idbasedon-domain",
+      "source": "Attribute:ProductId",
+      "target": "Domain:DomId",
+      "expected_rule": "attribute_idbasedon_domain",
+      "should_exist": true,
+      "expectation": "idBasedOn Domain:DomId on Attribute ProductId must create a based_on_domain relation"
+    },
+    {
+      "id": "customer-name-no-domain-relation",
+      "source": "Attribute:CustomerName",
+      "target": "Domain:DomId",
+      "expected_rule": "attribute_idbasedon_domain",
+      "should_exist": false,
+      "expectation": "CustomerName has no idBasedOn Property, so it must not create a based_on_domain relation"
+    },
+    {
+      "id": "invoice-total-formula-calls-procedure",
+      "source": "Attribute:InvoiceTotal",
+      "target": "Procedure:CalculateInvoiceTotal",
+      "expected_rule": "attribute_formula_procedure_direct_call",
+      "should_exist": true,
+      "expectation": "CalculateInvoiceTotal(InvoiceId) inside Property Formula must create an Attribute to Procedure relation"
+    },
+    {
+      "id": "customer-view-calls-calculate-invoice-total",
+      "source": "WebPanel:CustomerView",
+      "target": "Procedure:CalculateInvoiceTotal",
+      "expected_rule": "procedure_dot_call",
+      "should_exist": true,
+      "expectation": "CalculateInvoiceTotal.Call(...) inside WebPanel Source must create a calls_procedure relation"
+    },
+    {
+      "id": "calculate-invoice-total-navigates-invoice-table",
+      "source": "Procedure:CalculateInvoiceTotal",
+      "target": "Table:Invoice",
+      "expected_rule": "source_for_each_explicit_table",
+      "should_exist": true,
+      "expectation": "for each Invoice inside Procedure Source must create a navigates_explicit_table relation"
+    },
+    {
+      "id": "invoice-table-has-key-attribute",
+      "source": "Table:Invoice",
+      "target": "Attribute:InvoiceId",
+      "expected_rule": "table_key_attribute",
+      "should_exist": true,
+      "expectation": "Key/Item InvoiceId in Table Invoice must create a Table to Attribute relation"
+    },
+    {
+      "id": "invoice-table-has-customerid-index-member",
+      "source": "Table:Invoice",
+      "target": "Attribute:CustomerId",
+      "expected_rule": "table_index_member_attribute",
+      "should_exist": true,
+      "expectation": "Duplicate Index/Member CustomerId in Table Invoice must create a Table to Attribute relation"
+    },
+    {
+      "id": "invoice-table-has-productid-index-member",
+      "source": "Table:Invoice",
+      "target": "Attribute:ProductId",
+      "expected_rule": "table_index_member_attribute",
+      "should_exist": true,
+      "expectation": "Duplicate Index/Member ProductId in Table Invoice must create a Table to Attribute relation"
+    },
+    {
+      "id": "invoice-transaction-has-invoice-total-level-attribute",
+      "source": "Transaction:Invoice",
+      "target": "Attribute:InvoiceTotal",
+      "expected_rule": "transaction_level_attribute",
+      "should_exist": true,
+      "expectation": "Invoice Level Attribute InvoiceTotal must create a has_level_attribute relation"
+    },
+    {
+      "id": "invoice-transaction-has-level-table",
+      "source": "Transaction:Invoice",
+      "target": "Table:Invoice",
+      "expected_rule": "transaction_level_table",
+      "should_exist": true,
+      "expectation": "Level Type=\"Invoice\" on the Invoice transaction must create a has_level_table relation to Table Invoice"
+    },
+    {
+      "id": "calculate-invoice-total-impact",
+      "query": "impact-basic",
+      "object": "Procedure:CalculateInvoiceTotal",
+      "should_exist": true,
+      "min_incoming_relations": 2,
+      "min_outgoing_relations": 1
+    }
+  ]
+}

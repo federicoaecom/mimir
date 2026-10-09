@@ -1,0 +1,1710 @@
+# 04 - WebPanel Families and Templates
+
+## Document role
+empirical and operational
+
+## Predominant confidence level
+medium
+
+## Depends on
+01-empirical-base-overview.md, 02-operational-rules.md, 03-risk-and-decision-by-type.md
+
+## Used by
+08-agent-guide.md
+
+## Purpose
+Bring together the structural families of WebPanel and representative sanitized templates for read-side comparison and risk interpretation.
+
+## Consolidated sources
+- pre-repository "WebPanel Structural Families" document
+
+## Incorporated origin - pre-repository "WebPanel Structural Families" document
+
+## Document role
+empirical and operational
+
+## Predominant confidence level
+medium
+
+## Depends on
+01b-part-type-matrix-by-type.md, 01c-stable-vs-variable-fields.md, 01d-structural-diffs-by-type.md, 03-risk-and-decision-by-type.md, 09-script-inventory.md
+
+## Used by
+02-operational-rules.md, 08-agent-guide.md
+
+## Purpose
+Describe structural families of `WebPanel` observed in the KB `KBBase18` XML corpus.
+Use family descriptions and sanitized examples to compare structure and interpret uncertainty; they do not select or authorize a template for object creation.
+
+## Method
+
+- Direct evidence: 1196 `WebPanel` XMLs were analyzed in `C:\SANITIZED\KbObjectsXml\WebPanel`.
+- Direct evidence: the grouping below does not use the object's name as its main criterion; it uses a structural signature based on the `Part` inventory, and the presence of `events`, `grid`, `table`, `action`, `textblock`, `image`, `tab`, variable usage, and XML size.
+- Strong inference: the families were consolidated for practical use; in some cases a family combines rare neighboring signatures when that reduces noise without hiding variability.
+- Hypothesis: structural comparison is most informative when family signals are considered before `parent`, `module`, and internal blocks; this is an analysis heuristic, not an automated selection procedure.
+
+## Overview
+
+- Direct evidence: across practically the whole `WebPanel` corpus, the same 7 `Part type` recur: `d24a58ad-57ba-41b7-9e6e-eaca3543c778`, `9b0a32a3-de6d-4be1-a4dd-1b85d3741534`, `c44bd5ff-f918-415b-98e6-aca44fed84fa`, `763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9`, `e4c4ade7-53f0-4a56-bdfd-843735b66f47`, `ad3ca970-19d0-44e1-a7b7-db05556e820c`, `babf62c5-0111-49e9-a1c3-cc004d90900a`.
+- Direct evidence: the most discriminating structural signals in this slice were `grid`, `action`, `textblock`, `image`, `tab`, real code present in events, and use of tabular layout.
+- Direct evidence: aggregate counts across the universe of 1196 `WebPanel`: `variables` in 1196, `events` in 463, `action` in 323, `textblock` in 227, `image` in 77, `grid` in 25, `tab` in 14.
+- Strong inference: for read-side comparison, the structural family is a better grouping signal than the object's name.
+
+## Family 1 - Minimal shell with no events
+
+- Direct evidence: 3 objects with the minimal structural signature `table;variables`.
+- Direct evidence: approximate average size 2986 bytes; minimum 2193; maximum 3920.
+- Strong inference: low internal variability.
+- Base template: `WP0001`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0001.xml`.
+- Rationale for the choice: the smallest observed specimen, with a practically empty layout, good as a minimal-shell reference.
+
+### Recurring Part types
+
+- Direct evidence: this family's recurrence observed across the type's 7 fixed `Part type` entries.
+- Mandatory (~100% in this family): `d24a58ad-57ba-41b7-9e6e-eaca3543c778`, `9b0a32a3-de6d-4be1-a4dd-1b85d3741534`, `c44bd5ff-f918-415b-98e6-aca44fed84fa`, `763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9`, `e4c4ade7-53f0-4a56-bdfd-843735b66f47`, `ad3ca970-19d0-44e1-a7b7-db05556e820c`, `babf62c5-0111-49e9-a1c3-cc004d90900a`.
+- Common: no additional recurring signal beyond the shell.
+- Rare: no `grid`, `action`, `image`, `tab`, or relevant events.
+
+### Structural interpretation
+
+- Direct evidence: the layout's `Source` is minimal, made up of a single `table`.
+- Strong inference: object name, description, and minimal text/layout in `Source` are comparatively small surface areas, but this does not assess edit safety.
+- Strong inference: the `Part` inventory, root `table`, and observed `parent` relationship are structural signals to compare in an inspected object.
+- Hypothesis: this family describes a very simple screen or basic navigation shell.
+
+### Read-side comparison
+
+- Strong inference: this signature describes very simple `home/menu`, blank-page, or minimal-redirect structures.
+- Strong inference: when comparing an observed object with this family, account for all recurring `Part type` entries and its minimal layout; differences indicate uncertainty, not a recipe for copying.
+- Hypothesis: a `grid`, clickable actions, custom controls, or rules/events absent from the specimen signal a poor structural match; inspect the object's own XML rather than treating this example as a substitute.
+
+## Family 2 - Shell generated by defaults or a pattern
+
+- Direct evidence: 726 objects with a structural signature dominated by `variables`, with no strong signal of `grid`, `action`, `textblock`, `image`, or `tab`.
+- Direct evidence: approximate average size 3534 bytes; minimum 3242; maximum 3839.
+- Direct evidence: inspected examples show `Defaults=WorkWith:Templates...`, `WEB_COMP=Yes`, `IsGeneratedObject=True`, and a `parent` linked to `WorkWith` objects.
+- Strong inference: low internal variability in the shell, but high contextual dependence.
+- Base template: `WP0003`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0003.xml`.
+- Rationale for the choice: clearly represents the generated family, with explicit structural marks of a template/pattern origin.
+
+### Recurring Part types
+
+- Direct evidence: the 7 fixed `Part type` entries recur in this family.
+- Mandatory (~100% in this family): the same 7 base `Part type` entries for the type.
+- Common: internal generation properties in `layout`, `events`, and `variables`.
+- Rare: rich visual controls; no strong sign of `grid`, `image`, or `tab`.
+
+### Structural interpretation
+
+- Direct evidence: the relevant part of the content appears in properties and defaults, not in a rich functional layout.
+- Strong inference: textual names and recurring property values are visible signals alongside the internal skeleton; this does not assess editability.
+- Strong inference: `parent`, `parentGuid`, generation markers, and the complete `Part` inventory are salient structural features to compare.
+- Hypothesis: divergence from the `WorkWith` context is a risk signal when interpreting this family.
+- Direct evidence (WWP): WW panel objects generated by the WorkWithPlus pattern follow the `WW` + Transaction-name convention (e.g. `WWCliente`); the `MasterPage` field typically points to `WWMasterPage`.
+- Strong inference (WWP): `WWPBaseObjects` is shared support infrastructure for the WWP ecosystem; its presence in `parent` or dependencies is evidence of a generated, highly coupled family.
+
+### Read-side interpretation
+
+- Strong inference: this family describes generated shells or objects strongly dependent on a parent object.
+- Strong inference: close correspondence in family and `parent` context is evidence of structural similarity, not authorization to clone.
+- Hypothesis: an authored `WebPanel` or opaque generation properties may make this generated-family specimen a poor comparison.
+
+## Family 3 - Navigational with events
+
+- Direct evidence: 94 objects with the `table;events;variables` signature.
+- Direct evidence: approximate average size 14152 bytes; minimum 3853; maximum 75534.
+- Direct evidence: inspected examples carry a responsive `table`, `ucw` controls, and explicit code in events.
+- Strong inference: medium internal variability.
+- Base template: `WP0004`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0004.xml`.
+- Rationale for the choice: combines navigational layout, custom controls, and real events, without yet involving grids or tabs.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): `layout`, `rules`, `events`, `conditions`, `variables`, `help`, `inner html` in the type's recurring GUIDs.
+- Common: `table`, named events, supporting variables, and `ucw` controls.
+- Rare: `grid`, `tab`, images, and denser list blocks.
+
+### Structural interpretation
+
+- Strong inference: text, captions, and small `Event` snippets are localized content; their presence does not establish edit safety.
+- Strong inference: the responsive layout, `ucw` controls, bindings, and referenced event names are key structural signals.
+- Hypothesis: custom-control differences can materially reduce structural resemblance.
+
+### Read-side interpretation
+
+- Strong inference: this family describes `home/menu` and basic navigation structures with event-driven actions.
+- Strong inference: `parent` context and control counts help assess resemblance to this specimen.
+- Hypothesis: a grid/listing, tabs, or high density of text/image elements indicate a different structural family.
+
+## Family 4 - Form with an action
+
+- Direct evidence: 121 objects with the `table;action;events;variables` signature.
+- Direct evidence: approximate average size 18099 bytes; minimum 4000; maximum 96196.
+- Direct evidence: inspected examples show data fields, at least one `action`, and initialization/action events.
+- Strong inference: medium internal variability.
+- Base template: `WP0854`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0854.xml`.
+- Rationale for the choice: a relatively lean object, with `action`, data, and real events, with no mixing of `grid` or `tab`.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base `Part` inventory.
+- Common: `action`, `table`, code in `events`, variables, and `data` elements.
+- Rare: `grid`, `tab`, image, and rich informational blocks.
+
+### Structural interpretation
+
+- Strong inference: button text, description, names, and small visual `Source` snippets are localized content, not established safe edit points.
+- Strong inference: the `table` skeleton, `data` bindings, `action`, and wired events are key structural features.
+- Hypothesis: absence of an observed `action` may indicate a different family.
+
+### Read-side interpretation
+
+- Strong inference: this signature describes a simple record, a single action, or a short form with confirmation.
+- Strong inference: action counts and general control distribution are useful comparison features.
+- Hypothesis: a grid, tabs, a strong image, or heavy cross-navigation indicate a different structural family.
+
+## Family 5 - Textual form with an action
+
+- Direct evidence: 106 objects with the `table;action;textblock;events;variables` signature.
+- Direct evidence: approximate average size 24550 bytes; minimum 7056; maximum 107986.
+- Direct evidence: the family adds `textblock` density over the previous family.
+- Strong inference: medium-to-high internal variability.
+- Base template: `WP0181`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0181.xml`.
+- Rationale for the choice: the smallest observed specimen of this family's central signature, with `textblock`, `action`, events, and still-compact layout.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base inventory.
+- Common: `textblock`, `table`, real events, variables, and at least one action area across most of the family.
+- Rare: `grid`, `tab`, and use of image.
+
+### Structural interpretation
+
+- Strong inference: text, captions, and clearly labeled blocks are localized content; the evidence does not establish them as safe editing candidates.
+- Strong inference: layout structure, section order, custom controls, and binding names are key comparison features.
+- Hypothesis: strong coupling with a specific component calls for additional XML evidence before drawing a family conclusion.
+
+### Read-side interpretation
+
+- Strong inference: this signature describes a textual panel, guided form, or explanatory page with one or more actions.
+- Strong inference: internal table hierarchy and the distribution between text and action are useful comparison features.
+- Hypothesis: a grid/list or opaque component dependencies indicate meaningful structural differences.
+
+## Family 6 - Textual panel with no dominant action
+
+- Direct evidence: 33 objects with the `table;textblock;events;variables` signature.
+- Direct evidence: approximate average size 17310 bytes; minimum 3945; maximum 72722.
+- Strong inference: medium internal variability.
+- Base template: `WP0189`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0189.xml`.
+- Rationale for the choice: has `textblock`, a real event, variables, and a central component, with little emphasis on `action`.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base inventory.
+- Common: `textblock`, `table`, events, variables, and a central informational control.
+- Rare: relevant `action`, `grid`, `tab`, and image.
+
+### Structural interpretation
+
+- Strong inference: captions, titles, and explanatory text are localized content, but not established safe edit points.
+- Strong inference: the main layout, central component, and associated variables are key structural features.
+- Hypothesis: a different central component may indicate another practical family.
+
+### Read-side interpretation
+
+- Strong inference: this family describes informational `home/menu`, summary panels, or basic navigation with no grid.
+- Strong inference: these objects are centered on displaying information with simple events.
+- Hypothesis: CRUD operations or a tabular list indicate a different structural family.
+
+## Family 7 - Informational panel with an image
+
+- Direct evidence: 39 objects with the `table;action;textblock;image;events;variables` signature.
+- Direct evidence: approximate average size 57176 bytes; minimum 5109; maximum 530462.
+- Strong inference: high internal variability.
+- Base template: `WP0172`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0172.xml`.
+- Rationale for the choice: combines image, text, action, and events in a rich panel, without yet requiring a grid.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base inventory.
+- Common: `textblock`, `image`, `action`, `table`, events, and variables.
+- Rare: `grid` and `tab`.
+
+### Structural interpretation
+
+- Strong inference: text, captions, and apparent visual references are localized content; their edit risk is not established here.
+- Strong inference: section layout, image positions, bindings, and rare visual blocks are key comparison features.
+- Hypothesis: an image replaced by a non-equivalent control would be a significant structural difference.
+
+### Read-side interpretation
+
+- Strong inference: this family describes informational screens, user-facing messages, confirmations, or guided steps with visual support.
+- Strong inference: visual density is a useful comparison feature.
+- Hypothesis: a grid, tabs, or heavy navigation between components indicate a different structural family.
+
+## Family 8 - Tabbed with tabs
+
+- Direct evidence: 14 objects with the `table;action;textblock;tab;events;variables` signature.
+- Direct evidence: approximate average size 91334 bytes; minimum 33256; maximum 294996.
+- Direct evidence: the inspected specimen has `tab`, actions, nested internal blocks, `embeddedpage`, and long events.
+- Strong inference: high internal variability.
+- Base template: `WP0981`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0981.xml`.
+- Rationale for the choice: clearly shows the extra structural cost introduced by `tab` and embedded components.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base inventory.
+- Common: `tab`, `action`, `textblock`, `table`, events, variables, and nested internal tables.
+- Rare: `grid`; combination with image was not dominant in this subfamily.
+
+### Structural interpretation
+
+- Strong inference: text, names, and local tab content are distinct from the tab container, but the evidence does not establish edit safety.
+- Strong inference: the `tab` structure, page order, embedded controls, and event-linked names are key comparison features.
+- Hypothesis: missing tabs or controls assigned to different pages represent substantial structural differences.
+
+### Read-side interpretation
+
+- Strong inference: this family describes query/edit objects with multiple visual sections or basic tab-based navigation.
+- Strong inference: tab use and closeness of the observed structure determine how confidently this family can be compared.
+- Hypothesis: an unidentifiable tabbed structure or radical simplification leaves a poor match to this family.
+
+### Observed pattern: nested tab with an SDT in data attributes
+
+- `Direct evidence`: when an outer tab contains another, inner Tab whose sub-tabs display fields bound to `&Sdt.<member>` via data attributes, the inner Tab's default sub-tab can appear empty on the outer tab's first activation; the re-bind only happens after `ajax_rsp_assign_sdt_attri` is emitted by the generator, which requires the SDT to be in the event's server-side `oparms`.
+- `Historical investigation`: the observed cause was that the re-bind happened only after the generator emitted `ajax_rsp_assign_sdt_attri`, which required the SDT to be in the event's server-side `oparms`. See [02a-runtime-notes-and-known-issues.md](02a-runtime-notes-and-known-issues.md#webpanel-and-pattern-generation-quirks), section "WebPanel and pattern-generation quirks", for the historical investigation of a validated fix (`TabChanged` + touching an SDT member via an identity helper procedure + `SelectTab(2);SelectTab(1)`), tested anti-patterns, and generated `.cs` inspection. This is historical implementation evidence, not current guidance to edit the object or generated code.
+
+## Family 9 - List with a grid
+
+- Direct evidence: 21 objects across signatures dominated by `grid`, consolidated here as a single list-with-grid family.
+- Direct evidence: approximate average size 67625 bytes; minimum 10626; maximum 240342.
+- Direct evidence: inspected examples show an internal `grid` combined with `action`, `textblock`, and events.
+- Strong inference: high internal variability.
+- Base template: `WP0195`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0195.xml`.
+- Rationale for the choice: has an explicit `grid`, actions, text, and events, serving as a concrete reference for the list family.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base inventory.
+- Common: `grid`, `table`, `events`, `variables`; also `action` and `textblock` in a relevant portion.
+- Rare: `tab`; image appears only in smaller subgroups.
+
+### Structural interpretation
+
+- Strong inference: text, titles, action captions, and event snippets are localized content; their edit safety is not established here.
+- Strong inference: the `grid`, its internal table, column bindings, and load/selection events are key comparison features.
+- Hypothesis: grid shape, layout rows, or bindings that differ from the specimen are significant differences requiring cautious interpretation.
+
+### Read-side interpretation
+
+- Strong inference: this family describes `query/list` and basic item-based navigation structures.
+- Strong inference: a `grid` and similar complexity are central signals when comparing an object with this family.
+- Hypothesis: a purely form-based screen or unclear binding equivalence indicates a poor match.
+
+## Family 10 - Mixed residual, low recurrence
+
+- Direct evidence: 26 objects spread across rare neighboring signatures, including combinations with `image` and no dominant `textblock`, plus other infrequent mixes.
+- Direct evidence: approximate average size 43354 bytes; minimum 2762; maximum 114888.
+- Strong inference: very high internal variability.
+- Base template: `WP0978`.
+- Original XML: `C:\SANITIZED\KbObjectsXml\WebPanel\WP0978.xml`.
+- Rationale for the choice: a small, understandable real object, useful as a representative of a mixed informational panel outside the larger families.
+
+### Recurring Part types
+
+- Direct evidence: the 7 base `Part type` entries recur.
+- Mandatory (~100% in this family): the type's base inventory.
+- Common: `table`, events, variables, and some additional visual element.
+- Rare: any specific combination in this residual family should be treated as poorly standardized.
+
+### Structural interpretation
+
+- Strong inference: text, names, and localized visual adjustments are distinguishable from the broader layout; edit safety is not established.
+- Strong inference: the complete layout and every non-trivial control are significant comparison features.
+- Hypothesis: because this family is residual and highly variable, classification should remain cautious.
+
+### Read-side interpretation
+
+- Strong inference: this signature describes simple informational screens or visually distinct isolated cases.
+- Strong inference: this residual family has high variability, so a structural match requires correspondingly strong evidence.
+- Hypothesis: if a more standardized family also fits, retain uncertainty rather than treating the residual family as a fallback.
+
+## Observed grid pattern: SDT with no base table
+
+Historical implementation observation (not a snapshot family, but a loading approach observed in the SampleAudit workstream, 2026-08-17): a list `WebPanel` whose grid is fed by an **SDT collection**, with no `For Each` in the event (rejected — `src0065`) and no base table.
+
+- Historical structure observed: the read lived in a `Procedure`; the grid's `Load` event iterated the collection:
+  `Event GridX.Load` → `procQueLe(&filtros..., &Itens)` → `For &Item in &Itens` → assign `&ColunaA = &Item.CampoA` → `Load` → `EndFor` → `EndEvent`.
+- Historical structure observed: the grid was a `<simplegrid>` with one `<item attribute="&Variavel" />` per column; the column title came from the variable's `Description` — `titleExp` was not needed.
+- Historical measured pitfall: `ColWidth` had no effect with `ColAutoResize=True`; widths took effect after `ColAutoResize=False` on each column, while the earlier table overflowed the viewport.
+- Historical measured pitfall: in that implementation, the floating filter panel rendered at the page end without a `<section controlName="...">` containing an `<item>` for the grid and filters; matching CSS classes alone (`filters-container` plus a `filters-container-floating--visible` toggle) did not suffice (`getBoundingClientRect().y` = 20526 px). This was observed during an import/build cycle, not a current procedure.
+- `Unsolved pitfall in this workstream`: `ControlType = Edit` on the variable did **not** convert a `textarea` into an input — a `Character(254)` variable renders as a three-line `textarea`; declaring it in the variable's properties had no effect (it probably needs to come from the control in the webform, or from a smaller length). See the `Rows` technical hypothesis in `04b-ucw-gxcontroltype-reference.md` and the matching entry in the maintainers' pending-ideas archive (not published).
+
+### Historical GAM stencil implementation observation
+
+- Historical observation: `GAMExample*` screens used stencils (`GAM_HeaderWW`, `GAM_FiltersWW`, `GAM_PagingWW`) with a large, multiply escaped `stencilCache`. The source recorded manual replication without a stencil as a safer alternative in that implementation; this is not current authoring guidance.
+- Historical tradeoff: the recorded replicated screen did not track future stencil updates; its notes accepted visual and maintenance drift in exchange for XML determinism.
+- Historical implementation observation: the GAM message component used a two-part pattern copied from `GAMExampleWWRoles`: `<row><cell><component controlName="WCMessages" /></cell></row>` + `WCMessages.Object = GAMExampleMessages.Create()`; `GAMExampleMessages` is a web component (`WEB_COMP=Yes`) with no `parm`, which reads `GAMRepository.GetLastErrors()` and messages posted to `WebSession` in `Start` — it serves both for GAM errors and for the screen's own warnings.
+- Historical security observation: the absence of `IntegratedSecurityLevel` did not establish that a screen was unprotected; the recorded model default came from `model.ini` (e.g. `IntegratedSecurityLevel=SecurityHigh`), requiring authentication and the `<object>_Execute` permission created automatically at build time. A corpus XML alone cannot establish effective security settings.
+
+## Per-family structural comparison notes
+
+- Direct evidence: every family described here was observed under the same `WebPanel` `Object/@type`.
+- Strong inference: compare a likely family against the inspected object's own `Part` inventory, skeleton, and local `Source` structure; describe discrepancies and confidence rather than prescribe edits.
+- Strong inference: a missing recurring `Part type` in the observed object is a discrepancy to investigate against its own XML.
+- Strong inference: do not generalize `WebPanel` as a homogeneous type; family classification is an evidence-based judgment that can remain uncertain.
+- Hypothesis: if two observed family signatures look close, state the evidence supporting each and retain the ambiguity.
+
+## Limits of structural comparison
+
+- Strong inference: when no family is clearly identifiable, report the ambiguity rather than infer a match.
+- Strong inference: a `grid`, `tab`, strong image, or custom component absent from a specimen indicates a poor structural match.
+- Strong inference: a `parent` that appears structurally significant, without a close equivalent in the observed object, is a high-coupling uncertainty.
+- Hypothesis: unresolved bindings or opaque controls limit what can safely be concluded from structural similarity.
+
+## Summary table
+
+| Observed family | Structural pattern | Observed risk | Representative specimen |
+| --- | --- | --- | --- |
+| Minimal shell with no events | simple shell, blank page, minimal navigation | medium | `WP0001` |
+| Shell generated by defaults or a pattern | generated object or dependency on `WorkWith` | high | `WP0003` |
+| Navigational with events | menu, navigational home, event-driven actions | medium-high | `WP0004` |
+| Form with an action | simple record, single action, short form | medium-high | `WP0854` |
+| Textual form with an action | guided panel, form with textual explanation | high | `WP0181` |
+| Textual panel with no dominant action | informational summary, simple panel | medium-high | `WP0189` |
+| Informational panel with an image | user-facing screens with visual support | high | `WP0172` |
+| Tabbed with tabs | multiple visual sections, tab-based navigation | very high | `WP0981` |
+| List with a grid | grid-based query/list | very high | `WP0195` |
+| Mixed residual, low recurrence | rare, varied combinations | very high | `WP0978` |
+
+## Final synthesis
+
+- Direct evidence: the `WebPanel` corpus is not homogeneous; the observed structural distribution forms recurring families plus a rare residual tail.
+- Strong inference: read-side analysis of `WebPanel` benefits from classifying the structural family before interpreting similarities and differences.
+- Strong inference: `Minimal shell`, `Navigational with events`, and `Form with an action` have comparatively consistent observed structures in this corpus.
+- Strong inference: `Grid`, `Tab`, and residual families show greater structural variability and require more qualified comparisons.
+- Hypothesis: this map helps describe boundaries between nearby families; the observed evidence does not validate import behavior or authorize a real import attempt.
+## Annexes - Sanitized templates
+- Direct evidence: the four annexes below preserve the Part count, block order, `Object/@type`, `parent*`, `moduleGuid`, and the XML hierarchy of the original templates.
+- Strong inference: the sanitized XML examples support structural comparison with an inspected object; they are not cloning bases or materialization inputs.
+- Hypothesis: because some names and text were deliberately anonymized, the annexes support structural observation only and are neither import-ready objects nor instructions for preparing one.
+### Template 1 - Menu/Home
+- Associated family: Navigational with events
+- Structural origin: WP0004.xml
+- Annex purpose: illustrate a menu/home structure with buttons triggered by named events.
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7695ebec-b3d5-4467-acf3-87c5cbe764f3" user="SANITIZED\\USER" versionDate="0001-01-01T00:00:00.0000000" lastUpdate="2025-10-30T00:15:33.0000000Z" checksum="7aa6a08a0f601d3c5ec1f665893bdf94" fullyQualifiedName="WPExemploMenu" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="9a7d819d-5964-440f-9bfc-6661bbf1d096" name="WPExemploMenu" type="c9584656-94b6-4ccd-890f-332d11fc2c25" description="Menu Principal" parent="Almoxarifado" parentType="00000000-0000-0000-0000-000000000008">
+  <Part type="d24a58ad-57ba-41b7-9e6e-eaca3543c778">
+    <Source><![CDATA[<GxMultiForm rootId="2" version="html:15.0.0;layout:17.11.0"><Form id="2" type="layout"><detail><layout><table controlName="MainTable" tableType="Responsive" responsiveSizes="[]"><row><cell><table controlName="TableGeral" tableType="Flex" responsiveSizes="[]" flexWrap="Wrap"><row><cell><ucw gxControlType="-2133704903" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlName&lt;/Name&gt;&lt;Value&gt;ButtonOpcaoA&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Enabled&lt;/Name&gt;&lt;Value&gt;True&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Event&lt;/Name&gt;&lt;Value&gt;'AbrirOpcaoA'&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;CaptionExpression&lt;/Name&gt;&lt;Value&gt;Opcao A&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Class&lt;/Name&gt;&lt;Value&gt;button-tertiary Altura_100px&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell><cell><ucw gxControlType="-2133704903" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlName&lt;/Name&gt;&lt;Value&gt;ButtonOpcoes&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Enabled&lt;/Name&gt;&lt;Value&gt;True&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Event&lt;/Name&gt;&lt;Value&gt;'AbrirOpcoes'&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;CaptionExpression&lt;/Name&gt;&lt;Value&gt;Opcoes&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Class&lt;/Name&gt;&lt;Value&gt;button-tertiary Altura_100px&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell><cell><ucw gxControlType="-2133704903" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlName&lt;/Name&gt;&lt;Value&gt;ButtonOpcaoB&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Enabled&lt;/Name&gt;&lt;Value&gt;True&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Event&lt;/Name&gt;&lt;Value&gt;'AbrirOpcaoB'&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;CaptionExpression&lt;/Name&gt;&lt;Value&gt;Opcao B&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Class&lt;/Name&gt;&lt;Value&gt;button-tertiary Altura_100px&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell><cell><ucw gxControlType="-2133704903" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlName&lt;/Name&gt;&lt;Value&gt;ButtonOpcaoC&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Enabled&lt;/Name&gt;&lt;Value&gt;True&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Event&lt;/Name&gt;&lt;Value&gt;'AbrirOpcaoC'&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;CaptionExpression&lt;/Name&gt;&lt;Value&gt;Opcao C&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;Class&lt;/Name&gt;&lt;Value&gt;button-tertiary Altura_100px&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row></table></cell></row></table></layout></detail></Form></GxMultiForm>]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+    <Source><![CDATA[]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="c44bd5ff-f918-415b-98e6-aca44fed84fa">
+    <Source><![CDATA[Event Start
+	
+	&url = procExemploLogotipoUrl()
+
+	if GAMRepository.CheckPermission(lower("WWExemploOpcaoB")+ "_Execute")
+		ButtonOpcaoB.Icon = Link(&url)
+	else
+		ButtonOpcaoB.Visible = false
+	endif
+
+	if GAMRepository.CheckPermission(lower("WWExemploOpcaoA")+ "_Execute")
+		ButtonOpcaoA.Icon = Link(&url)
+	else
+		ButtonOpcaoA.Visible = false
+	endif
+
+	if GAMRepository.CheckPermission(lower("WWExemploLista")+ "_Execute")
+		ButtonOpcoes.Icon = Link(&url)
+	else
+		ButtonOpcoes.Visible = false
+	endif
+
+	if GAMRepository.CheckPermission(lower("WWExemploOpcaoC")+ "_Execute")
+		ButtonOpcaoC.Icon = Link(&url)
+	else
+		ButtonOpcaoC.Visible = false
+	endif
+
+Endevent
+
+Event 'AbrirOpcaoB'
+	
+	WWExemploOpcaoB()
+	
+Endevent
+
+Event 'AbrirOpcaoA'
+	
+	WWExemploOpcaoA()
+	
+Endevent
+
+Event 'AbrirOpcoes'
+	
+	WWExemploLista()
+	
+Endevent
+
+Event 'AbrirOpcaoC'
+	
+	WWExemploOpcaoC()
+	
+Endevent
+]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+    <Source><![CDATA[]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+    <Variable Name="url">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>url</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:Url, GeneXus</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+    <Help>
+      <HelpItem>
+        <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+        <Content />
+      </HelpItem>
+    </Help>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+    <Properties />
+  </Part>
+  <Properties>
+    <Property>
+      <Name>Name</Name>
+      <Value>WPExemploMenu</Value>
+    </Property>
+    <Property>
+      <Name>Description</Name>
+      <Value>Menu Principal</Value>
+    </Property>
+    <Property>
+      <Name>MasterPage</Name>
+      <Value>MasterPageDS</Value>
+    </Property>
+    <Property>
+      <Name>IsDefault</Name>
+      <Value>False</Value>
+    </Property>
+  </Properties>
+</Object>
+```
+### Sanitization applied
+- semantically identifiable object and call names were anonymized
+- captions and visible text were swapped for generic equivalents
+- `parent*`, `moduleGuid`, `Part type`, and the XML hierarchy were preserved
+### Template 2 - Form
+- Associated family: Form with an action
+- Structural origin: WP0854.xml
+- Annex purpose: illustrate a minimal form structure with parameters, an action, and an initialization event.
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="ce54ed93-ebec-4ed1-b829-873e61f7f6d5" user="SANITIZED\\USER" versionDate="0001-01-01T00:00:00.0000000" lastUpdate="2026-02-04T00:44:11.0000000Z" checksum="e5b302b839ff70d5d68c7d908ca2d8a6" fullyQualifiedName="WPExemploFormulario" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="7c374c60-a2fe-4e23-9d2e-49a89b28695e" name="WPExemploFormulario" type="c9584656-94b6-4ccd-890f-332d11fc2c25" description="WP Exemplo Formulario" parent="Arquivo" parentType="00000000-0000-0000-0000-000000000008">
+  <Part type="d24a58ad-57ba-41b7-9e6e-eaca3543c778">
+    <Source><![CDATA[<GxMultiForm rootId="1" version="html:15.0.0;layout:17.11.0"><Form id="1" type="layout"><detail><layout><table controlName="MainTable" tableType="Responsive" responsiveSizes="[]"><row><cell><data attribute="&amp;ArquivoEmpresaId" labelCaption="Item Empresa Id:" /></cell></row><row><cell><data attribute="&amp;ArquivoId" labelCaption="Item Id:" /></cell></row><row><cell><action controlName="Cancel" onClickEvent="Cancel" /></cell></row></table></layout></detail></Form></GxMultiForm>]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+    <Source><![CDATA[parm(in:&ItemEmpresaId, in:&ItemId);
+]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="c44bd5ff-f918-415b-98e6-aca44fed84fa">
+    <Source><![CDATA[Event Start
+	
+	procExecutaAcao(&ItemEmpresaId, &ItemId)
+	
+Endevent
+]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+    <Properties />
+  </Part>
+  <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+    <Variable Name="ArquivoId">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>ItemId</Value>
+        </Property>
+        <Property>
+          <Name>Description</Name>
+          <Value>Item Id</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Attribute:ArquivoId</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="ArquivoEmpresaId">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>ItemEmpresaId</Value>
+        </Property>
+        <Property>
+          <Name>Description</Name>
+          <Value>Item Empresa Id</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Attribute:ArquivoEmpresaId</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+    <Help>
+      <HelpItem>
+        <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+        <Content />
+      </HelpItem>
+    </Help>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+    <Properties />
+  </Part>
+  <Properties>
+    <Property>
+      <Name>Name</Name>
+      <Value>WPExemploFormulario</Value>
+    </Property>
+    <Property>
+      <Name>MasterPage</Name>
+      <Value>(none)</Value>
+    </Property>
+    <Property>
+      <Name>IntegratedSecurityLevel</Name>
+      <Value>SecurityLow</Value>
+    </Property>
+    <Property>
+      <Name>IsDefault</Name>
+      <Value>False</Value>
+    </Property>
+  </Properties>
+</Object>
+```
+### Sanitization applied
+- object and semantic variable names were generalized
+- labels and textual descriptions were swapped for neutral terms
+- structural bindings, `Part type`, and block order were preserved
+### Template 3 - List/Grid
+- Associated family: List with a grid
+- Structural origin: WP0195.xml
+- Annex purpose: illustrate a rich combination of a grid, actions, events, and variables observed in the list family.
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2896f7a3-4874-40c9-ac7e-f57685983b0f" user="SANITIZED\\USER" versionDate="0001-01-01T00:00:00.0000000" lastUpdate="2025-09-06T18:59:50.0000000Z" checksum="c08b667bb1c14f04fd07448ce5c20b4c" fullyQualifiedName="WPExemploLista" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="891f84b2-0377-4aa3-b0b8-60cb3d882caf" name="WPExemploLista" type="c9584656-94b6-4ccd-890f-332d11fc2c25" description="Acesso ao Sistema" parent="GAM_Frontend" parentType="00000000-0000-0000-0000-000000000008">
+  <Part type="d24a58ad-57ba-41b7-9e6e-eaca3543c778">
+    <Source><![CDATA[<GxMultiForm rootId="2" version="html:15.0.0;layout:17.11.0"><Form id="2" type="layout"><detail><layout><table controlName="MainTable" class="table-login stack-top-xxl" tableType="Responsive" responsiveSizes="[]"><row><cell cellClass="stack-bottom-xl" hAlign="Center"><textblock controlName="TBTitle" caption="Acesso ao Sistema" class="Title" /></cell></row><row><cell cellClass="stack-bottom-l" hAlign="Center"><textblock controlName="TBRepositorioAtual" /></cell></row><row><cell cellClass="stack-bottom-l" hAlign="Center"><table controlName="TblCriarAcesso" class="Table w-100" tableType="Responsive" responsiveSizes="[{&quot;scale&quot;:&quot;sm&quot;,&quot;rows&quot;:[[{&quot;width&quot;:75}]]}]"><row><cell cellClass="" hAlign="Right"><textblock controlName="TBPossuiCadastro" caption="Nao possui cadastro?" /></cell><cell cellClass="" hAlign="Left" vAlign="Default"><textblock controlName="TBCriarAcesso" caption="Criar acesso" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;Event&lt;/Name&gt;&lt;Value&gt;'Register'&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row></table></cell></row><row><cell><data attribute="&amp;PerfilAcesso" labelPosition="Top" labelCaption="Entrar em" class="Attribute w-100" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlType&lt;/Name&gt;&lt;Value&gt;Combo Box&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row><row><cell cellClass=""><data attribute="&amp;NomeUsuario" labelPosition="Top" labelCaption="Usuario" class="Attribute w-100" inviteMessage="" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;AutoResize&lt;/Name&gt;&lt;Value&gt;False&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;GxWidth&lt;/Name&gt;&lt;Value /&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row><row><cell cellClass=""><data attribute="&amp;SenhaUsuario" labelPosition="Top" labelCaption="Senha" class="Attribute w-100" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;idEnableShowPasswordHint&lt;/Name&gt;&lt;Value&gt;False&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;GxWidth&lt;/Name&gt;&lt;Value /&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row><row><cell cellClass="stack-bottom-l" hAlign="Right"><textblock controlName="TBEsqueceuSenha" caption="Esqueceu a senha" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;Event&lt;/Name&gt;&lt;Value&gt;'ForgotPassword'&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row><row><cell cellClass="stack-bottom-l"><data attribute="&amp;LembrarAcesso" labelCaption="" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlTitle&lt;/Name&gt;&lt;Value&gt;Lembrar acesso&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row><row><cell cellClass="" hAlign="Center" vAlign="Default"><errorviewer controlName="ErrorViewer1" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;DisplayMode&lt;/Name&gt;&lt;Value&gt;Bullet List&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row><row><cell cellClass="stack-bottom-l"><table controlName="TblBotaoEntrar" tableType="Responsive" responsiveSizes="[{&quot;scale&quot;:&quot;sm&quot;,&quot;rows&quot;:[[{&quot;width&quot;:50,&quot;label&quot;:100}]]}]"><row><cell cellClass=""><data attribute="&amp;ManterConectado" labelCaption="" class="Attribute inline-left-xl" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlTitle&lt;/Name&gt;&lt;Value&gt;Manter conectado&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell><cell cellClass=""><action controlName="Login" onClickEvent="Enter" caption="Entrar" class="button button-primary w-100" /></cell></row></table></cell></row><row><cell cellClass="stack-top-l" hAlign="Center"><table controlName="TblAutenticacaoExterna" tableType="Responsive" responsiveSizes="[]"><row><cell cellClass="stack-bottom-l"><textblock controlName="TBAutenticacaoExterna" caption="Ou entrar com" class="text-line-separator" /></cell></row><row><cell hAlign="Center"><grid controlName="GridTiposAcessoExterno"><table controlName="TblGridTiposAcessoExterno" tableType="Responsive" responsiveSizes="[{&quot;scale&quot;:&quot;xs&quot;,&quot;rows&quot;:[[{},{&quot;visible&quot;:false}]]},{&quot;scale&quot;:&quot;sm&quot;,&quot;rows&quot;:[[{&quot;width&quot;:100},{&quot;visible&quot;:false}]]}]"><row rowClass=""><cell cellClass="stack-bottom-l"><action controlName="AutenticacaoExterna" onClickEvent="'SelectTipoAutenticacao'" caption="Autenticacao externa" class="button button-tertiary w-100" /></cell><cell><data attribute="&amp;NomeTipoAcesso" labelPosition="None" readonly="True" /></cell></row></table></grid></cell></row></table></cell></row></table></layout></detail></Form></GxMultiForm>]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+    <Source><![CDATA[]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="c44bd5ff-f918-415b-98e6-aca44fed84fa">
+    <Source><![CDATA[Event Start
+	TBRepositorioAtual.Visible	= False
+	TblAutenticacaoExterna.Visible	= False
+	TblCriarAcesso.Visible	= False
+	TBEsqueceuSenha.Visible			= False
+	&ManterConectado.Visible		= False
+	&LembrarAcesso.Visible			= False
+		
+	//Valid current connection
+	&conexaoOk = SANITIZED\\USERSecurity.GAM.CheckConnection()
+	If SANITIZED\\USERSecurity.GAM.isMultitenant()
+		Do "isMultitenantInstallation"
+	Else
+		If &conexaoOk
+			TblCriarAcesso.Visible	= True
+		Else
+			If SANITIZED\\USERSecurity.GAM.GetDefaultRepository(&RepositorioGuid)
+				&conexaoOk = SANITIZED\\USERSecurity.GAM.SetConnectionByRepositorioGuid(&RepositorioGuid, &GAMErrorCollection)
+			Else
+				&ColecaoInfoConexao = SANITIZED\\USERSecurity.GAM.GetConnections()
+				If &ColecaoInfoConexao.Count > 0
+					//The first connection found is established by default
+					&conexaoOk = SANITIZED\\USERSecurity.GAM.SetConnection(&ColecaoInfoConexao.Item(1).Name, &GAMErrorCollection)
+				EndIf
+			Endif
+		Endif
+		If GAMRepository.IsGAMAdministrator(&GAMErrorCollection)
+			&GAMRepository = SANITIZED\\USERSecurity.GAMRepository.Get()
+			TBRepositorioAtual.Caption = Format(!"%1: %2", "Repositorio", &GAMRepository.Name)
+			TBRepositorioAtual.Visible = True
+   		Endif
+	Endif
+EndEvent
+
+
+Event Refresh
+	GridTiposAcessoExterno.Visible 	= False
+
+	&GAMRepository = GAMRepository.Get()
+	Do Case
+	Case &GAMRepository.UserIdentification = GAMRepositoryUserIdentifications.Name
+		&NomeUsuario.InviteMessage = GAMRepositoryUserIdentifications.EnumerationDescription(GAMRepositoryUserIdentifications.Name)
+	Case &GAMRepository.UserIdentification = GAMRepositoryUserIdentifications.EMail
+		&NomeUsuario.InviteMessage = GAMRepositoryUserIdentifications.EnumerationDescription(GAMRepositoryUserIdentifications.EMail)
+	Case &GAMRepository.UserIdentification = GAMRepositoryUserIdentifications.NameEmail
+		&NomeUsuario.InviteMessage = GAMRepositoryUserIdentifications.EnumerationDescription(GAMRepositoryUserIdentifications.NameEmail)
+	EndCase
+
+	&temErros = False
+	//Get the latest errors in GAM
+	&GAMErrorCollection = GAMRepository.GetLastErrors()
+	If &GAMErrorCollection.Count > 0
+		Do Case
+		Case &GAMErrorCollection.Item(1).Code = GAMErrorMessages.SessionExpired  OR  &GAMErrorCollection.Item(1).Code = GAMErrorMessages.ConnectionNotSpecified  OR  &GAMErrorCollection.Item(1).Code = GAMErrorMessages.UserMustBeAuthenticated
+			//DO NOT display these messages
+		Case &GAMErrorCollection.Item(1).Code = GAMErrorMessages.UserMissingRequiredData
+			//Webpanel to Complete User data
+			WPCompletaCadastroExemplo(&EstadoAutenticacao)
+			&temErros = True
+		Otherwise
+			&temErros = True
+			&SenhaUsuario.SetEmpty()
+			Do "DisplayMessages"
+		EndCase
+	Endif
+
+	If not &temErros
+		&sessaoValida = GAMSession.IsValid(&GAMSession, &GAMErrorDelete)
+	Endif
+	If &sessaoValida  AND  not &GAMSession.IsAnonymous  AND  not &temErros
+		If not &temErros
+			//Session ok, user authenticated
+			&UrlDestino = GAMRepository.GetLastErrorsUrlDestino()
+			If &UrlDestino.IsEmpty()
+				WPInicialExemplo()
+			Else
+				Link(&UrlDestino)
+			Endif
+		Endif
+	Else
+		//Authentication type list
+		&PerfilAcesso.Clear()
+		&Idioma = getIdiomaProperty(!"culture")
+		&TiposAutenticacao = GAMRepository.GetEnabledTiposAutenticacao(&Idioma, &GAMErrorCollection)
+		For &TipoAutenticacao in &TiposAutenticacao
+			If &TipoAutenticacao.NeedNomeUsuario //Authentication types you must enter the NomeUsuario in this web panel
+				&PerfilAcesso.AddItem(&TipoAutenticacao.Name, &TipoAutenticacao.Description)
+			Else
+				GridTiposAcessoExterno.Visible = True
+			EndIf
+		EndFor
+		If &PerfilAcesso.Count 	<= 1
+			&PerfilAcesso.Visible = False
+		Else
+			&PerfilAcesso = &TiposAutenticacao.Item(1).Name
+		Endif
+
+		//Initialize variables if the user chooses to keep that information 
+		&operacaoOk = GAMRepository.GetRememberLogin(&PerfilAcesso, &AuxNomeUsuario, &UserLembrarAcesso, &GAMErrorCollection)
+		If not &AuxNomeUsuario.IsEmpty()
+			&NomeUsuario = &AuxNomeUsuario
+		Endif
+		If &UserLembrarAcesso = GAMRememberUserTypes.Login
+			&LembrarAcesso = True
+		Endif
+
+		//Select Default Authentication Type, Display Remember User if it is enabled on Repository
+		If &PerfilAcesso.Count > 1
+			&PerfilAcesso = &GAMRepository.DefaultTipoAutenticacaoName
+		Endif
+		Do "DisplayCheckBox"
+		For &TipoAutenticacao in &TiposAutenticacao
+			If &TipoAutenticacao.Name = &PerfilAcesso
+				Do "ValidPerfilAcessoOTP"
+				Exit
+			Endif
+		EndFor
+	Endif
+EndEvent
+
+
+Event GridTiposAcessoExterno.Load
+	For &TipoAutenticacao in &TiposAutenticacao
+		If &TipoAutenticacao.RedirToAuthenticate
+			&NomeTipoAcesso 						= UrlDestinoEncode(&TipoAutenticacao.Name.Trim())
+			AutenticacaoExterna.Caption 		= &TipoAutenticacao.Description.Trim()
+			AutenticacaoExterna.TooltipText 	= Format("Entrarwith1", &TipoAutenticacao.Description.Trim() )
+			If TblAutenticacaoExterna.Visible = False
+				TblAutenticacaoExterna.Visible		= True
+			EndIf
+			Load
+		Endif
+	EndFor
+EndEvent
+
+
+Event &PerfilAcesso.Click
+	&TiposAutenticacao 	= GAMRepository.GetEnabledTiposAutenticacao(&Idioma, &GAMErrorCollection)
+	&modoValidacao 				= False
+	For &TipoAutenticacao in &TiposAutenticacao
+		If &TipoAutenticacao.Name = &PerfilAcesso
+			Do "ValidPerfilAcessoOTP"
+			Exit
+		Endif
+	EndFor
+	If &modoValidacao = False
+		&SenhaUsuario.Visible 		= True
+		&SenhaUsuario.InviteMessage	= "Senha"
+		Login.Caption				= "Entrar"
+		TBEsqueceuSenha.Visible			= True
+	Endif
+EndEvent
+
+
+Event Enter
+	//Set Remember User type
+	Do Case
+	Case &ManterConectado
+		&GAMLoginAdditionalParameters.RememberUserType = GAMRememberUserTypes.Authentication
+	Case &LembrarAcesso
+		&GAMLoginAdditionalParameters.RememberUserType = GAMRememberUserTypes.Login
+	Otherwise
+		&GAMLoginAdditionalParameters.RememberUserType = GAMRememberUserTypes.None
+	EndCase
+
+	////////////////////////////////////////////////////////////
+	//Send Custom Properties (optional) ////////////////////////
+	//&GAMProperty = new()
+	//&GAMProperty.Id		= "Company"
+	//&GAMProperty.Value	= "SANITIZED\\USER"
+	//&GAMLoginAdditionalParameters.Properties.Add(&GAMProperty)
+	//These properties are saved in the session when the user authenticates
+	////////////////////////////////////////////////////////////
+
+	&GAMLoginAdditionalParameters.TipoAutenticacaoName = &PerfilAcesso
+	&GAMLoginAdditionalParameters.OTPStep				= 1
+	&loginEfetuado = GAMRepository.Login(&NomeUsuario, &SenhaUsuario, &GAMLoginAdditionalParameters, &GAMErrorCollection )
+	If &loginEfetuado
+		GAMRepository.ClearLastErrors()
+		&UrlDestino = GAMRepository.GetLastErrorsUrlDestino()
+		If &UrlDestino.IsEmpty()
+			WPInicialExemplo()
+		Else
+			Link(&UrlDestino)
+		Endif
+	Else
+		If &GAMErrorCollection.Count > 0
+			Do Case
+			Case (&GAMErrorCollection.Item(1).Code = GAMErrorMessages.SenhaUsuarioExpired  OR  &GAMErrorCollection.Item(1).Code = GAMErrorMessages.SenhaUsuarioMustBeChanged)
+				//Webpanel to Change Password
+				WPAlteraSenhaExemplo(&EstadoAutenticacao)
+			Case &GAMErrorCollection.Item(1).Code = GAMErrorMessages.UserMissingRequiredData
+				//Webpanel to Complete User data
+				WPCompletaCadastroExemplo(&EstadoAutenticacao)
+			Case &GAMErrorCollection.Item(1).Code = GAMErrorMessages.UserAccessCodeSent  OR  &GAMErrorCollection.Item(1).Code = GAMErrorMessages.UserMustValidateSecondFactorToFinishAuthentication
+				&GAMErrorDelete = GAMRepository.GetLastErrors()
+				//Webpanel to validate access code
+				WPValidaCodigoExemplo(&EstadoAutenticacao)
+			Otherwise
+				&SenhaUsuario.SetEmpty()
+				Do "DisplayMessages"
+			EndCase
+		Endif
+	Endif
+EndEvent
+
+
+Event 'ForgotPassword'
+	WPRecuperaSenhaExemplo(&EstadoAutenticacao)
+EndEvent
+
+
+Event 'Register'
+	WPCadastroExemplo()
+EndEvent
+
+
+Event 'SelectTipoAutenticacao'
+	//Set Remember User type
+	Do Case
+	Case &ManterConectado
+		&GAMLoginAdditionalParameters.RememberUserType = GAMRememberUserTypes.Authentication
+	Case &LembrarAcesso
+		&GAMLoginAdditionalParameters.RememberUserType = GAMRememberUserTypes.Login
+	Otherwise
+		&GAMLoginAdditionalParameters.RememberUserType = GAMRememberUserTypes.None
+	EndCase
+
+	////////////////////////////////////////////////////////////
+	//Send properties to GAM Identity Provider (optional) //////
+	//&GAMProperty = new()
+	//&GAMProperty.Id		= "Idioma"
+	//&GAMProperty.Value	= "es-ES"
+	//&GAMLoginAdditionalParameters.Properties.Add(&GAMProperty)
+	//These properties are saved in the session when the user authenticates on the IDP
+	////////////////////////////////////////////////////////////
+		
+	&GAMLoginAdditionalParameters.TipoAutenticacaoName = &NomeTipoAcesso
+	&loginEfetuado = GAMRepository.Login(&NomeUsuario, &SenhaUsuario, &GAMLoginAdditionalParameters, &GAMErrorCollection )
+	If &loginEfetuado
+		GAMRepository.ClearLastErrors()
+	Endif
+EndEvent
+
+
+Sub "isMultitenantInstallation"
+	//Read Curent Repository
+	&GAMRepository = SANITIZED\\USERSecurity.GAMRepository.Get()
+	//Check if the current repository uses an authentication master repository
+	If not &GAMRepository.AuthenticationMasterRepositoryId.IsEmpty()
+		&conexaoOk = SANITIZED\\USERSecurity.GAM.SetConnectionByRepositoryId(&GAMRepository.AuthenticationMasterRepositoryId, &GAMErrorCollection)
+	Endif
+	If not &conexaoOk
+		If SANITIZED\\USERSecurity.GAM.GetDefaultRepository(&RepositorioGuid)
+			&conexaoOk = SANITIZED\\USERSecurity.GAM.SetConnectionByRepositorioGuid(&RepositorioGuid, &GAMErrorCollection)
+		Else
+			&ColecaoInfoConexao = SANITIZED\\USERSecurity.GAM.GetConnections()
+			If &ColecaoInfoConexao.Count > 0
+				//The first connection found is established by default
+				&conexaoOk = SANITIZED\\USERSecurity.GAM.SetConnection(&ColecaoInfoConexao.Item(1).Name, &GAMErrorCollection)
+			EndIf
+		Endif
+	Endif
+
+	If &conexaoOk
+		&GAMRepository = SANITIZED\\USERSecurity.GAMRepository.Get()
+		//Check if the current repository uses an authentication master repository
+		If not &GAMRepository.AuthenticationMasterRepositoryId.IsEmpty()
+			&conexaoOk = SANITIZED\\USERSecurity.GAM.SetConnectionByRepositoryId(&GAMRepository.AuthenticationMasterRepositoryId, &GAMErrorCollection)
+			&GAMRepository 	= SANITIZED\\USERSecurity.GAMRepository.Get()
+		Endif
+		TBRepositorioAtual.Caption = Format(!"%1: %2", "Repositorio", &GAMRepository.Name)
+		TBRepositorioAtual.Visible = True
+		TblCriarAcesso.Visible	= True
+	Endif
+EndSub
+
+
+Sub "DisplayCheckBox"
+	Do Case
+	Case &GAMRepository.UserLembrarAcessoType = GAMRepositoryRememberUserTypes.Login
+		&ManterConectado.Visible	= False
+		&LembrarAcesso.Visible 	= True
+	Case &GAMRepository.UserLembrarAcessoType = GAMRepositoryRememberUserTypes.Authentication
+		&ManterConectado.Visible	= True
+		&LembrarAcesso.Visible		= False
+	Case &GAMRepository.UserLembrarAcessoType = GAMRepositoryRememberUserTypes.Both
+		&ManterConectado.Visible	= True
+		&LembrarAcesso.Visible		= True
+	Otherwise
+		&LembrarAcesso.Visible		= False
+		&ManterConectado.Visible	= False
+	EndCase
+EndSub
+
+
+Sub "ValidPerfilAcessoOTP"
+	If &TipoAutenticacao.NeedNomeUsuario  AND  not &TipoAutenticacao.NeedSenhaUsuario
+		&modoValidacao 					= True
+		&SenhaUsuario.Visible 		= False
+		If &TipoAutenticacao.IsTOTP
+			Login.Caption			= "Avancar"
+		Else
+			Login.Caption			= "Enviar codigo"
+		Endif
+		TBEsqueceuSenha.Visible			= False
+		TblCriarAcesso.Visible	= False
+	EndIf
+EndSub
+
+
+Sub "DisplayMessages"
+	For &GAMError in &GAMErrorCollection
+		Msg(&GAMError.Message)
+	EndFor
+EndSub
+]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+    <Source><![CDATA[]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+    <Variable Name="TipoAutenticacao">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>TipoAutenticacao</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMTiposAutenticacaoimple, SANITIZED\\USERSecurity</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="TiposAutenticacao">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>TiposAutenticacao</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMTiposAutenticacaoimple, SANITIZED\\USERSecurity</Value>
+        </Property>
+        <Property>
+          <Name>AttCollection</Name>
+          <Value>True</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="AuxNomeUsuario">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>AuxNomeUsuario</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMUserIdentification, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="ColecaoInfoConexao">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>ColecaoInfoConexao</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMConnectionInfo, SANITIZED\\USERSecurity</Value>
+        </Property>
+        <Property>
+          <Name>AttCollection</Name>
+          <Value>True</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="GAMError">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>GAMError</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMError, SANITIZED\\USERSecurity</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="GAMErrorCollection">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>GAMErrorCollection</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMError, SANITIZED\\USERSecurity</Value>
+        </Property>
+        <Property>
+          <Name>AttCollection</Name>
+          <Value>True</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="GAMErrorDelete">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>GAMErrorDelete</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMError, SANITIZED\\USERSecurity</Value>
+        </Property>
+        <Property>
+          <Name>AttCollection</Name>
+          <Value>True</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="GAMLoginAdditionalParameters">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>GAMLoginAdditionalParameters</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMLoginAdditionalParameters, SANITIZED\\USERSecurity</Value>
+        </Property>
+        <Property>
+          <Name>AttCollection</Name>
+          <Value>False</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="GAMRepository">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>GAMRepository</Value>
+        </Property>
+        <Property>
+          <Name>idIsAutoDefinedVariable</Name>
+          <Value>False</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMRepository, SANITIZED\\USERSecurity</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="GAMSession">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>GAMSession</Value>
+        </Property>
+        <Property>
+          <Name>idIsAutoDefinedVariable</Name>
+          <Value>False</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>exo:GAMSession, SANITIZED\\USERSecurity</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="temErros">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>temErros</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="EstadoAutenticacao">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>EstadoAutenticacao</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMState, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="conexaoOk">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>conexaoOk</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMBoolean, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="modoValidacao">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>modoValidacao</Value>
+        </Property>
+        <Property>
+          <Name>idIsAutoDefinedVariable</Name>
+          <Value>False</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="operacaoOk">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>operacaoOk</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="sessaoValida">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>sessaoValida</Value>
+        </Property>
+        <Property>
+          <Name>idIsAutoDefinedVariable</Name>
+          <Value>False</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="ManterConectado">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>ManterConectado</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="Idioma">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>Idioma</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMIdiomaCulture, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="loginEfetuado">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>loginEfetuado</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="PerfilAcesso">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>PerfilAcesso</Value>
+        </Property>
+        <Property>
+          <Name>Description</Name>
+          <Value>Log on to</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMDescriptionShort, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="NomeTipoAcesso">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>NomeTipoAcesso</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMTipoAutenticacaoName, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="LembrarAcesso">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>LembrarAcesso</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Boolean</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="RepositorioGuid">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>RepositorioGuid</Value>
+        </Property>
+        <Property>
+          <Name>idIsAutoDefinedVariable</Name>
+          <Value>False</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMGUID, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="UrlDestino">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>UrlDestino</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMUrlDestino, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="NomeUsuario">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>NomeUsuario</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMUserIdentification, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="SenhaUsuario">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>SenhaUsuario</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMPassword, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+        <Property>
+          <Name>IsPassword</Name>
+          <Value>True</Value>
+        </Property>
+        <Property>
+          <Name>AutoResize</Name>
+          <Value>False</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="UserLembrarAcesso">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>UserLembrarAcesso</Value>
+        </Property>
+        <Property>
+          <Name>idBasedOn</Name>
+          <Value>Domain:GAMRememberUserTypes, SANITIZED\\USERSecurityCommon</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+    <Help>
+      <HelpItem>
+        <Idioma>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Idioma>
+        <Content />
+      </HelpItem>
+    </Help>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+    <InnerHtml><![CDATA[]]></InnerHtml>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Properties>
+    <Property>
+      <Name>Name</Name>
+      <Value>WPExemploLista</Value>
+    </Property>
+    <Property>
+      <Name>Description</Name>
+      <Value>Acesso ao Sistema</Value>
+    </Property>
+    <Property>
+      <Name>MasterPage</Name>
+      <Value>(none)</Value>
+    </Property>
+    <Property>
+      <Name>AUTO_REFRESH</Name>
+      <Value>NO</Value>
+    </Property>
+    <Property>
+      <Name>IntegratedSecurityLevel</Name>
+      <Value>SecurityNone</Value>
+    </Property>
+    <Property>
+      <Name>IntegratedSecurityPermissionPrefix</Name>
+      <Value>WPExemploLista</Value>
+    </Property>
+    <Property>
+      <Name>SPC_WARNINGS_DISABLED</Name>
+      <Value>spc0096 spc0107 spc0142 src0294</Value>
+    </Property>
+    <Property>
+      <Name>STD_FUNC_OBJECT</Name>
+      <Value>No</Value>
+    </Property>
+    <Property>
+      <Name>WebUX</Name>
+      <Value>SMOOTH</Value>
+    </Property>
+    <Property>
+      <Name>IsDefault</Name>
+      <Value>False</Value>
+    </Property>
+  </Properties>
+  <Categories>Exemplos-web,Frontend-web</Categories>
+</Object>
+```
+### Sanitization applied
+- the object's name, visible names, and several semantic identifiers were anonymized
+- calls to helper objects were replaced with generic names that preserve the syntactic pattern
+- `parent*`, `moduleGuid`, `Part type`, the grid, events, and the XML hierarchy were preserved
+### Template 4 - Events
+- Associated family: Textual panel with no dominant action
+- Structural origin: WP0189.xml
+- Annex purpose: illustrate a lean panel with a Start event, variables, and a central component.
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="fdf9baf8-1249-463c-b803-76e914f87c2d" user="SANITIZED\\USER" versionDate="0001-01-01T00:00:00.0000000" lastUpdate="2026-02-19T14:42:31.0000000Z" checksum="506b2b1a2139bb6343200fccce10bd23" fullyQualifiedName="WPExemploEventos" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="1cbbba77-a1f2-4bf5-af50-b58237e01eb9" name="WPExemploEventos" type="c9584656-94b6-4ccd-890f-332d11fc2c25" description="Painel de Eventos" parent="GAM_General" parentType="00000000-0000-0000-0000-000000000008">
+  <Part type="d24a58ad-57ba-41b7-9e6e-eaca3543c778">
+    <Source><![CDATA[<GxMultiForm rootId="2" version="html:15.0.0;layout:17.11.0"><Form id="2" type="layout"><detail><layout><table controlName="MainTable" tableType="Responsive" responsiveSizes="[]"><row><cell><textblock controlName="TblTitle" caption="Resumo de Indicadores" class="Title" /></cell></row><row><cell><ucw gxControlType="1458464781" PATTERN_ELEMENT_CUSTOM_PROPERTIES="&lt;Properties&gt;&lt;Property&gt;&lt;Name&gt;ControlName&lt;/Name&gt;&lt;Value&gt;PainelViewer&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;CliqueItemData&lt;/Name&gt;&lt;Value&gt;&amp;amp;CliqueItemData&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;FiltroAlteradoData&lt;/Name&gt;&lt;Value&gt;&amp;amp;FiltroAlteradoData&lt;/Value&gt;&lt;/Property&gt;&lt;Property&gt;&lt;Name&gt;ValoresDestacadosData&lt;/Name&gt;&lt;Value&gt;&amp;amp;ValoresDestacadosData&lt;/Value&gt;&lt;/Property&gt;&lt;/Properties&gt;" /></cell></row></table></layout></detail></Form></GxMultiForm>]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+    <Source><![CDATA[]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="c44bd5ff-f918-415b-98e6-aca44fed84fa">
+    <Source><![CDATA[Event Start
+	&From = &Today - 10
+	&To = now()
+	PainelViewer.Object = PainelIndicadoresExemplo(&From, &To)
+Endevent
+
+]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+    <Source><![CDATA[]]></Source>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+    <Variable Name="FiltroAlteradoData">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>FiltroAlteradoData</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>sdt:PainelViewerFiltroAlteradoData, GeneXusReporting</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="From">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>From</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Date</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="CliqueItemData">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>CliqueItemData</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>sdt:PainelViewerCliqueItemData, GeneXusReporting</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="To">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>To</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>bas:Date</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Variable Name="ValoresDestacadosData">
+      <Documentation />
+      <Properties>
+        <Property>
+          <Name>Name</Name>
+          <Value>ValoresDestacadosData</Value>
+        </Property>
+        <Property>
+          <Name>ATTCUSTOMTYPE</Name>
+          <Value>sdt:PainelViewerValoresDestacadosData, GeneXusReporting</Value>
+        </Property>
+      </Properties>
+    </Variable>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+    <Help>
+      <HelpItem>
+        <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+        <Content />
+      </HelpItem>
+    </Help>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+    <InnerHtml><![CDATA[]]></InnerHtml>
+    <Properties>
+      <Property>
+        <Name>IsDefault</Name>
+        <Value>False</Value>
+      </Property>
+    </Properties>
+  </Part>
+  <Properties>
+    <Property>
+      <Name>Name</Name>
+      <Value>WPExemploEventos</Value>
+    </Property>
+    <Property>
+      <Name>Description</Name>
+      <Value>Painel de Eventos</Value>
+    </Property>
+    <Property>
+      <Name>MasterPage</Name>
+      <Value>MasterPageExemplo</Value>
+    </Property>
+    <Property>
+      <Name>IsMain</Name>
+      <Value>False</Value>
+    </Property>
+    <Property>
+      <Name>IntegratedSecurityPermissionPrefix</Name>
+      <Value>WPExemploEventos</Value>
+    </Property>
+    <Property>
+      <Name>IsDefault</Name>
+      <Value>False</Value>
+    </Property>
+  </Properties>
+  <Categories>Exemplos-web</Categories>
+</Object>
+```
+### Sanitization applied
+- the object's name, captions, and semantically explicit names were swapped for generic equivalents
+- the reference to the internal panel was anonymized without changing the event block's structure
+- `parent*`, `moduleGuid`, `Part type`, and the block sequence were preserved

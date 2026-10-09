@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="Product" moduleGuid="00000000-0000-0000-0000-000000000000" guid="17116cda-f0e4-4289-84b9-258559cfbc6f" name="Product" type="1db606f2-af09-4cf9-a3b5-b481519d28f6" description="Sample single-level Product transaction" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Level name="Product" Type="Product">
+    <Attribute key="True">ProductId</Attribute>
+    <Attribute key="False">ProductName</Attribute>
+  </Level>
+</Object>

@@ -1,0 +1,511 @@
+{
+  "version": 1,
+  "types": {
+    "API": {
+      "objectTypeGuid": "36e32e2d-023e-4188-95df-d13573bac2e0",
+      "rootKind": "Object",
+      "folderName": "API",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "GeneXus service interface."
+    },
+    "Attribute": {
+      "objectTypeGuid": null,
+      "rootKind": "Attribute",
+      "folderName": "Attribute",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Its own envelope with root <Attribute>. The index materializes idBasedOn for Domain (attribute_idbasedon_domain rule; also object_idbasedon_domain on Procedure/SDT/WebPanel/etc.) and resolvable calls in Property Formula for Procedure, WebPanel and DataProvider (same effective-Source patterns); it does not cover the expression's full semantics nor domain functions not mapped as a local object. who-uses(Domain) counts based_on_domain from any origin in scope, not only Attribute."
+    },
+    "BusinessProcessDiagram": {
+      "objectTypeGuid": "b5f00807-9da8-4cf9-b408-7554f2b6a8ee",
+      "rootKind": "Object",
+      "folderName": "BusinessProcessDiagram",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GXflow Business Process Diagram. Identified from the XPZ Dependencies block (type name 'Business Process Diagram', package GxpmBL) of a public GXflow sample; GeneXus wiki page 7273. The diagram Part carries declarative task bindings to other objects (PWFTask* properties) and condition expressions. queryableByKbIntelligence=false: the index does not extract those bindings, and the type is counted in the coverage of reverse-relation answers; use object-info and an XML read."
+    },
+    "CategoryDiagram": {
+      "objectTypeGuid": "280c149c-48b2-4284-a532-0c999df9e006",
+      "rootKind": "Object",
+      "folderName": "CategoryDiagram",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Category or organizational diagram exported by the KB."
+    },
+    "ColorPalette": {
+      "objectTypeGuid": "3affc0b3-494b-4d84-9ec1-3a6ab8349cda",
+      "rootKind": "Object",
+      "folderName": "ColorPalette",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Color palette (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "Dashboard": {
+      "objectTypeGuid": "526aba9f-a725-4bc7-b1db-0b9f92ac9550",
+      "rootKind": "Object",
+      "folderName": "Dashboard",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Composite visual panel (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "DataProvider": {
+      "objectTypeGuid": "2a9e9aba-d2de-4801-ae7f-5e3819222daf",
+      "rootKind": "Object",
+      "folderName": "DataProvider",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Parameterized data source."
+    },
+    "DataSelector": {
+      "objectTypeGuid": "ffd44be7-3bb4-4d01-9e7e-d1c1a3c095af",
+      "rootKind": "Object",
+      "folderName": "DataSelector",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Data selector."
+    },
+    "DataView": {
+      "objectTypeGuid": "19abc6ff-2cd2-0000-0006-6d172bc2333b",
+      "rootKind": "Object",
+      "folderName": "DataView",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "GeneXus Data View (external table; Part with DataViewAttribute and DataViewStructurePlatform)."
+    },
+    "DataStore": {
+      "objectTypeGuid": "dcdcdcdc-dfe0-4a57-ae8f-c6e31b0dcbc0",
+      "rootKind": "Object",
+      "folderName": "DataStore",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GeneXus Datastore (Properties only in the export; no relation extractor in the current index). queryableByKbIntelligence=false: do not use who-uses/what-uses/impact-basic/functional-trace-basic; use object-info, search-objects or list-by-type."
+    },
+    "DeploymentUnit": {
+      "objectTypeGuid": "bf08dfb1-361c-4e7e-ad54-391e56e60b49",
+      "rootKind": "Object",
+      "folderName": "DeploymentUnit",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Deployment unit (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "DesignSystem": {
+      "objectTypeGuid": "78b3fa0e-174c-4b2b-8716-718167a428b5",
+      "rootKind": "Object",
+      "folderName": "DesignSystem",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Design system (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "Document": {
+      "objectTypeGuid": "faeb588c-dcce-4dad-9af3-cdd11b961a32",
+      "rootKind": "Object",
+      "folderName": "Document",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GeneXus document (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "Domain": {
+      "objectTypeGuid": "00972a17-9975-449e-aab1-d26165d51393",
+      "rootKind": "Object",
+      "folderName": "Domain",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Domain."
+    },
+    "ExternalObject": {
+      "objectTypeGuid": "c163e562-42c6-4158-ad83-5b21a14cf30e",
+      "rootKind": "Object",
+      "folderName": "ExternalObject",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "External Object. The index materializes a declarative reference via ATTCUSTOMTYPE exo:<Name> and effective use via a method call on a variable typed as exo:<Name> in the effective Source."
+    },
+    "File": {
+      "objectTypeGuid": "1132ac08-290f-4fd1-bd18-64777b7329d1",
+      "rootKind": "Object",
+      "folderName": "File",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GeneXus file (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "Folder": {
+      "objectTypeGuid": "00000000-0000-0000-0000-000000000008",
+      "rootKind": "Object",
+      "folderName": "Folder",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": true,
+      "notes": "Container created by the user (Properties only; ...0008). queryableByKbIntelligence=false: the index's semantic queries do not model folder dependency; use object-info or parent navigation in the XML."
+    },
+    "Generator": {
+      "objectTypeGuid": "ecececec-dfe0-4a57-ae8f-c6e31b0dcbc0",
+      "rootKind": "Object",
+      "folderName": "Generator",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GeneXus generator (Properties only in the export). queryableByKbIntelligence=false: current engine does not extract relations; do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "Image": {
+      "objectTypeGuid": "9fb193d9-64a4-4d30-b129-ff7c76830f7e",
+      "rootKind": "Object",
+      "folderName": "Image",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Image (Part; GUIDs in WW do not become edges in the index). queryableByKbIntelligence=false."
+    },
+    "K2BEntityServices": {
+      "objectTypeGuid": "589d4b49-e3f9-4d49-aaf4-fad023028eb1",
+      "rootKind": "Object",
+      "folderName": "K2BEntityServices",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Instance of the K2BTools addon's Entity Services pattern (EntityTypeNamespace K2BTools). queryableByKbIntelligence=false: current extractor does not guarantee semantic edges; do not use who-uses/what-uses/impact-basic/functional-trace-basic. Use object-info, search-objects or list-by-type."
+    },
+    "K2BGeneralSettings": {
+      "objectTypeGuid": "75a2b955-749a-3f29-99e0-aec666f802a2",
+      "rootKind": "Object",
+      "folderName": "K2BGeneralSettings",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Global configuration of the K2BTools addon. queryableByKbIntelligence=false: current engine does not extract relations; do not use who-uses/what-uses/impact-basic/functional-trace-basic. Use object-info, search-objects or list-by-type."
+    },
+    "K2BMenu": {
+      "objectTypeGuid": "ce7b18b7-b5b0-4b27-8c21-b77743938ddf",
+      "rootKind": "Object",
+      "folderName": "K2BMenu",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Application menu of the K2BTools addon. queryableByKbIntelligence=false: current extractor does not guarantee semantic edges; do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "K2BPrompt": {
+      "objectTypeGuid": "589d4b49-e3f9-4d49-aaf4-fad023028eb6",
+      "rootKind": "Object",
+      "folderName": "K2BPrompt",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Prompt/selection of the K2BTools addon. queryableByKbIntelligence=false: current extractor does not guarantee semantic edges; do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "K2BTrnForm": {
+      "objectTypeGuid": "bcc946b1-3fe3-4980-8948-42574dc14209",
+      "rootKind": "Object",
+      "folderName": "K2BTrnForm",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Transaction Web Form generated by the K2BTools pattern (K2BTrnForm). queryableByKbIntelligence=false: current extractor does not guarantee semantic edges; do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "Language": {
+      "objectTypeGuid": "88313f43-5eb2-0000-0028-e8d9f5bf9588",
+      "rootKind": "Object",
+      "folderName": "Language",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Language (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "Menubar": {
+      "objectTypeGuid": "28eca899-04c7-4114-9556-5879b0a6414c",
+      "rootKind": "Object",
+      "folderName": "Menubar",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Menu Bar / Menubar (Win generators: VB/Java Win/VFP). Deprecated since GeneXus 15 (Menu Bar wiki). Leftover in converted KBs (e.g. BbInfo description MICRO Info). queryableByKbIntelligence=false: current extractor does not guarantee semantic edges; do not use who-uses/what-uses/impact-basic/functional-trace-basic. Distinct from the Native Mobile Menu object and from K2BMenu (K2BTools addon)."
+    },
+    "Module": {
+      "objectTypeGuid": "00000000-0000-0000-0000-000000000006",
+      "rootKind": "Object",
+      "folderName": "Module",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": true,
+      "notes": "System container (Part; extractor does not model module dependency). queryableByKbIntelligence=false."
+    },
+    "OfflineDatabase": {
+      "objectTypeGuid": "70b6075c-331c-0000-0038-ac3b65316dd0",
+      "rootKind": "Object",
+      "folderName": "OfflineDatabase",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Offline Database object of an offline Smart Devices application. Identified from the XPZ Dependencies block (type name 'Offline Database', package GenexusBL) of a public offline sample; GeneXus wiki page 22509. It has events (e.g. Start) that can call other objects. queryableByKbIntelligence=false: the index does not extract those calls, and the type is counted in the coverage of reverse-relation answers; use object-info and an XML read."
+    },
+    "PackagedModule": {
+      "objectTypeGuid": "c88fffcd-b6f8-0000-8fec-00b5497e2117",
+      "rootKind": "Object",
+      "folderName": "PackagedModule",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": true,
+      "notes": "Packaged module (Part; extractor does not model dependency). queryableByKbIntelligence=false."
+    },
+    "RootModule": {
+      "objectTypeGuid": "afa47377-41d5-4ae8-9755-6f53150aa361",
+      "rootKind": "Virtual",
+      "folderName": null,
+      "inventoryEligible": false,
+      "queryableByKbIntelligence": false,
+      "containerType": true,
+      "notes": "Virtual root of the KB; has no XML materialized in KbObjectsXml. Objects parented to this root show 'Module/Folder: Root Module' in the IDE."
+    },
+    "Panel": {
+      "objectTypeGuid": "d82625fd-5892-40b0-99c9-5c8559c197fc",
+      "rootKind": "Object",
+      "folderName": "Panel",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GeneXus Panel (Part; current extractor does not generate based_on_domain edges nor other indexed relations — outside IDBASEDON_DOMAIN_SOURCE_TYPES). queryableByKbIntelligence=false."
+    },
+    "PatternSettings": {
+      "objectTypeGuid": "83476c1e-fa72-4229-9930-f51b954fca2d",
+      "rootKind": "Object",
+      "folderName": "PatternSettings",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Global Pattern configuration (Part with Data/CDATA; current extractor does not parse it). queryableByKbIntelligence=false: do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "Procedure": {
+      "objectTypeGuid": "84a12160-f59b-4ad7-a683-ea4481ac23e9",
+      "rootKind": "Object",
+      "folderName": "Procedure",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Procedure."
+    },
+    "Query": {
+      "objectTypeGuid": "926a06b9-3417-4ab4-9f8c-09c2f626bb1c",
+      "rootKind": "Object",
+      "folderName": "Query",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "GeneXus Query object (QueryElement, filters, parameters, chart/card settings)."
+    },
+    "SDPanelDesigner": {
+      "objectTypeGuid": "a84e76c6-ccf5-4b03-a9d2-7c31c3d717e6",
+      "rootKind": "Object",
+      "folderName": "SDPanelDesigner",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Settings object of the K2BTools addon's SD designer (EntityType SDPanelDesigner; typically SDPanelDesignerSettings). queryableByKbIntelligence=false: current engine does not extract relations; do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "SDT": {
+      "objectTypeGuid": "447527b5-9210-4523-898b-5dccb17be60a",
+      "rootKind": "Object",
+      "folderName": "SDT",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Structured Data Type."
+    },
+    "SmartDevicesApplication": {
+      "objectTypeGuid": "9bdcc055-174e-4af6-96cb-a2ceef6c5f09",
+      "rootKind": "Object",
+      "folderName": "SmartDevicesApplication",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Smart Devices application (SmartDevicesPlus / WWPM addon); Part Dashboard and Source; distinct from the catalog's Dashboard type. queryableByKbIntelligence=false: the current extractor does not read its Source, so it produces no call relations (empty graphs are misleading); use object-info and an XML read."
+    },
+    "SmartDevicesPlus": {
+      "objectTypeGuid": "c84ec0ea-d159-46e2-a118-2108860379bb",
+      "rootKind": "Object",
+      "folderName": "SmartDevicesPlus",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Global configuration of the Smart Devices Plus addon (Properties under Object; SDPlus_Settings_*); typical parent RootModule. queryableByKbIntelligence=false: current engine does not extract relations; do not use who-uses/what-uses/impact-basic/functional-trace-basic (empty graphs are misleading). Use object-info, search-objects or list-by-type."
+    },
+    "Stencil": {
+      "objectTypeGuid": "624a8b31-36f0-4292-adba-2d270d1e3537",
+      "rootKind": "Object",
+      "folderName": "Stencil",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Stencil (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "SubTypeGroup": {
+      "objectTypeGuid": "87313f43-5eb2-41d7-9b8c-e8d9f5bf9588",
+      "rootKind": "Object",
+      "folderName": "SubTypeGroup",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "SubTypeGroup (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "Table": {
+      "objectTypeGuid": "857ca50e-7905-0000-0007-c5d9ff2975ec",
+      "rootKind": "Object",
+      "folderName": "Table",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Physical table."
+    },
+    "Theme": {
+      "objectTypeGuid": "c804fdbd-7c0b-440d-8527-4316c92649a6",
+      "rootKind": "Object",
+      "folderName": "Theme",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Theme (Part; extractor does not model the Theme/ThemeClass graph). queryableByKbIntelligence=false."
+    },
+    "ThemeClass": {
+      "objectTypeGuid": "d4876646-98dd-419b-8c1c-896f83c48368",
+      "rootKind": "Object",
+      "folderName": "ThemeClass",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Theme class (Properties only in the export). queryableByKbIntelligence=false: the index's graph does not model references to ThemeClass; use object-info or XML/theme."
+    },
+    "ThemeColor": {
+      "objectTypeGuid": "5592de59-d30a-499d-9100-a7006d3674f2",
+      "rootKind": "Object",
+      "folderName": "ThemeColor",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Theme color (Properties only in the export). queryableByKbIntelligence=false: current engine does not extract relations."
+    },
+    "ThemeTransformation": {
+      "objectTypeGuid": "2258230e-d565-4b79-8103-caff9f453a1f",
+      "rootKind": "Object",
+      "folderName": "ThemeTransformation",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Theme Transformation (Properties only in the export, e.g. ThemeElementThemeTypes). Identified from the XPZ Dependencies block (type name 'Theme Transformation', package GenexusBL) of public samples; GeneXus wiki page 23694. queryableByKbIntelligence=false: current engine does not extract relations."
+    },
+    "Transaction": {
+      "objectTypeGuid": "1db606f2-af09-4cf9-a3b5-b481519d28f6",
+      "rootKind": "Object",
+      "folderName": "Transaction",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Transaction."
+    },
+    "UserControl": {
+      "objectTypeGuid": "562f4793-aabe-449f-8821-fc77e550698e",
+      "rootKind": "Object",
+      "folderName": "UserControl",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "User control (Part; current extractor does not generate edges). queryableByKbIntelligence=false."
+    },
+    "WebPanel": {
+      "objectTypeGuid": "c9584656-94b6-4ccd-890f-332d11fc2c25",
+      "rootKind": "Object",
+      "folderName": "WebPanel",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "WebPanel."
+    },
+    "WebPanelDesigner": {
+      "objectTypeGuid": "562b39a3-dde2-4349-9252-e9e69090c53e",
+      "rootKind": "Object",
+      "folderName": "WebPanelDesigner",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Settings object of the K2BTools addon's Web designer (EntityType WebPanelDesigner; typically WebPanelDesignerSettings). Distinct from the internal FormDesignerPart in the KB's SQL. queryableByKbIntelligence=false: current engine does not extract relations; do not use who-uses/what-uses/impact-basic/functional-trace-basic."
+    },
+    "WorkPanel": {
+      "objectTypeGuid": "198e8ea4-1d49-4c9c-8a9a-417024baa9d1",
+      "rootKind": "Object",
+      "folderName": "WorkPanel",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "Legacy GeneXus Work Panel (deprecated since GeneXus 15); Form Type=Windows. queryableByKbIntelligence=false: its calls live in events the extractor does not read (like Panel); do not use who-uses/what-uses/impact-basic/functional-trace-basic on it."
+    },
+    "WorkWith": {
+      "objectTypeGuid": "15cf49b5-fc38-4899-91b5-395d02d79889",
+      "rootKind": "Object",
+      "folderName": "WorkWith",
+      "exportTaskLabel": "WorkWithDevices",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "WW for SD/mobile. Current name: Work With. Historical name: Work With for Smart Devices. Historical Pattern names do not define the type; always classify by GUID. queryableByKbIntelligence=false: the WorkWithForWeb action/link extractors match only the web Work With XML shape, so mobile Work With calls produce no relations (empty graphs are misleading); use object-info and an XML read."
+    },
+    "WorkWithForWeb": {
+      "objectTypeGuid": "78cecefe-be7d-4980-86ce-8d6e91fba04b",
+      "rootKind": "Object",
+      "folderName": "WorkWithForWeb",
+      "exportTaskLabel": "WorkWith",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "WW for Web per transaction. Historical Pattern names can be ambiguous, including appearing as WorkWith; always classify by GUID. Task Export accepts WorkWith in -ObjectList; see 10a-gx-export-task-labels.md."
+    },
+    "WorkWithPlusInstance": {
+      "objectTypeGuid": "07135890-56fc-489b-b408-063722fa9f7d",
+      "rootKind": "Object",
+      "folderName": "WorkWithPlusInstance",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "Instance of the WorkWithPlus Pattern (third-party) applied to a GeneXus object, typically WebPanel."
+    },
+    "WorkWithPlusTemplate": {
+      "objectTypeGuid": "083f1b21-5715-45e1-8a8d-ceadef141e02",
+      "rootKind": "Object",
+      "folderName": "WorkWithPlusTemplate",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": true,
+      "containerType": false,
+      "notes": "WorkWithPlus template (properties WWPTemplate_Type, WWPTemplate_TemplateXml)."
+    },
+    "WorkflowDocument": {
+      "objectTypeGuid": "12b41a58-3890-4adf-9134-820aaa4c6404",
+      "rootKind": "Object",
+      "folderName": "WorkflowDocument",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GXflow workflow document (Properties only in the export, e.g. PWFDocType). Identified from the XPZ Dependencies block (type name 'WorkflowDocument', package GxpmBL) of a public GXflow sample; GeneXus training material 'Working with documents'. Not the knowledge-base Document type (faeb588c-...). queryableByKbIntelligence=false: current engine does not extract relations."
+    },
+    "WorkflowRole": {
+      "objectTypeGuid": "3e62f22c-a0db-476e-915b-9f06dde83f4d",
+      "rootKind": "Object",
+      "folderName": "WorkflowRole",
+      "inventoryEligible": true,
+      "queryableByKbIntelligence": false,
+      "containerType": false,
+      "notes": "GXflow role (Properties only in the export). Identified from the XPZ Dependencies block (type name 'Role', package GxpmBL) of a public GXflow sample; GeneXus wiki page 10194. Named WorkflowRole so it is not confused with GAM roles. queryableByKbIntelligence=false: current engine does not extract relations."
+    }
+  }
+}

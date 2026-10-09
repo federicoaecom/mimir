@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="Invoice" moduleGuid="00000000-0000-0000-0000-000000000000" guid="4bee7587-429b-4240-a847-b73bb9dcb134" name="Invoice" type="1db606f2-af09-4cf9-a3b5-b481519d28f6" description="Sample two-level Invoice transaction with a Customer foreign key and an InvoiceLine subordinate level" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Level name="Invoice" Type="Invoice">
+    <Attribute key="True">InvoiceId</Attribute>
+    <Attribute key="False">CustomerId</Attribute>
+    <Attribute key="False">CustomerName</Attribute>
+    <Attribute key="False">InvoiceDate</Attribute>
+    <Attribute key="False">InvoiceTotal</Attribute>
+  </Level>
+  <Level name="InvoiceLine" Type="InvoiceLine">
+    <Attribute key="True">InvoiceId</Attribute>
+    <Attribute key="True">LineNumber</Attribute>
+    <Attribute key="False">ProductId</Attribute>
+    <Attribute key="False">Quantity</Attribute>
+  </Level>
+</Object>

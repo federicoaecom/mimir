@@ -1,0 +1,37 @@
+{
+  "description": "Validation cases for Attribute Formula call extraction (self-test fixture corpus; not a real KB).",
+  "cases": [
+    {
+      "id": "attribute-formula-direct-procedure-call",
+      "source": "Attribute:AttrCalcFormula",
+      "target": "Procedure:procFormulaCallee",
+      "expected_rule": "attribute_formula_procedure_direct_call",
+      "should_exist": true,
+      "expectation": "procFormulaCallee(...) inside Property Formula must create Attribute to Procedure relation"
+    },
+    {
+      "id": "attribute-formula-dot-procedure-call",
+      "source": "Attribute:AttrCalcFormulaDotCall",
+      "target": "Procedure:procFormulaCallee",
+      "expected_rule": "attribute_formula_procedure_dot_call",
+      "should_exist": true,
+      "expectation": "procFormulaCallee.Call(...) inside Property Formula must create Attribute to Procedure relation"
+    },
+    {
+      "id": "attribute-formula-unresolved-procedure",
+      "source": "Attribute:AttrCalcFormula",
+      "target": "Procedure:procNotInInventory",
+      "expected_rule": "attribute_formula_procedure_direct_call",
+      "should_exist": false,
+      "expectation": "Unresolved procedure name in Formula must not create a relation"
+    },
+    {
+      "id": "attribute-without-formula-no-procedure-edge",
+      "source": "Attribute:AttrPlain",
+      "target": "Procedure:procFormulaCallee",
+      "expected_rule": "attribute_formula_procedure_direct_call",
+      "should_exist": false,
+      "expectation": "Attribute without Formula must not create formula-based Procedure relations"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" versionDate="2026-01-01T00:00:00" lastUpdate="2026-01-01T00:00:00" checksum="0" fullyQualifiedName="CalculateInvoiceTotal" moduleGuid="00000000-0000-0000-0000-000000000000" guid="7c6c8fb8-e364-452d-91d5-fccab8136442" name="CalculateInvoiceTotal" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Sample procedure that navigates the Invoice table to compute a total" parent="00000000-0000-0000-0000-000000000000" parentType="Module">
+  <Source><![CDATA[
+&InvoiceTotalCalc = 0
+for each Invoice
+  &InvoiceTotalCalc = &InvoiceTotalCalc + InvoiceTotal
+endfor
+]]></Source>
+</Object>
