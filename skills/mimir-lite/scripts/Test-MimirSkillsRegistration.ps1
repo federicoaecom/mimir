@@ -52,7 +52,9 @@
     or Custom:<dir> as given to -AdditionalSkillsRoot); case-insensitive. A skill
     that would be missing or covered_by_compatibility in such a tool is reported
     skipped_by_choice, which is not a gap; an OK or broken link keeps its status.
-    An unknown name stops with BLOCK.
+    An unknown name stops with BLOCK. Several names may be given as a
+    comma-separated list (-SkipTool Codex,OpenCode), which also works under
+    pwsh -File, where the list arrives as one string.
 
 .PARAMETER SkipSkill
     Skills the user chose not to link in any tool (for example mimir-delegate);
@@ -289,19 +291,28 @@ foreach ($extra in @($AdditionalSkillsRoot | Where-Object { -not [string]::IsNul
     $toolDefs += [ordered]@{ Name = "Custom:$extra"; Native = @($extra); Compat = @(); Declared = $true }
 }
 
+function Split-NameList {
+    # Under pwsh -File, "-SkipTool A,B" arrives as the single string "A,B"; in process
+    # it arrives as an array. Split every value on commas so both forms (and repeated
+    # values) yield the same trimmed, non-empty names.
+    param([string[]]$Values)
+    return @(@($Values) | ForEach-Object { "$_" -split ',' } |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+}
+
 # Tools and skills the user chose not to link: validated against the known names,
-# kept in their canonical spelling.
+# kept in their canonical spelling. Split-NameList is the single normalization point (trim, drop empties).
 $skippedTools = [System.Collections.Generic.List[string]]::new()
-foreach ($name in @($SkipTool | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
-    $match = @($toolDefs | Where-Object { $_.Name -ieq $name.Trim() })
+foreach ($name in (Split-NameList -Values $SkipTool)) {
+    $match = @($toolDefs | Where-Object { $_.Name -ieq $name })
     if ($match.Count -eq 0) {
         throw ("BLOCK: unknown -SkipTool name '{0}'; use one of: {1}" -f $name, (@($toolDefs | ForEach-Object { $_.Name }) -join ', '))
     }
     if (-not $skippedTools.Contains($match[0].Name)) { $skippedTools.Add($match[0].Name) }
 }
 $skippedSkills = [System.Collections.Generic.List[string]]::new()
-foreach ($name in @($SkipSkill | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
-    $match = @($inventory | Where-Object { $_ -ieq $name.Trim() })
+foreach ($name in (Split-NameList -Values $SkipSkill)) {
+    $match = @($inventory | Where-Object { $_ -ieq $name })
     if ($match.Count -eq 0) {
         throw ("BLOCK: unknown -SkipSkill name '{0}'; the skills inventory is: {1}" -f $name, (@($inventory) -join ', '))
     }

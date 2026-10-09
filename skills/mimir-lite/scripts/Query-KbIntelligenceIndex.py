@@ -63,6 +63,39 @@ UNEXTRACTED_CALL_SOURCE_TYPES = (
     "WorkPanel",
     "WorkWith",
 )
+# Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
+# views, layouts, or item types) while the extractor emits no attribute-use relation for any
+# of them. The only relations that target an Attribute are structural: has_level_attribute
+# (Transaction levels), has_key_attribute and has_index_member_attribute (Table keys and
+# indexes). Chosen from the object type catalog: the Source scope (INDEXED_SOURCE_TYPES:
+# Procedure, WebPanel, DataProvider, Transaction rules/events, API, DataSelector), Attribute
+# (formulas), SDT (items based on an attribute), DataView and Query (attribute lists), the web
+# patterns WorkWithForWeb and WorkWithPlusInstance (grid, filter, order and view attributes),
+# and every type of UNEXTRACTED_CALL_SOURCE_TYPES. Table is left out: its attributes come from
+# Transaction levels and its keys and indexes are extracted. Must include
+# UNEXTRACTED_CALL_SOURCE_TYPES (checked by
+# tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
+UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
+    sorted(
+        set(UNEXTRACTED_CALL_SOURCE_TYPES)
+        | {
+            "API",
+            "Attribute",
+            "DataProvider",
+            "DataSelector",
+            "DataView",
+            "Procedure",
+            "Query",
+            "SDT",
+            "Transaction",
+            "WebPanel",
+            "WorkWithForWeb",
+            "WorkWithPlusInstance",
+        }
+    )
+)
+COVERAGE_SCOPE_CALLS = "calls"
+COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
 _CATALOG_TYPES_CACHE: dict[tuple[str | None, str | None, str], dict[str, dict[str, object]]] = {}
 
 
@@ -599,9 +632,23 @@ def search_objects(conn: sqlite3.Connection, object_name: str | None, object_typ
     }
 
 
-def reverse_relation_coverage(conn: sqlite3.Connection) -> dict[str, object]:
-    """Coverage of incoming-relation answers: types in the index whose calls are not extracted."""
-    placeholders = ", ".join("?" for _ in UNEXTRACTED_CALL_SOURCE_TYPES)
+def reverse_relation_coverage(
+    conn: sqlite3.Connection, target_type: str | None = None
+) -> dict[str, object]:
+    """Coverage of incoming-relation answers for the target's type.
+
+    An Attribute target uses the attribute_references scope (types whose attribute uses are
+    not extracted); any other target uses the calls scope (types whose calls are not extracted).
+    The type is compared ignoring case, so a differently cased "attribute" never falls back to
+    the calls scope and its empty answer still discloses the attribute gap.
+    """
+    if target_type is not None and target_type.casefold() == "attribute":
+        scope = COVERAGE_SCOPE_ATTRIBUTE_REFERENCES
+        source_types = UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES
+    else:
+        scope = COVERAGE_SCOPE_CALLS
+        source_types = UNEXTRACTED_CALL_SOURCE_TYPES
+    placeholders = ", ".join("?" for _ in source_types)
     rows = fetch_all(
         conn,
         f"""
@@ -611,10 +658,10 @@ def reverse_relation_coverage(conn: sqlite3.Connection) -> dict[str, object]:
         GROUP BY type
         ORDER BY type
         """,
-        tuple(UNEXTRACTED_CALL_SOURCE_TYPES),
+        tuple(source_types),
     )
     unextracted = [{"type": str(row["type"]), "count": int(row["count"])} for row in rows]
-    return {"complete": not unextracted, "unextracted_source_types": unextracted}
+    return {"complete": not unextracted, "unextracted_source_types": unextracted, "scope": scope}
 
 
 def format_coverage_note(result: dict[str, object]) -> str | None:
@@ -627,6 +674,12 @@ def format_coverage_note(result: dict[str, object]) -> str | None:
         for entry in entries
         if isinstance(entry, dict)
     )
+    if coverage.get("scope") == COVERAGE_SCOPE_ATTRIBUTE_REFERENCES:
+        return (
+            f"coverage: incomplete - attribute uses (grids, filters, code, rules, formulas) from {listed} "
+            "are not extracted; only structural relations (Transaction levels, Table keys and indexes) are indexed, "
+            "so an empty or short list does not prove the attribute is unused"
+        )
     return (
         f"coverage: incomplete - calls made from {listed} are not extracted; "
         "callers of those types can be missing, so an empty or short list does not prove the object is unused"
@@ -1528,7 +1581,7 @@ def main() -> int:
                 args.limit,
             )
         if args.query in REVERSE_RELATION_QUERIES:
-            result["coverage"] = reverse_relation_coverage(conn)
+            result["coverage"] = reverse_relation_coverage(conn, args.object_type)
     finally:
         conn.close()
 

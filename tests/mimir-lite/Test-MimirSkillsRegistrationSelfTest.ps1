@@ -501,6 +501,30 @@ try {
         Assert-Equal ("exit: {0} writes BLOCK on stderr" -f $label) 'True' ([string]($badErr -match ('BLOCK: unknown {0} name' -f $badArgs[0])))
         Assert-Equal ("exit: {0} writes nothing on stdout" -f $label) '' ((@($badOut) | Out-String).Trim())
     }
+
+    # Comma-separated lists under pwsh -File: the value arrives as one string, and the
+    # script splits it, so both names are honored. An unknown name inside a list still
+    # stops with BLOCK.
+    foreach ($listCase in @(
+            @{ Param = '-SkipTool'; Value = 'Codex,Cursor'; Field = 'tools'; Tool = 'Codex'; Skill = 'skill-b' },
+            @{ Param = '-SkipSkill'; Value = 'skill-a, skill-b'; Field = 'skills'; Tool = 'ClaudeCode'; Skill = 'skill-b' })) {
+        $label = '{0} {1}' -f $listCase.Param, $listCase.Value
+        $listOut = & $pwshExe -NoProfile -NonInteractive -File $scriptUnderTest -RepoRoot $skipRepo $listCase.Param $listCase.Value -AsJson 2> $childErrPath
+        $listExit = $LASTEXITCODE
+        Assert-Equal ("list: {0} exits 0 as a child process" -f $label) '0' ([string]$listExit)
+        $listReport = $null
+        try { $listReport = ($listOut | Out-String) | ConvertFrom-Json } catch { }
+        $declared = if ($listReport) { @($listReport.skippedByChoice.($listCase.Field)) -join ',' } else { '' }
+        Assert-Equal ("list: {0} declares both names" -f $label) (($listCase.Value -split ',' | ForEach-Object { $_.Trim() }) -join ',') $declared
+        $listStatus = if ($listReport) { Get-SkillStatus -Report $listReport -Tool $listCase.Tool -Skill $listCase.Skill } else { '' }
+        Assert-Equal ("list: {0} reports {1}/{2} skipped by choice" -f $label, $listCase.Tool, $listCase.Skill) 'skipped_by_choice' $listStatus
+    }
+    $badListOut = & $pwshExe -NoProfile -NonInteractive -File $scriptUnderTest -RepoRoot $skipRepo -SkipTool 'Cursor,NoSuchTool' -AsJson 2> $childErrPath
+    $badListExit = $LASTEXITCODE
+    $badListErr = ([System.IO.File]::ReadAllText($childErrPath)) -replace "`e\[[0-9;?]*[A-Za-z]", ''
+    Assert-Equal 'list: an unknown name inside a list exits 1' '1' ([string]$badListExit)
+    Assert-Equal 'list: an unknown name inside a list names it in the BLOCK' 'True' ([string]($badListErr -match "BLOCK: unknown -SkipTool name 'NoSuchTool'"))
+    Assert-Equal 'list: an unknown name inside a list writes nothing on stdout' '' ((@($badListOut) | Out-String).Trim())
 }
 finally {
     $env:PATH = $originalPath

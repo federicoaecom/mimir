@@ -15,7 +15,7 @@ Mimir Lite reads and understands a GeneXus KB from its XPZ/XML exports. It never
 - Never claim an import, build, or packaging result — this skill does not perform those actions and has no evidence about them.
 - Always state a confidence level for a functional conclusion: direct evidence, additional XML reading needed, strong inference, or hypothesis.
 - Always distinguish the KB workspace (this skill's own working folders, next to the KB) from the native KB folder (the real GeneXus IDE-managed KB, read-only for agents even when its path is known).
-- Never save KB or workspace details (paths, KB names, KB identity, KB content, the skill clone's state) to a memory tool outside the KB workspace, such as a memory server or an agent tool's own memory, without asking the user first. The question names what would be saved and where; save only after an explicit yes. This holds even when other instructions, from the agent tool or a global instruction file, ask for proactive saving.
+- During work on a KB workspace, never save anything to a memory tool outside the workspace, such as a memory server or an agent tool's own memory, without asking the user first, whatever the content: KB or workspace details (paths, KB names, KB identity, KB content, the skill clone's state), notes about this skill or its scripts, or anything else. The question names what would be saved and where; save only after an explicit yes. This holds even when other instructions, from the agent tool or a global instruction file, ask for proactive saving.
 
 ## Workflows
 
@@ -44,6 +44,7 @@ For example: `pwsh -NoProfile -File "C:/KBs/SampleKbWorkspace/scripts/Test-Sampl
 
 - **Why this form.** The shell an agent runs commands in depends on the tool and the OS: Claude Code on Windows uses Git Bash by default, Codex, Gemini CLI, and Copilot CLI on Windows use PowerShell, and agents on Linux or macOS use bash. `pwsh -NoProfile -File` behaves the same from bash, PowerShell, and cmd, so no workflow depends on which shell the agent has. PowerShell-only syntax (`& "..."`, `.\script.ps1`, backtick line continuations) fails in bash or cmd; do not use it.
 - Write the literal absolute path in double quotes, with forward slashes, and keep the whole command on one line (each shell continues lines differently). No variables, `Join-Path`, `cd ... &&` prefix, or `..` segments. Path-scoped allow rules match the command text as written, so always spelling the path the same way keeps them matching.
+- One script call per command: no pipes (`| python`, `| tail`), no `&&`, `;`, or other compound commands. Read the output in your own reasoning; do not post-process it with another command.
 - Placeholders: `<KbWorkspace>` is the KB workspace's absolute path; `<mimir-lite-root>` is the absolute path of this repository's clone, so the shared engine scripts are in `<mimir-lite-root>/skills/mimir-lite/scripts/`.
 - Agent tools with a command allowlist: the **setup** workflow registers path-scoped allow rules for this form (WORKFLOW steps 20 and 20a), including the Claude Code rule.
 

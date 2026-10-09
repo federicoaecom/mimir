@@ -128,9 +128,9 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
    done
    ```
 
-   Link `skills/mimir-delegate` the same way only if the user wants delegation, after the same question.
+   `skills/mimir-delegate` is optional: it delegates a task or requests a peer review from another LLM. Offer it as a choice in the linking question, and link it the same way only after a yes. Never decide it for the user, either way.
 
-   After linking, run the install audit and tell the user its `overall` result (`REGISTRATION_OK` or `REGISTRATION_GAPS`). The **install** workflow ([`install.md`](skills/mimir-lite/workflows/install.md)) explains the result and how to fix a gap, again only after the user approves. Declare what the user chose not to link: `-SkipSkill mimir-delegate` when the user did not want delegation, and `-SkipTool <name>` for each installed tool the user did not want linked (for example `-SkipTool Cursor`); the audit reports them as `skipped_by_choice`, which is not a gap. Add `-SkipSkill mimir-delegate` to the command below only when the user did not want delegation; never add it when the user asked for delegation, so a missing link still shows as a gap. The audit covers Claude Code, Codex, Cursor, OpenCode, and Antigravity, and other tools with `-AdditionalSkillsRoot`:
+   After linking, run the install audit and tell the user its `overall` result (`REGISTRATION_OK` or `REGISTRATION_GAPS`). The **install** workflow ([`install.md`](skills/mimir-lite/workflows/install.md)) explains the result and how to fix a gap, again only after the user approves. Declare what the user chose not to link: `-SkipSkill mimir-delegate` when the user did not want delegation, and `-SkipTool <name>` for each installed tool the user did not want linked (for example `-SkipTool Cursor`, or `-SkipTool Codex,OpenCode` for several); the audit reports them as `skipped_by_choice`, which is not a gap. Add `-SkipSkill mimir-delegate` to the command below only when the user did not want delegation; never add it when the user asked for delegation, so a missing link still shows as a gap. The audit covers Claude Code, Codex, Cursor, OpenCode, and Antigravity, and other tools with `-AdditionalSkillsRoot`:
 
    ```powershell
    pwsh -NoProfile -File "$HOME/mimir-lite/skills/mimir-lite/scripts/Test-MimirSkillsRegistration.ps1" -AsJson

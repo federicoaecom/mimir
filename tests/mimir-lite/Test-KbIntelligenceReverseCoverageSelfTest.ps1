@@ -16,8 +16,17 @@
     - corpus B: the fixture without its Panel folder. Reverse answers must report
       coverage.complete=true with an empty list, and the text output carries no note line.
 
+    Coverage is target-aware. For an Attribute target the scope is attribute_references: the
+    index holds only structural Attribute relations (Transaction levels, Table keys and indexes),
+    so coverage is incomplete whenever the index holds any type whose attribute uses are not
+    extracted. Corpus A also holds one synthetic WorkWithForWeb whose grid and filter name two
+    fixture attributes; corpus B (no call-source types) must still report the attribute gap,
+    while a Procedure target on corpus B stays complete with scope calls. The scope is chosen
+    ignoring the case of --object-type, so a lowercase 'attribute' target still discloses the gap.
+
     Forward answers (what-uses) carry no coverage object. The engine's list of unextracted
-    caller types must stay disjoint from the extractor's INDEXED_SOURCE_TYPES.
+    caller types must stay disjoint from the extractor's INDEXED_SOURCE_TYPES; the attribute-use
+    list must include every unextracted caller type.
 #>
 
 Set-StrictMode -Version Latest
@@ -70,6 +79,8 @@ try {
     $sdAppDir = Join-Path $corpusA 'SmartDevicesApplication'
     $offlineDbDir = Join-Path $corpusA 'OfflineDatabase'
     $bpdDir = Join-Path $corpusA 'BusinessProcessDiagram'
+    $workWithForWebDir = Join-Path $corpusA 'WorkWithForWeb'
+    [void](New-Item -ItemType Directory -Path $workWithForWebDir -Force)
     [void](New-Item -ItemType Directory -Path $workWithDir -Force)
     [void](New-Item -ItemType Directory -Path $sdAppDir -Force)
     [void](New-Item -ItemType Directory -Path $offlineDbDir -Force)
@@ -110,6 +121,28 @@ EndEvent
   <Part type="5a51075a-e991-44a6-9e1e-84937cd973f3"><DiagramDocument version="1"><Properties><Property><Name>PWFTaskObject</Name><Value>Procedure:CalculateInvoiceTotal</Value></Property></Properties></DiagramDocument></Part>
 </Object>
 '@
+    # Synthetic web Work With: a grid attribute (GUID-Name form) and a bare filter attribute.
+    $workWithForWebXml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" lastUpdate="2026-01-01T00:00:00" fullyQualifiedName="WorkWithWebInvoice" moduleGuid="00000000-0000-0000-0000-000000000000" guid="0b000000-0000-4000-8000-000000000003" name="WorkWithWebInvoice" type="78cecefe-be7d-4980-86ce-8d6e91fba04b" description="Synthetic web Work With">
+  <Part type="a51ced48-7bee-0001-ab12-04e9e32123d1"><Data Pattern="78cecefe-be7d-4980-86ce-8d6e91fba04b" Version="1.0"><![CDATA[<?xml version="1.0" encoding="utf-16"?>
+<instance>
+  <level id="0b000000-0000-4000-8000-000000000004:1" name="Invoice">
+    <selection>
+      <attributes>
+        <attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-InvoiceTotal" />
+      </attributes>
+      <filter>
+        <attributes>
+          <filterAttribute name="InvoiceDate" />
+        </attributes>
+      </filter>
+    </selection>
+  </level>
+</instance>]]></Data></Part>
+</Object>
+'@
+    [System.IO.File]::WriteAllText((Join-Path $workWithForWebDir 'WorkWithWebInvoice.xml'), $workWithForWebXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $workWithDir 'WorkWithDevicesInvoice.xml'), $workWithXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $offlineDbDir 'InvoiceOfflineDatabase.xml'), $offlineDbXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $bpdDir 'InvoiceApproval.xml'), $bpdXml, (Get-Utf8NoBomEncoding))
@@ -187,6 +220,9 @@ EndEvent
         elseif ($payload.coverage.complete -ne $true -or @($payload.coverage.unextracted_source_types).Count -ne 0) {
             Add-Failure "[$label/B/json] coverage should be complete with an empty list; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
         }
+        elseif ($null -eq $payload.coverage.PSObject.Properties['scope'] -or $payload.coverage.scope -ne 'calls') {
+            Add-Failure "[$label/B/json] a non-Attribute target should report coverage.scope 'calls'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+        }
 
         # corpus B, text: no coverage note
         $run = Invoke-Query -IndexPath $indexB -Arguments (@($queryArgs) + @('--format', 'text'))
@@ -206,6 +242,84 @@ EndEvent
     $payload = $run.Text | ConvertFrom-Json
     if (@($payload.results | Where-Object { $_.source_type -eq 'WebPanel' -and $_.source_name -eq 'CustomerView' }).Count -lt 1) {
         Add-Failure "[who-uses/A] WebPanel:CustomerView should still be listed as a caller"
+    }
+
+    # Attribute targets: only structural relations are indexed, so coverage discloses every
+    # indexed type whose attribute uses are not extracted, even without call-source types.
+    $attributeCases = @(
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('WorkWithForWeb', 'Procedure', 'WebPanel', 'Panel') },
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('WorkWithForWeb', 'Procedure', 'WebPanel', 'Panel') },
+        [pscustomobject]@{ Corpus = 'B'; Index = $indexB; Name = 'InvoiceTotal'; MustList = @('Procedure', 'WebPanel') }
+    )
+    foreach ($case in $attributeCases) {
+        $label = "who-uses/Attribute:$($case.Name)/$($case.Corpus)"
+        $run = Invoke-Query -IndexPath $case.Index -Arguments @('--query', 'who-uses', '--object-type', 'Attribute', '--object-name', $case.Name, '--format', 'json')
+        if ($run.ExitCode -ne 0) {
+            Add-Failure "[$label/json] exit should stay 0; got $($run.ExitCode): $($run.Text)"
+            continue
+        }
+        $payload = $run.Text | ConvertFrom-Json
+        if ($null -eq $payload.PSObject.Properties['coverage']) {
+            Add-Failure "[$label/json] result has no coverage object"
+            continue
+        }
+        if ($payload.coverage.complete -ne $false) {
+            Add-Failure "[$label/json] coverage.complete should be false for an Attribute target; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+        }
+        if ($null -eq $payload.coverage.PSObject.Properties['scope'] -or $payload.coverage.scope -ne 'attribute_references') {
+            Add-Failure "[$label/json] coverage.scope should be 'attribute_references'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+        }
+        $listedTypes = @($payload.coverage.unextracted_source_types | ForEach-Object { $_.type })
+        $missingTypes = @($case.MustList | Where-Object { $listedTypes -notcontains $_ })
+        if ($missingTypes.Count -gt 0) {
+            Add-Failure "[$label/json] unextracted_source_types should list $($case.MustList -join ', '); missing $($missingTypes -join ', ')"
+        }
+        if ($case.Corpus -eq 'A') {
+            $wwfw = @($payload.coverage.unextracted_source_types | Where-Object { $_.type -eq 'WorkWithForWeb' })
+            if ($wwfw.Count -ne 1 -or $wwfw[0].count -ne 1) {
+                Add-Failure "[$label/json] WorkWithForWeb should be listed once with count 1"
+            }
+        }
+        if ($case.Corpus -eq 'B' -and $listedTypes -contains 'WorkWithForWeb') {
+            Add-Failure "[$label/json] corpus B holds no WorkWithForWeb; it must not be listed"
+        }
+
+        $run = Invoke-Query -IndexPath $case.Index -Arguments @('--query', 'who-uses', '--object-type', 'Attribute', '--object-name', $case.Name, '--format', 'text')
+        if ($run.ExitCode -ne 0) {
+            Add-Failure "[$label/text] exit should stay 0; got $($run.ExitCode)"
+        }
+        $noteLines = @($run.Text -split "`n" | Where-Object { $_ -match '^coverage: incomplete' })
+        if ($noteLines.Count -ne 1) {
+            Add-Failure "[$label/text] expected exactly one 'coverage: incomplete' line; got $($noteLines.Count): $($run.Text)"
+        }
+        elseif ($noteLines[0] -notmatch 'attribute uses' -or $noteLines[0] -notmatch 'only structural relations' -or $noteLines[0] -match 'calls made from') {
+            Add-Failure "[$label/text] the note should describe unextracted attribute uses and structural-only relations: $($noteLines[0])"
+        }
+        elseif ($case.Corpus -eq 'A' -and $noteLines[0] -notmatch '\bWorkWithForWeb \(1\)') {
+            Add-Failure "[$label/text] the note should name 'WorkWithForWeb (1)': $($noteLines[0])"
+        }
+    }
+
+    # A differently cased Attribute type still gets the attribute_references disclosure.
+    # Object types match case-sensitively in who-uses (only names ignore case), so 'attribute'
+    # finds no relation rows; the empty list must still carry the attribute gap instead of
+    # falling back to the calls scope, which on corpus B (no call-source types) reads complete.
+    $label = 'who-uses/attribute(lowercase):InvoiceTotal/B'
+    $run = Invoke-Query -IndexPath $indexB -Arguments @('--query', 'who-uses', '--object-type', 'attribute', '--object-name', 'InvoiceTotal', '--format', 'json')
+    if ($run.ExitCode -ne 0) {
+        Add-Failure "[$label/json] exit should stay 0; got $($run.ExitCode): $($run.Text)"
+    }
+    else {
+        $payload = $run.Text | ConvertFrom-Json
+        if ($payload.total -ne 0) {
+            Add-Failure "[$label/json] object types match case-sensitively, so a lowercase type should return no rows; got total $($payload.total)"
+        }
+        if ($null -eq $payload.PSObject.Properties['coverage']) {
+            Add-Failure "[$label/json] result has no coverage object"
+        }
+        elseif ($payload.coverage.scope -ne 'attribute_references' -or $payload.coverage.complete -ne $false) {
+            Add-Failure "[$label/json] coverage should be scope 'attribute_references' with complete=false; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+        }
     }
 
     # Forward answers carry no coverage object.
@@ -231,13 +345,16 @@ if indexed is None:
 unextracted = set(engine.UNEXTRACTED_CALL_SOURCE_TYPES)
 overlap = sorted(unextracted & indexed)
 print("overlap=" + ",".join(overlap))
-sys.exit(1 if overlap or not unextracted else 0)
+attribute_uses = set(getattr(engine, "UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES", ()))
+missing = sorted(unextracted - attribute_uses)
+print("attribute_list_missing=" + ",".join(missing))
+sys.exit(1 if overlap or not unextracted or missing or "WorkWithForWeb" not in attribute_uses else 0)
 '@
     $parityPath = Join-Path $tempRoot 'parity.py'
     [System.IO.File]::WriteAllText($parityPath, $parityScript, (Get-Utf8NoBomEncoding))
     $parityOutput = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $parityPath $queryScript $builderPy 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Add-Failure "UNEXTRACTED_CALL_SOURCE_TYPES must exist, be non-empty and stay disjoint from INDEXED_SOURCE_TYPES: $(@($parityOutput) -join ' ')"
+        Add-Failure "UNEXTRACTED_CALL_SOURCE_TYPES must exist, be non-empty and stay disjoint from INDEXED_SOURCE_TYPES; UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include it and WorkWithForWeb: $(@($parityOutput) -join ' ')"
     }
 }
 finally {
