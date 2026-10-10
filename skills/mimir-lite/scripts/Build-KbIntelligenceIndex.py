@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "16"
+EXTRACTOR_SIGNATURE_VERSION = "17"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -2254,12 +2254,83 @@ class CodeMode(Enum):
     BLOCK_CODE = "block code"
     # Rules of a Procedure, WebPanel or DataProvider: reads only.
     PLAIN_RULES = "plain rules"
-    # Transaction Rules: an assignment rule 'Attr = expr [if ...];' writes its target.
+    # Transaction Rules: an assignment rule 'Attr = expr [if ...];' writes its target, and so do
+    # the Default, Equal and Serial rules (see TRANSACTION_ASSIGNING_RULES).
     TRANSACTION_RULES = "transaction rules"
     # DataProvider Source whose output is a Transaction: item left sides are writes.
     DATA_PROVIDER_TRANSACTION_OUTPUT = "data provider transaction output"
     # DataProvider Source whose output is an SDT: item left sides name SDT items, not uses.
     DATA_PROVIDER_SDT_OUTPUT = "data provider sdt output"
+
+
+# Transaction rules that assign attributes, with how many leading arguments they assign:
+# Default(Attr, expr) and Equal(Attr, expr) assign Attr; Serial(att1, att2, step) assigns att1
+# and keeps att2, an attribute of the level above, updated with the last value.
+TRANSACTION_ASSIGNING_RULES = {"default": 1, "equal": 1, "serial": 2}
+# Punctuation after which a Transaction rule starts: the ';' ending the rule before, or the '{'
+# or '}' of a platform section such as '[web] { noaccept(Attr); }'.
+TRANSACTION_RULE_START_AFTER = frozenset({";", "{", "}"})
+
+
+def starts_transaction_rule(tokens: list[CodeToken], index: int) -> bool:
+    """Whether tokens[index] starts a Transaction rule.
+
+    A rule starts at the first token of the block, after ';', or after the '{' or '}' of a
+    platform section ('[web] { ... }'). Comments are not tokens, so a comment between changes
+    nothing.
+    """
+    if index == 0:
+        return True
+    previous = tokens[index - 1]
+    return previous.kind == "other" and previous.text in TRANSACTION_RULE_START_AFTER
+
+
+def transaction_rule_write_indexes(tokens: list[CodeToken]) -> set[int]:
+    """Indexes of the tokens a Transaction Default, Equal or Serial rule assigns.
+
+    The rule name (any case) must start a rule (see starts_transaction_rule) and be followed by
+    '('. Only an assigned argument that is a single bare name counts: an &variable, a member, a
+    call or any expression assigns nothing this extractor claims. A rule whose parentheses do not
+    close before ';' or the end of the block assigns nothing. Whatever follows the closing ')' up
+    to ';' (an if, on or level clause) is not inspected and changes nothing.
+    """
+    writes: set[int] = set()
+    for index, token in enumerate(tokens):
+        assigned = TRANSACTION_ASSIGNING_RULES.get(token.text.lower()) if token.kind == "name" else None
+        if assigned is None:
+            continue
+        if not starts_transaction_rule(tokens, index):
+            continue
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        if following is None or following.kind != "other" or following.text != "(":
+            continue
+        arguments: list[list[int]] = [[]]
+        depth = 0
+        closed = False
+        for inner_index in range(index + 1, len(tokens)):
+            inner = tokens[inner_index]
+            text = inner.text if inner.kind == "other" else ""
+            if text == ";":
+                break
+            if text == "(":
+                depth += 1
+                if depth == 1:
+                    continue
+            elif text == ")":
+                depth -= 1
+                if depth == 0:
+                    closed = True
+                    break
+            elif text == "," and depth == 1:
+                arguments.append([])
+                continue
+            arguments[-1].append(inner_index)
+        if not closed:
+            continue
+        for argument in arguments[:assigned]:
+            if len(argument) == 1 and tokens[argument[0]].kind == "name":
+                writes.add(argument[0])
+    return writes
 
 
 @dataclass
@@ -2284,18 +2355,23 @@ def code_attribute_names(code: str, *, domain_names: set[str], mode: CodeMode) -
     statement-start name followed by '=') in DATA_PROVIDER_SDT_OUTPUT: it names an SDT item.
 
     "write" marks only an unambiguous assignment target: in DATA_PROVIDER_TRANSACTION_OUTPUT,
-    an item's left side; in TRANSACTION_RULES, a name followed by '=' that starts a rule (first
-    in the block or after ';'); in BLOCK_CODE, a name followed by '=' at a statement start
-    (first on its line, not continuing an expression, outside parentheses) whose innermost
-    enclosing 'for each' ... endfor or new ... endnew block is not in its when none / when
-    duplicate branch. A plain 'for' loop is neither a write block nor a barrier; an Event or
-    Sub boundary closes every open block. PLAIN_RULES has no write. Every other use is "read".
+    an item's left side; in TRANSACTION_RULES, a name followed by '=' that starts a rule, and
+    the bare-name arguments a Default or Equal rule (the first) or a Serial rule (the first and
+    second) assigns when the rule name, in any case, starts a rule (a rule starts at the first
+    token, after ';', or after '{' or '}': see starts_transaction_rule; what follows the closing
+    ')' is not inspected: see transaction_rule_write_indexes); in BLOCK_CODE, a name followed by
+    '=' at a statement start (first on its line, not continuing an expression, outside
+    parentheses) whose innermost enclosing 'for each' ... endfor or new ... endnew block is not
+    in its when none / when duplicate branch. A plain 'for' loop is neither a write block nor a
+    barrier; an Event or Sub boundary closes every open block. PLAIN_RULES has no write. Every
+    other use is "read".
     The caller keeps only names in the Attribute inventory.
     """
     tokens = code_tokens(code)
     names: list[tuple[str, int, str]] = []
     event_header_line = -1
     track_blocks = mode is CodeMode.BLOCK_CODE
+    rule_writes = transaction_rule_write_indexes(tokens) if mode is CodeMode.TRANSACTION_RULES else set()
     data_provider_source = mode in (CodeMode.DATA_PROVIDER_TRANSACTION_OUTPUT, CodeMode.DATA_PROVIDER_SDT_OUTPUT)
     # Open blocks, innermost last.
     blocks: list[CodeBlockFrame] = []
@@ -2398,7 +2474,7 @@ def code_attribute_names(code: str, *, domain_names: set[str], mode: CodeMode) -
                         continue  # SDT item name
                     access = "write"
         elif mode is CodeMode.TRANSACTION_RULES:
-            if followed_by_assignment and (previous is None or previous.text == ";"):
+            if (followed_by_assignment and starts_transaction_rule(tokens, index)) or index in rule_writes:
                 access = "write"
         elif track_blocks and followed_by_assignment and line_start:
             write_block = next((frame for frame in reversed(blocks) if frame.kind in ("each", "new")), None)

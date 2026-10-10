@@ -6,6 +6,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- The setup workflow (step 20a) also offers a Claude Code read rule for the clone's `skills` folder, `Read(//<root>/skills/**)` with the clone's absolute path in POSIX form (a clone at `C:\Tools\mimir-lite` gives `Read(//c/Tools/mimir-lite/skills/**)`), so a session with default permissions reads the skill's own workflow and reference files without an approval each time. It is asked in the same question as the shared-scripts rule, shown verbatim, written to the KB workspace's `.claude/settings.json` only after an explicit yes and only when missing, and never to user-level settings; `permissions.additionalDirectories` is not offered, since it opens the whole clone. The completion checklist, the scaffolder follow-up order, the README, and the backlog follow. The setup contract signature changes, so every existing KB workspace reports a one-time setup re-audit.
+
+### Changed
+
+- The KB index gives the `write` role (`Rules write`) to the attributes the Transaction rules `Default` and `Equal` assign (their first argument) and to the two a `Serial` rule assigns (its first and second arguments), when the argument is a bare attribute name and the rule starts the Rules Part or follows `;`, `{`, or `}` (the braces of a platform section such as `[web] { noaccept(Attribute); }`); the rule name matches in any case and may carry a trailing `if`, `on`, or `level` clause. Extractor 16 read them as `Rules read`. A Transaction assignment rule `Attribute = expression;` that follows `{` or `}` is now also a `Rules write`; extractor 16 recognized it only at the start of the Rules Part or after `;`. The value expression of the rule and its condition stay reads, `parm(in:Attribute)` stays a read, and the Rules of a `Procedure`, `WebPanel`, or `DataProvider` are unchanged; a write occurrence still gives no read row of its own. The extractor version goes from 16 to 17, so the index gate reports existing indexes as built by an older extractor until they are rebuilt once. The KB index reference and the backlog follow.
+
 ## [0.5.0] - 2026-10-10
 
 ### Added

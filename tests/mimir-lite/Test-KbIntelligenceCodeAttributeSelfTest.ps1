@@ -32,8 +32,15 @@
       loop 'for &x in &coll' that stays a read), plus a Conditions and a WebForm Part (not read).
     - Transaction CodeUsesTrn: Rules and Events Parts naming one attribute in both (two rows,
       one per role), assignment rules 'Attr = expr [if ...];' (the target is a Rules write, also
-      over two lines and as the rule opening the Part), a top-level Event assignment (a read),
-      and an IsDefault=True Part without <Source>.
+      over two lines and as the rule opening the Part), Default, Equal and Serial rules (the
+      attributes they assign are Rules writes, in any case and after ';' with an if clause; their
+      value and condition stay reads, and parm(in:Attr) stays a read), rules that start after '{'
+      or '}' of a '[web] { ... }' platform section (also with a comment between) and rules with a
+      trailing 'on' or 'level' clause (writes), Default, Equal and Serial rules whose assigned
+      argument is an &variable, a member or a call, or whose parentheses never close (no write),
+      a top-level Event
+      assignment (a read), and an IsDefault=True Part without <Source>. A Default rule in the
+      Procedure's Rules Part stays a read.
     - DataProvider CodeUsesTrnDp, output a Transaction (OutputSDT with the Transaction type
       GUID): group headers are not uses, item left sides are writes and right sides reads.
     - DataProvider CodeUsesSdtDp, output an SDT: group headers and item left sides (SDT item
@@ -188,6 +195,7 @@ endfor
   </Part>
   <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
     <Source><![CDATA[parm(in:ProcParmAttr, out:&Result);
+default(ProcDefaultAttr, 1);
 ]]></Source>
   </Part>
   <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
@@ -268,6 +276,24 @@ error('TrnErrorAttr') if TrnErrorAttr = 0;
 TrnAssignAttr = &x if &Mode = 'INS';
 TrnMultiAttr = TrnSourceAttr
     if TrnCondAttr = 1; parm(in:TrnParmAttr);
+Default(TrnDefaultAttr, TrnDefaultExprAttr + 1);
+Equal(TrnEqualAttr, 'A');
+Serial(TrnSerialAttr, TrnSerialLastAttr, 1);
+noaccept(TrnBothAttr); equal(TrnEqualIfAttr, TrnEqualValueAttr) if TrnEqualCondAttr = 1;
+[web] { noaccept(TrnWebNoacceptAttr); } /* c */ Default(TrnWebDefaultAttr, &Today);
+[web] { noaccept(TrnWebNoacceptAttr); } Equal(TrnWebEqualAttr, 1);
+[web]
+{
+    Default(TrnBraceDefaultAttr, 1);
+}
+[win] { TrnBraceAssignAttr = 2; }
+[web] { noaccept(TrnWebNoacceptAttr); } TrnAfterBraceAssignAttr = TrnAfterBraceSourceAttr;
+Equal(TrnOnAttr, 1) on AfterInsert;
+Serial(TrnLevelAttr, TrnLevelLastAttr, 1) level TrnLevelKeyAttr;
+Default(&TrnVar, TrnVarValueAttr);
+Equal(TrnMemberObjAttr.TrnMemberAttr, 1);
+Default(TrnCallAttr(TrnCallArgAttr), 1);
+Default(TrnUnclosedAttr, 1
 ]]></Source>
   </Part>
   <Part type="c44bd5ff-f918-415b-98e6-aca44fed84fa">
@@ -442,6 +468,8 @@ try {
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'CommentWriteAttr'; Role = 'Procedure Source write'; Marker = 'CommentWriteAttr = 9' },
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'CommentArgAttr'; Role = 'Procedure Source read'; Marker = 'UdpObjAttr, CommentArgAttr)' },
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'ProcParmAttr'; Role = 'Rules read'; Marker = 'parm(in:ProcParmAttr' },
+        # Default in a Procedure's Rules assigns nothing the extractor claims: read only.
+        [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'ProcDefaultAttr'; Role = 'Rules read'; Marker = 'default(ProcDefaultAttr, 1)' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'PanelParmAttr'; Role = 'Rules read'; Marker = 'parm(in:PanelParmAttr)' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'PanelEventAttr'; Role = 'Events read'; Marker = '&Value = PanelEventAttr' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'SubBodyAttr'; Role = 'Events read'; Marker = '&Value = SubBodyAttr' },
@@ -455,8 +483,39 @@ try {
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'ValueLoopAttr'; Role = 'Events read'; Marker = 'ValueLoopAttr = &Item' },
         [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnBothAttr'; Role = 'Rules read'; Marker = 'noaccept(TrnBothAttr)' },
         [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnBothAttr'; Role = 'Events read'; Marker = '&Value = TrnBothAttr' },
-        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnRuleAttr'; Role = 'Rules read'; Marker = 'default(TrnRuleAttr, 1)' },
+        # Transaction Default, Equal and Serial rules (any case, at a rule start, with a trailing
+        # if clause): the attributes they assign are writes, their value and condition reads.
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnRuleAttr'; Role = 'Rules write'; Marker = 'default(TrnRuleAttr, 1)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnDefaultAttr'; Role = 'Rules write'; Marker = 'Default(TrnDefaultAttr,' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnDefaultExprAttr'; Role = 'Rules read'; Marker = 'TrnDefaultExprAttr + 1' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnEqualAttr'; Role = 'Rules write'; Marker = "Equal(TrnEqualAttr, 'A')" },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnSerialAttr'; Role = 'Rules write'; Marker = 'Serial(TrnSerialAttr, TrnSerialLastAttr, 1)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnSerialLastAttr'; Role = 'Rules write'; Marker = 'Serial(TrnSerialAttr, TrnSerialLastAttr, 1)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnEqualIfAttr'; Role = 'Rules write'; Marker = 'equal(TrnEqualIfAttr, TrnEqualValueAttr)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnEqualValueAttr'; Role = 'Rules read'; Marker = 'equal(TrnEqualIfAttr, TrnEqualValueAttr)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnEqualCondAttr'; Role = 'Rules read'; Marker = 'if TrnEqualCondAttr = 1;' },
         [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnErrorAttr'; Role = 'Rules read'; Marker = "if TrnErrorAttr = 0" },
+        # A rule also starts after '{' or '}' of a platform section such as '[web] { ... }', also
+        # with a comment between: Default, Equal and assignment rules there are writes.
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnWebNoacceptAttr'; Role = 'Rules read'; Marker = '{ noaccept(TrnWebNoacceptAttr); } /* c */' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnWebDefaultAttr'; Role = 'Rules write'; Marker = 'Default(TrnWebDefaultAttr, &Today)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnWebEqualAttr'; Role = 'Rules write'; Marker = 'Equal(TrnWebEqualAttr, 1)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnBraceDefaultAttr'; Role = 'Rules write'; Marker = 'Default(TrnBraceDefaultAttr, 1)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnBraceAssignAttr'; Role = 'Rules write'; Marker = '{ TrnBraceAssignAttr = 2; }' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnAfterBraceAssignAttr'; Role = 'Rules write'; Marker = 'TrnAfterBraceAssignAttr = TrnAfterBraceSourceAttr' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnAfterBraceSourceAttr'; Role = 'Rules read'; Marker = 'TrnAfterBraceAssignAttr = TrnAfterBraceSourceAttr' },
+        # Trailing 'on' and 'level' clauses keep the write; the level attribute is a read.
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnOnAttr'; Role = 'Rules write'; Marker = 'Equal(TrnOnAttr, 1) on AfterInsert' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnLevelAttr'; Role = 'Rules write'; Marker = 'Serial(TrnLevelAttr, TrnLevelLastAttr, 1) level' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnLevelLastAttr'; Role = 'Rules write'; Marker = 'Serial(TrnLevelAttr, TrnLevelLastAttr, 1) level' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnLevelKeyAttr'; Role = 'Rules read'; Marker = 'level TrnLevelKeyAttr' },
+        # A first argument that is an &variable, a member or a call assigns nothing claimed: the
+        # attributes in it stay as they were (a member after '.' and a called name are no use).
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnVarValueAttr'; Role = 'Rules read'; Marker = 'Default(&TrnVar, TrnVarValueAttr)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnMemberObjAttr'; Role = 'Rules read'; Marker = 'Equal(TrnMemberObjAttr.TrnMemberAttr, 1)' },
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnCallArgAttr'; Role = 'Rules read'; Marker = 'Default(TrnCallAttr(TrnCallArgAttr), 1)' },
+        # A rule whose parentheses do not close before the end of the Part assigns nothing.
+        [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnUnclosedAttr'; Role = 'Rules read'; Marker = 'Default(TrnUnclosedAttr, 1' },
         # Transaction assignment rules: the rule's target is a write, its value and condition reads;
         # the rule opening the Rules Part (its first token) counts as a rule start.
         [pscustomobject]@{ Source = 'Transaction:CodeUsesTrn'; File = 'Transaction/CodeUsesTrn.xml'; Attribute = 'TrnFirstAttr'; Role = 'Rules write'; Marker = "TrnFirstAttr = &x if &Mode = 'INS';" },
@@ -486,7 +545,7 @@ try {
         'NestedTable', 'InnerTable', 'OtherTable', 'EventTable', 'CommentTable',
         'Where', 'Like', 'Each', 'Not', 'Duplicate', 'Case', 'Otherwise', 'In', 'Out', 'None', 'Exit',
         'Grid1', 'Load', 'Enter', 'Start', 'SubAttr',
-        'ConditionOnlyAttr', 'LayoutOnlyAttr', 'FormOnlyAttr',
+        'ConditionOnlyAttr', 'LayoutOnlyAttr', 'FormOnlyAttr', 'TrnMemberAttr', 'TrnCallAttr',
         'CodeUsesTrnCollection', 'TrnHeaderAttr', 'RecipeList', 'Recipes', 'SdtItemAttr', 'RecipeTitle'
     )
     $positiveAttributes = @($expectedRows | ForEach-Object { $_.Attribute } | Where-Object { -not (Test-Path -LiteralPath (Join-Path $corpus "Attribute/$_.xml")) } | Sort-Object -Unique)

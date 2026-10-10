@@ -289,7 +289,7 @@ The tools write outside this repository in these places:
 |---|---|---|
 | `<KB workspace>` | The new workspace next to your KB: `scripts` (local wrappers), `README.md`, `AGENTS.md`, `kb-source-metadata.md`, `.gitignore`, and the folders `Temp`, `IdeXpzExports`, `KbObjectsXml`, `KbIntelligence` | `mimir-lite` **setup** workflow, with the `New-MimirKbWorkspace.ps1` scaffolder |
 | `<KB workspace>\KbObjectsXml`, `<KB workspace>\KbIntelligence` | The XML corpus and the derived index, next to your KB | `mimir-lite` **sync** and **setup** workflows |
-| `<KB workspace>\.claude\settings.json` | Claude Code allow rules for the workspace's `scripts` folder and the shared engine scripts | **setup** workflow (steps 20 and 20a), Claude Code only; you can decline |
+| `<KB workspace>\.claude\settings.json` | Claude Code allow rules for the workspace's `scripts` folder and the shared engine scripts, and a read rule for the clone's `skills` folder | **setup** workflow (steps 20 and 20a), Claude Code only; you can decline |
 | Agent-tool skills directories (for example `~/.claude/skills/`) | One link per skill, never a copy | **install** workflow, after your confirmation |
 | Global instruction files of your agent tools | The "KB workspace" trigger section | **setup** workflow, only after your explicit confirmation |
 | `%LOCALAPPDATA%\mimir-delegate` (Windows), `~/.local/share/mimir-delegate` (Linux), typically `~/Library/Application Support/mimir-delegate` (macOS, not tested in CI; the Linux location when `~/Library/Application Support` does not exist) | `capabilities.json`, `preferred-reviewers.json` (and per-tool `preferred-reviewers.<tool>.json`), circuit-breaker state | `mimir-delegate` |
