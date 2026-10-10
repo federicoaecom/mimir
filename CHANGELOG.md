@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-10
+
 ### Added
 
 - The KB index extracts attribute references from `WorkWithForWeb` pattern instances: a new relation `workwith_references_attribute` links a web Work With to each attribute its grids, orders, view tabs, and fixed data name (`<attribute attribute="<typeGuid>-<Name>">`), its description attribute, its filter attributes (`<filterAttribute name="<Name>">`), and the attribute names of its filter conditions (`<condition value="...">` in the selection and Grid tab filters, `evidence_role` `WorkWithForWeb condition`), so `who-uses` on an `Attribute` now lists those Work With objects. A condition is tokenized after XML unescaping: string literals, `//` comments, `&variables`, members after `.`, called objects, and keywords such as `like`, `when`, `not`, and `null` are skipped, while call arguments and attributes with a method count. Targets resolve only against the Attribute inventory, each object and attribute pair yields one relation (the first occurrence in document order is the evidence), and `<variable>` elements are not read; the mobile `WorkWith` is not a source.
@@ -15,7 +17,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
-- The KB index no longer cuts a line of code at a `//` inside a string literal: a call after `'http://...'`, `"a // b"`, or `!"..."` on the same line of a `Source` is now found, while a `//` outside a literal still starts a comment and a whole commented line is still skipped.
+- The KB index no longer cuts a line of code at a `//` inside a string literal: a call after `'http://...'`, `"a // b"`, or `!"..."` on the same line of a `Source` is now found, while a `//` outside a literal still starts a comment and a whole commented line is still skipped. A quote inside a `/* ... */` block comment on the same line no longer opens a literal, so a `//` after it still starts a comment, and code after a closed block comment is still read.
 - The `WorkWith` and `WorkWithForWeb` condition-to-`Procedure` relations (`workwith_condition_calls_procedure`, `workwith_condition_attribute_calls_procedure`) read every line of a multi-line condition: a `//` comment ends at its own line instead of dropping the rest of the value, and a `//` inside a string literal is not a comment.
 - `WorkWithForWeb` filter conditions: a quoted `>` or `/>` in a `<filter>` tag attribute no longer ends the tag early, so the filter's conditions are read and a `<condition>` after a self-closing filter is not taken as a filter condition.
 
