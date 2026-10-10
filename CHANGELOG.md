@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-10
+
 ### Added
 
 - The setup workflow (step 20a) also offers a Claude Code read rule for the clone's `skills` folder, `Read(//<root>/skills/**)` with the clone's absolute path in POSIX form (a clone at `C:\Tools\mimir-lite` gives `Read(//c/Tools/mimir-lite/skills/**)`), so a session with default permissions reads the skill's own workflow and reference files without an approval each time. Because the agent reads the skill through its Claude Code skill link and Claude Code matches that path without resolving the link, setup also offers one read rule for each skill link under `~/.claude/skills`: `Read(~/.claude/skills/mimir-lite/**)`, and `Read(~/.claude/skills/mimir-delegate/**)` when that skill is linked there. The read rules are asked in the same question as the shared-scripts rule, shown verbatim, written to the KB workspace's `.claude/settings.json` only after an explicit yes and each only when missing, and never to user-level settings; `permissions.additionalDirectories` is not offered, since it opens the whole clone. The completion checklist, the scaffolder follow-up order, the README, and the backlog follow. The setup contract signature changes, so every existing KB workspace reports a one-time setup re-audit.

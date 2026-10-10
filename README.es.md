@@ -11,7 +11,7 @@ Mimir Lite es una skill de agente que lee y entiende una Base de Conocimiento (K
 
 ## Estado
 
-Versión actual: `0.5.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
+Versión actual: `0.6.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
 
 ## Soporte
 
@@ -36,10 +36,10 @@ Funciona en Windows 10/11 y en Linux, ambos probados en la CI, con PowerShell 7.
 
 | Versión de GeneXus | Estado | Evidencia |
 |---|---|---|
-| GeneXus 18 | Probado | El catálogo de tipos de objeto y las referencias de lectura salen de exportaciones reales de GeneXus 18 (upgrades 9 y 13) |
+| GeneXus 18 | Probado | El catálogo de tipos de objeto y las referencias de lectura salen de exportaciones reales de GeneXus 18 (upgrades 9 y 13); una corrida completa con un agente pasó sobre un ejemplo público de GeneXus 18 Upgrade 12 |
 | GeneXus 9 | Probado | Su formato `ExportFile` se detecta y se sincroniza sin configuración adicional (ver [exportaciones heredadas](skills/mimir-lite/workflows/sync.md#legacy-exports-genexus-9)); 11 de los 12 elementos conocidos se confirmaron en una exportación real |
-| GeneXus 15 a 17 | Probado con ejemplos públicos | Exportaciones públicas de training y de la wiki (cabecera de exportación 4.0) se sincronizan, se indexan y responden consultas; corridas completas con un agente (instalación, preparación, sincronización, preguntas) pasaron sobre un ejemplo de GeneXus 15 y uno de GeneXus 17 |
-| GeneXus X Evolution 2 y 3 | Probado con ejemplos públicos | Exportaciones públicas de la wiki (cabeceras de exportación 3.1 y 3.3) se sincronizan, se indexan y responden consultas; una corrida completa con un agente pasó sobre un ejemplo de X Evolution 3 |
+| GeneXus 15 a 17 | Probado con ejemplos públicos | Exportaciones públicas de training y de la wiki (cabecera de exportación 4.0) se sincronizan, se indexan y responden consultas; corridas completas con un agente (instalación, preparación, sincronización, preguntas) pasaron sobre ejemplos de GeneXus 15, 16 y 17, y sobre un ejemplo de curso indicado para GeneXus 17 y 18 |
+| GeneXus X Evolution 2 y 3 | Probado con ejemplos públicos | Exportaciones públicas de la wiki (cabeceras de exportación 3.1 y 3.3) se sincronizan, se indexan y responden consultas; corridas completas con un agente pasaron sobre un ejemplo de X Evolution 2 y uno de X Evolution 3 |
 | GeneXus 8 y anteriores, X, X Evolution 1, GeneXus Next | Desconocido | No se leyó ninguna exportación |
 
 Un tipo de objeto que la skill no conoce detiene la sincronización antes de escribir nada; la skill no lo adivina. Una exportación que mezcla el formato de GeneXus 9 con el moderno se rechaza de la misma forma.

@@ -11,7 +11,7 @@ Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base
 
 ## Status
 
-Current release: `0.5.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+Current release: `0.6.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
 
 ## Support
 
@@ -36,10 +36,10 @@ Runs on Windows 10/11 and Linux, both tested in CI, with PowerShell 7.4+ (7.4.6+
 
 | GeneXus version | Status | Evidence |
 |---|---|---|
-| GeneXus 18 | Tested | The object type catalog and the reading references come from real GeneXus 18 exports (upgrades 9 and 13) |
+| GeneXus 18 | Tested | The object type catalog and the reading references come from real GeneXus 18 exports (upgrades 9 and 13); a full agent run passed on a public GeneXus 18 Upgrade 12 sample |
 | GeneXus 9 | Tested | Its `ExportFile` format is detected and synced with no extra configuration (see [legacy exports](skills/mimir-lite/workflows/sync.md#legacy-exports-genexus-9)); 11 of the 12 known elements were confirmed on a real export |
-| GeneXus 15 to 17 | Tested with public samples | Public training and wiki exports (export header 4.0) sync, index, and answer queries; full agent runs (install, setup, sync, questions) passed on a GeneXus 15 and a GeneXus 17 sample |
-| GeneXus X Evolution 2 and 3 | Tested with public samples | Public wiki exports (export headers 3.1 and 3.3) sync, index, and answer queries; a full agent run passed on an X Evolution 3 sample |
+| GeneXus 15 to 17 | Tested with public samples | Public training and wiki exports (export header 4.0) sync, index, and answer queries; full agent runs (install, setup, sync, questions) passed on GeneXus 15, 16, and 17 samples, and on a course sample marked for GeneXus 17 and 18 |
+| GeneXus X Evolution 2 and 3 | Tested with public samples | Public wiki exports (export headers 3.1 and 3.3) sync, index, and answer queries; full agent runs passed on an X Evolution 2 and an X Evolution 3 sample |
 | GeneXus 8 and earlier, X, X Evolution 1, GeneXus Next | Unknown | No export has been read |
 
 An object type the skill does not know stops the sync before anything is written; the skill does not guess it. An export that mixes the GeneXus 9 and the modern formats is rejected the same way.
