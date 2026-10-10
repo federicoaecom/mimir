@@ -41,7 +41,16 @@ $procedureTargets = @(
     @{ Name = 'PLinkTargetFake'; Guid = '22222222-2222-2222-2222-222222222207' },
     @{ Name = 'PActionLinkTargetAFake'; Guid = '22222222-2222-2222-2222-222222222208' },
     @{ Name = 'PActionLinkTargetBFake'; Guid = '22222222-2222-2222-2222-222222222209' },
-    @{ Name = 'PWrapperFake'; Guid = '22222222-2222-2222-2222-222222222210' }
+    @{ Name = 'PWrapperFake'; Guid = '22222222-2222-2222-2222-222222222210' },
+    @{ Name = 'PAfterUrlLiteralFake'; Guid = '22222222-2222-2222-2222-222222222211' },
+    @{ Name = 'PAfterBangLiteralFake'; Guid = '22222222-2222-2222-2222-222222222212' },
+    @{ Name = 'PCommentAfterLiteralFake'; Guid = '22222222-2222-2222-2222-222222222213' },
+    @{ Name = 'PConditionNextLineFake'; Guid = '22222222-2222-2222-2222-222222222214' },
+    @{ Name = 'PConditionAfterLiteralFake'; Guid = '22222222-2222-2222-2222-222222222215' },
+    @{ Name = 'PConditionCommentOnlyFake'; Guid = '22222222-2222-2222-2222-222222222216' },
+    @{ Name = 'PConditionAttributeNextLineFake'; Guid = '22222222-2222-2222-2222-222222222217' },
+    @{ Name = 'PBlockCommentQuoteFake'; Guid = '22222222-2222-2222-2222-222222222218' },
+    @{ Name = 'PAfterBlockCommentFake'; Guid = '22222222-2222-2222-2222-222222222219' }
 )
 foreach ($target in $procedureTargets) {
     $xml = @"
@@ -63,6 +72,11 @@ Call(PCommandNoPrefixFake, &sdtLog)
 //PUnusedNoPrefixFake()
 Call(&DynamicProcedureName, &x)
 Call(ATT:DynamicProcedureAttribute, &x)
+&url = 'http://host/path' + PAfterUrlLiteralFake(&x)
+&text = !"see // here" + "a // b" + PAfterBangLiteralFake()
+&note = 'it''s' // PCommentAfterLiteralFake()
+&y = 1 /* don't */ // PBlockCommentQuoteFake()
+&z = 1 /* it's a note */ + PAfterBlockCommentFake()
 ]]></Source>
 </Object>
 "@
@@ -107,6 +121,10 @@ $workWithXml = @"
   <Condition value="PMethodNoPrefixFake.Udp(&amp;Mode)"/>
   <Grid CommandCondition="Call(PCommandNoPrefixFake, &amp;Mode)"/>
   <Grid FilterCondition="PStaticNoPrefixFake()" RowCondition="PCommandNoPrefixFake.Call()" ColCondition="PMethodNoPrefixFake.Udp(&amp;Mode)"/>
+  <Condition value="OrderValue = 1 // note&#xA;and PConditionNextLineFake(&amp;Mode) = 1"/>
+  <Condition value="'http://host' = &amp;Url and PConditionAfterLiteralFake(&amp;Mode) = 1"/>
+  <Condition value="OrderValue = 1 // PConditionCommentOnlyFake(&amp;Mode)"/>
+  <Grid FilterCondition="OrderValue = 1 // see 'http://host'&#xA;and PConditionAttributeNextLineFake(&amp;Mode) = 1"/>
   <action name="OpenIndirectA" gxobject="$procedureGuid-PWrapperFake">
     <parameters>
       <parameter name="PActionLinkTargetAFake.Link(&amp;OrderId)" />
@@ -146,7 +164,22 @@ $cases = @(
     @{ id = 'workwith-condition-attribute-dot-udp'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PMethodNoPrefixFake'; expected_rule = 'workwith_condition_attribute_procedure_dot_udp'; should_exist = $true },
     @{ id = 'workwith-action-wrapper-gxobject-preserved'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PWrapperFake'; expected_rule = 'workwith_action_gxobject'; should_exist = $true },
     @{ id = 'workwith-action-parameter-procedure-dot-link-a'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PActionLinkTargetAFake'; expected_rule = 'workwith_action_parameter_procedure_dot_link'; should_exist = $true },
-    @{ id = 'workwith-action-parameter-procedure-dot-link-b'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PActionLinkTargetBFake'; expected_rule = 'workwith_action_parameter_procedure_dot_link'; should_exist = $true }
+    @{ id = 'workwith-action-parameter-procedure-dot-link-b'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PActionLinkTargetBFake'; expected_rule = 'workwith_action_parameter_procedure_dot_link'; should_exist = $true },
+    # A // inside a '...', "..." or !"..." literal is not a comment: the call after it on the line is kept.
+    @{ id = 'source-call-after-url-literal'; source = 'Procedure:PUsesCallFormsFake'; target = 'Procedure:PAfterUrlLiteralFake'; expected_rule = 'procedure_direct_call'; should_exist = $true },
+    @{ id = 'source-call-after-bang-literal'; source = 'Procedure:PUsesCallFormsFake'; target = 'Procedure:PAfterBangLiteralFake'; expected_rule = 'procedure_direct_call'; should_exist = $true },
+    @{ id = 'source-comment-after-literal'; source = 'Procedure:PUsesCallFormsFake'; target = 'Procedure:PCommentAfterLiteralFake'; expected_rule = 'procedure_direct_call'; should_exist = $false },
+    # A quote inside a /* ... */ block comment does not open a literal: the // after it is still a comment,
+    # and code after a closed block comment on the same line is still read. A closed block comment is only
+    # skipped for quote tracking; its text stays in the line (an unclosed /* ends the line at the opener).
+    @{ id = 'source-comment-after-block-comment-quote'; source = 'Procedure:PUsesCallFormsFake'; target = 'Procedure:PBlockCommentQuoteFake'; expected_rule = 'procedure_direct_call'; should_exist = $false },
+    @{ id = 'source-call-after-closed-block-comment'; source = 'Procedure:PUsesCallFormsFake'; target = 'Procedure:PAfterBlockCommentFake'; expected_rule = 'procedure_direct_call'; should_exist = $true },
+    # A WorkWith condition comment ends at its line (an encoded &#xA;); a // inside a literal is not one.
+    @{ id = 'workwith-condition-call-after-comment-line'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PConditionNextLineFake'; expected_rule = 'workwith_condition_procedure'; should_exist = $true },
+    @{ id = 'workwith-mobile-condition-call-after-comment-line'; source = 'WorkWith:WWCallFormsFake'; target = 'Procedure:PConditionNextLineFake'; expected_rule = 'workwith_condition_procedure'; should_exist = $true },
+    @{ id = 'workwith-condition-call-after-url-literal'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PConditionAfterLiteralFake'; expected_rule = 'workwith_condition_procedure'; should_exist = $true },
+    @{ id = 'workwith-condition-commented-call'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PConditionCommentOnlyFake'; expected_rule = 'workwith_condition_procedure'; should_exist = $false },
+    @{ id = 'workwith-condition-attribute-call-after-comment-line'; source = 'WorkWithForWeb:WWCallFormsFake'; target = 'Procedure:PConditionAttributeNextLineFake'; expected_rule = 'workwith_condition_attribute_procedure'; should_exist = $true }
 )
 $validationCasesPath = Join-Path $kbIntelDir 'procedure-call-forms-validation.json'
 [pscustomobject]@{ cases = $cases } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $validationCasesPath -Encoding utf8NoBOM

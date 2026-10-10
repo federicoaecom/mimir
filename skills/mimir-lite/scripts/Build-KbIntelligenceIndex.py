@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "15"
+EXTRACTOR_SIGNATURE_VERSION = "16"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -312,8 +312,12 @@ WORKWITH_ATTRIBUTE_REFERENCE_ROLES = {
 }
 WORKWITH_CONDITION_ROLE = "WorkWithForWeb condition"
 # <filter> elements (selection and Grid tab): only the <condition> elements inside one are read.
+# The opening tag is quote-aware, so a quoted '>' or '/>' in its attributes does not end it. The
+# body ends at the first </filter>: the pattern instance never nests a <filter> in another (a
+# filter holds only <attributes> and <conditions>), so a nested one is not supported, and only the
+# conditions up to the first </filter> would be read.
 WORKWITH_FOR_WEB_FILTER_RE = re.compile(
-    r"<filter\b[^>]*?(?:/>|>(?P<body>.*?)</filter>)",
+    r"<filter\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*?(?:/>|>(?P<body>.*?)</filter>)",
     re.IGNORECASE | re.DOTALL,
 )
 # <condition value="..."> inside a filter; quoted values may hold a raw '>'.
@@ -824,11 +828,41 @@ def source_blocks(xml_text: str, start: int = 0, end: int | None = None) -> Iter
         yield SourceBlock(text=body, start_line=line_number_at(xml_text, body_start))
 
 
+def strip_line_comment(line: str) -> str:
+    """The line up to its first // outside a '...' or "..." string literal (!"..." included).
+
+    A doubled quote inside a literal closes and reopens it, so it needs no special case; an
+    unterminated literal runs to the end of the line. A /* ... */ block comment on the line
+    is skipped, so a quote inside it does not open a literal; an unclosed block comment
+    runs to the end of the line.
+    """
+    quote = ""
+    index = 0
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in ("'", '"'):
+            quote = char
+        elif char == "/" and line.startswith("//", index):
+            return line[:index]
+        elif char == "/" and line.startswith("/*", index):
+            end = line.find("*/", index + 2)
+            if end < 0:
+                return line[:index]
+            index = end + 2
+            continue
+        index += 1
+    return line
+
+
 def active_line(line: str) -> str:
     stripped = line.lstrip()
     if stripped.startswith("//"):
         return ""
-    return line.split("//", 1)[0]
+    return strip_line_comment(line)
 
 
 def add_evidence(
@@ -1365,7 +1399,9 @@ def gxobject_name(value: str) -> str | None:
 
 
 def effective_condition_expression(value: str) -> str:
-    return value.split("//", 1)[0]
+    """A WorkWith condition value without its // comments: each ends at its own line (a
+    multi-line value goes on after it), and a // inside a string literal is not a comment."""
+    return "\n".join(strip_line_comment(line) for line in value.split("\n"))
 
 
 def bc_variable_targets(xml_text: str, transaction_lookup: dict[str, str]) -> dict[str, str]:
@@ -2093,7 +2129,9 @@ def workwith_condition_attribute_names(expression: str) -> list[str]:
     for token in WORKWITH_CONDITION_TOKEN_RE.finditer(expression):
         kind = token.lastgroup or "other"
         if kind == "comment":
-            # A // comment ends at its line; a multi-line value goes on after it.
+            # A // comment ends at its line; a multi-line value goes on after it. A comment is
+            # whitespace, so the token history is kept: a name on the line after 'udp( // ...'
+            # still names the called object.
             continue
         if kind == "name":
             name = token.group("name")
@@ -2192,7 +2230,11 @@ class CodeToken:
 
 
 def code_tokens(code: str) -> list[CodeToken]:
-    """Significant tokens of a code block (comments dropped), each with its 0-based line."""
+    """Significant tokens of a code block (comments dropped), each with its 0-based line.
+
+    A comment is whitespace: the token before it stays the previous token of the one after it,
+    exactly as across a line break, so 'udp( // ...' followed by a Name still names the object.
+    """
     tokens: list[CodeToken] = []
     line = 0
     position = 0

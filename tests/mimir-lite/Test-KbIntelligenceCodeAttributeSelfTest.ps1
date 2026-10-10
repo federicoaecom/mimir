@@ -23,7 +23,9 @@
       endnew or for each ... endfor (nested, mixed-case keywords, inside if and do case) is a
       write; the when none / when duplicate branches, a plain 'for &i' loop and a top-level
       assignment are not write contexts (reads only); conditions and a compound assignment
-      'Attr += 1' inside for each stay reads.
+      'Attr += 1' inside for each stay reads. A comment is whitespace: after a member and a
+      comment, a statement-start assignment inside for each is still a write (CommentWriteAttr),
+      and after a udp( opener and a comment the first argument is still the called object.
     - WebPanel CodeUsesPanel: Rules and Events Parts (Event 'Load', Event Grid1.Load,
       Event Enter, Sub/Do with quoted names, the Refresh and Load commands alone on their line,
       a top-level assignment that stays a read, a for each write, an assignment inside a value
@@ -175,6 +177,12 @@ for each OtherTable
 endfor
 for &i = 1 to 3
     LoopOnlyAttr = &i
+endfor
+for each CommentTable
+    &Text = MethodAttr.ToString // a comment after a member
+    CommentWriteAttr = 9
+    &Total = udp( // a comment after the opener
+        UdpObjAttr, CommentArgAttr)
 endfor
 ]]></Source>
   </Part>
@@ -428,6 +436,11 @@ try {
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'LoopOnlyAttr'; Role = 'Procedure Source read'; Marker = 'LoopOnlyAttr = &i' },
         # A compound assignment 'Attr += 1' inside for each is not an unambiguous write: read only.
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'CompoundAttr'; Role = 'Procedure Source read'; Marker = 'CompoundAttr += 1' },
+        # A comment is whitespace: the line after it is read with the tokens before it, so a
+        # statement-start assignment after a member and a comment is a write, and the object named
+        # first in a udp( opener followed by a comment stays a called object (UdpObjAttr, negative).
+        [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'CommentWriteAttr'; Role = 'Procedure Source write'; Marker = 'CommentWriteAttr = 9' },
+        [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'CommentArgAttr'; Role = 'Procedure Source read'; Marker = 'UdpObjAttr, CommentArgAttr)' },
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'ProcParmAttr'; Role = 'Rules read'; Marker = 'parm(in:ProcParmAttr' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'PanelParmAttr'; Role = 'Rules read'; Marker = 'parm(in:PanelParmAttr)' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'PanelEventAttr'; Role = 'Events read'; Marker = '&Value = PanelEventAttr' },
@@ -470,7 +483,7 @@ try {
     $negativeAttributes = @(
         'BlockNoteAttr', 'LineNoteAttr', 'LiteralAttr', 'VarAttr', 'MemberAttr', 'CalledAttr', 'UdpObjAttr',
         'Movie', 'Actor', 'PurchasesInfo', 'OrderStatus', 'Startup', 'Approved',
-        'NestedTable', 'InnerTable', 'OtherTable', 'EventTable',
+        'NestedTable', 'InnerTable', 'OtherTable', 'EventTable', 'CommentTable',
         'Where', 'Like', 'Each', 'Not', 'Duplicate', 'Case', 'Otherwise', 'In', 'Out', 'None', 'Exit',
         'Grid1', 'Load', 'Enter', 'Start', 'SubAttr',
         'ConditionOnlyAttr', 'LayoutOnlyAttr', 'FormOnlyAttr',

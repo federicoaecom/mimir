@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     Builds an index from a temporary copy of the synthetic sample-kb fixture
-    (tests/fixtures/sample-kb/, no real KB data) plus eighteen synthetic Attribute objects and two
+    (tests/fixtures/sample-kb/, no real KB data) plus twenty-four synthetic Attribute objects and two
     objects written by this test:
 
     - WorkWithForWeb WorkWithWebInvoice: its pattern instance CDATA names fixture attributes in
@@ -26,7 +26,15 @@
       ends at its line only: InvoiceBalance, on the line after a comment inside a multi-line
       condition value (an encoded &#xA;), is extracted. A <condition> outside any <filter> (the
       Grid tab's own <conditions>) is not a filter condition: InvoiceCredit, named only there, is
-      not extracted. Quantity is
+      not extracted. A comment is whitespace, so the names after it are read with the tokens
+      before it: InvoiceAfterMember (after a member and a comment) and InvoiceAfterOpener (the
+      second argument of a udp( opener followed by a comment) are extracted, while InvoiceCheck,
+      the object udp( names on the line after the comment, is not. A third Grid tab holds a
+      filter whose quoted caption holds '/>' (its condition, InvoiceQuoted, is extracted), a
+      self-closing filter whose quoted caption holds '>' followed by a <conditions> outside any
+      filter (InvoiceStray, not extracted), and a nested filter, which the pattern instance does
+      not produce: only the conditions up to the first </filter> are read (InvoiceNestedInner
+      is extracted, InvoiceNestedOuter is not; a pinned limit). Quantity is
       named by a condition before the Grid tab names it, so its single row is the condition;
       InvoiceTotal and CustomerName keep their earlier grid and order rows. Names used only as
       a &variable (InvoiceSearch, also with .IsEmpty()), in a string literal or a // comment
@@ -100,6 +108,8 @@ $instanceTemplate = @'
           <condition value="Quantity &gt; 0 .and. InvoiceDueDate.InvoiceMonth() = 1 or InvoiceRule.udp(InvoiceAmount) &lt;&gt; null" />
           <condition value="GhostCondition like &amp;GhostCondition when not InvoiceTotal = null and true or false" />
           <condition value="InvoiceTotal &gt; 0 // InvoiceNote&#xA;and InvoiceBalance &gt; 0" />
+          <condition value="InvoiceDueDate.InvoiceMonth // InvoiceNote&#xA;and InvoiceAfterMember = 1" />
+          <condition value="udp( // InvoiceNote&#xA;InvoiceCheck, InvoiceAfterOpener) = 1" />
         </conditions>
       </filter>
     </selection>
@@ -131,6 +141,27 @@ $instanceTemplate = @'
           <filter>
             <conditions>
               <condition value="InvoiceRegion = &amp;InvoiceRegion when not &amp;InvoiceRegion.IsEmpty()" />
+            </conditions>
+          </filter>
+        </tab>
+        <tab name="Notes" code="InvoiceNotes" type="Grid" wcname="InvoiceNotesWC">
+          <filter caption="Total /> Limit">
+            <conditions>
+              <condition value="InvoiceQuoted &gt; 0" />
+            </conditions>
+          </filter>
+          <filter caption="Total > Limit" />
+          <conditions>
+            <condition value="InvoiceStray &gt; 0" />
+          </conditions>
+          <filter>
+            <filter>
+              <conditions>
+                <condition value="InvoiceNestedInner &gt; 0" />
+              </conditions>
+            </filter>
+            <conditions>
+              <condition value="InvoiceNestedOuter &gt; 0" />
             </conditions>
           </filter>
         </tab>
@@ -167,6 +198,7 @@ try {
     $extraAttributes = @(
         'InvoiceAmount', 'InvoiceStatus', 'InvoiceDiscount', 'InvoiceDueDate', 'InvoiceRegion',
         'InvoiceBalance', 'InvoiceCredit', 'InvoiceSearch', 'InvoiceNote', 'InvoiceCheck', 'InvoiceRule', 'InvoiceMonth',
+        'InvoiceAfterMember', 'InvoiceAfterOpener', 'InvoiceQuoted', 'InvoiceStray', 'InvoiceNestedInner', 'InvoiceNestedOuter',
         'Like', 'When', 'Not', 'And', 'Or', 'Null'
     )
     for ($index = 0; $index -lt $extraAttributes.Count; $index++) {
@@ -193,10 +225,13 @@ try {
     # A condition names the attribute at the line of its <condition> tag; Quantity is named by a
     # selection condition before the Grid tab names it, so its first occurrence is the condition.
     $expectedTargets = @(
-        'CustomerId', 'CustomerName', 'InvoiceAmount', 'InvoiceBalance', 'InvoiceDate', 'InvoiceDiscount', 'InvoiceDueDate',
-        'InvoiceId', 'InvoiceRegion', 'InvoiceStatus', 'InvoiceTotal', 'LineNumber', 'ProductName', 'Quantity'
+        'CustomerId', 'CustomerName', 'InvoiceAfterMember', 'InvoiceAfterOpener', 'InvoiceAmount', 'InvoiceBalance', 'InvoiceDate',
+        'InvoiceDiscount', 'InvoiceDueDate', 'InvoiceId', 'InvoiceNestedInner', 'InvoiceQuoted', 'InvoiceRegion', 'InvoiceStatus',
+        'InvoiceTotal', 'LineNumber', 'ProductName', 'Quantity'
     )
     $evidenceMarkers = @{
+        InvoiceAfterMember = @('<condition value="InvoiceDueDate.InvoiceMonth // InvoiceNote', 'WorkWithForWeb condition')
+        InvoiceAfterOpener = @('<condition value="udp( // InvoiceNote', 'WorkWithForWeb condition')
         InvoiceAmount   = @('<condition value="Quantity &gt; 0 .and.', 'WorkWithForWeb condition')
         InvoiceBalance  = @('<condition value="InvoiceTotal &gt; 0 // InvoiceNote', 'WorkWithForWeb condition')
         CustomerId      = @('<descriptionAttribute attribute="adbb33c9-0906-4971-833c-998de27e0676-CustomerId"', 'WorkWithForWeb description attribute')
@@ -205,6 +240,8 @@ try {
         InvoiceDiscount = @('<condition value="CustomerName like', 'WorkWithForWeb condition')
         InvoiceDueDate  = @('<condition value="Quantity &gt; 0 .and.', 'WorkWithForWeb condition')
         InvoiceId       = @('-invoiceid" />', 'WorkWithForWeb attribute')
+        InvoiceNestedInner = @('<condition value="InvoiceNestedInner', 'WorkWithForWeb condition')
+        InvoiceQuoted   = @('<condition value="InvoiceQuoted', 'WorkWithForWeb condition')
         InvoiceRegion   = @('<condition value="InvoiceRegion =', 'WorkWithForWeb condition')
         InvoiceStatus   = @('<condition value="InvoiceStatus =', 'WorkWithForWeb condition')
         InvoiceTotal    = @('-InvoiceTotal" />', 'WorkWithForWeb attribute')
@@ -251,10 +288,12 @@ try {
     }
 
     # Negative cases: a name only inside a <variable> element (even in a condition written there),
-    # only in a condition outside any <filter>, or in a filter condition only as a &variable, a
+    # only in a condition outside any <filter> (InvoiceStray follows a self-closing filter whose
+    # quoted caption holds a '>'), only after a nested filter's first </filter> (InvoiceNestedOuter:
+    # nesting does not occur in the pattern instance, see WORKWITH_FOR_WEB_FILTER_RE), or in a filter condition only as a &variable, a
     # string literal, a comment, a called object, a member after '.', or a keyword.
     $negativeTargets = @(
-        'ProductId', 'InvoiceCredit', 'InvoiceSearch', 'InvoiceNote', 'InvoiceCheck', 'InvoiceRule', 'InvoiceMonth',
+        'ProductId', 'InvoiceCredit', 'InvoiceStray', 'InvoiceNestedOuter', 'InvoiceSearch', 'InvoiceNote', 'InvoiceCheck', 'InvoiceRule', 'InvoiceMonth',
         'Like', 'When', 'Not', 'And', 'Or', 'Null'
     )
     foreach ($attributeName in $negativeTargets) {
