@@ -2,21 +2,37 @@
 <#
 .SYNOPSIS
     WorkWithForWeb pattern instances emit workwith_references_attribute relations to the
-    attributes their grids, orders, views, description and filters name.
+    attributes their grids, orders, views, description, filters and conditions name.
 
 .DESCRIPTION
     Builds an index from a temporary copy of the synthetic sample-kb fixture
-    (tests/fixtures/sample-kb/, no real KB data) plus two objects written by this test:
+    (tests/fixtures/sample-kb/, no real KB data) plus eighteen synthetic Attribute objects and two
+    objects written by this test:
 
     - WorkWithForWeb WorkWithWebInvoice: its pattern instance CDATA names fixture attributes in
       a selection grid (InvoiceTotal), a selection order (CustomerName), a fixed data block
       (invoiceid, lowercase), a Tabular view tab (ProductName), a Grid view tab (Quantity, with
       its own order repeating InvoiceTotal), a descriptionAttribute (CustomerId) and a bare
       filterAttribute (InvoiceDate). InvoiceTotal appears in three places and must yield one
-      relation. ProductId appears only inside a two-line <variable> element (its name and its
-      code; the evidence lines after it prove the masking keeps line breaks) and
-      LineNumber only inside a <condition value="..."> expression: neither is extracted.
-      GhostAttribute is not in the Attribute inventory: no relation.
+      relation. ProductId appears only inside a three-line <variable> element (its name and its
+      code, including a <condition value="..."> written there; the evidence lines after it
+      prove the masking keeps line breaks): it is not extracted. GhostAttribute and
+      GhostCondition are not in the Attribute inventory: no relation.
+    - The selection filter and the Grid tab filter hold <condition value="..."> expressions.
+      Attributes they name (LineNumber, InvoiceStatus, the arguments InvoiceDiscount and
+      InvoiceAmount of InvoiceCheck(...) and InvoiceRule.udp(...), InvoiceDueDate after the
+      legacy '.and.' operator and before a member call, InvoiceRegion in the Grid tab)
+      are extracted with the condition role at the line of their <condition> tag. A // comment
+      ends at its line only: InvoiceBalance, on the line after a comment inside a multi-line
+      condition value (an encoded &#xA;), is extracted. A <condition> outside any <filter> (the
+      Grid tab's own <conditions>) is not a filter condition: InvoiceCredit, named only there, is
+      not extracted. Quantity is
+      named by a condition before the Grid tab names it, so its single row is the condition;
+      InvoiceTotal and CustomerName keep their earlier grid and order rows. Names used only as
+      a &variable (InvoiceSearch, also with .IsEmpty()), in a string literal or a // comment
+      (InvoiceNote), as a called object (InvoiceCheck(...), InvoiceRule.udp(...)), as a member
+      (InvoiceMonth) or as a keyword (like, when, not, and, or, null) are not extracted even
+      though attributes with those names exist.
     - mobile WorkWith WorkWithDevicesInvoice with the same instance XML: no attribute relation,
       because the extractor reads WorkWithForWeb only (checked through who-uses, since
       what-uses refuses the WorkWith type).
@@ -65,7 +81,8 @@ $instanceTemplate = @'
         <attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-InvoiceTotal" />
         <attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-GhostAttribute" />
         <variable name="ProductId" domain="adbb33c9-0906-4971-833c-998de27e0676-ProductId"><![CDATA[&Html = '<attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-ProductId" />'
-&Html += '<attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-ProductId" />']]]]><![CDATA[></variable>
+&Html += '<attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-ProductId" />'
+&Html += '<condition value="ProductId &gt; 0" />']]]]><![CDATA[></variable>
       </attributes>
       <orders>
         <order name="ByCustomer">
@@ -78,6 +95,11 @@ $instanceTemplate = @'
         </attributes>
         <conditions>
           <condition value="LineNumber &gt; 0 and InvoiceTotal &gt; 0" />
+          <condition value="InvoiceStatus = &amp;InvoiceSearch when not &amp;InvoiceSearch.IsEmpty()" />
+          <condition value="CustomerName like 'InvoiceNote%' + &quot;InvoiceNote&quot; when not InvoiceCheck(InvoiceDiscount) // InvoiceNote" />
+          <condition value="Quantity &gt; 0 .and. InvoiceDueDate.InvoiceMonth() = 1 or InvoiceRule.udp(InvoiceAmount) &lt;&gt; null" />
+          <condition value="GhostCondition like &amp;GhostCondition when not InvoiceTotal = null and true or false" />
+          <condition value="InvoiceTotal &gt; 0 // InvoiceNote&#xA;and InvoiceBalance &gt; 0" />
         </conditions>
       </filter>
     </selection>
@@ -98,11 +120,19 @@ $instanceTemplate = @'
           <attributes>
             <attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-Quantity" />
           </attributes>
+          <conditions>
+            <condition value="InvoiceCredit &gt; 0" />
+          </conditions>
           <orders>
             <order name="ByTotal">
               <attribute attribute="adbb33c9-0906-4971-833c-998de27e0676-InvoiceTotal" />
             </order>
           </orders>
+          <filter>
+            <conditions>
+              <condition value="InvoiceRegion = &amp;InvoiceRegion when not &amp;InvoiceRegion.IsEmpty()" />
+            </conditions>
+          </filter>
         </tab>
       </tabs>
     </view>
@@ -132,6 +162,22 @@ try {
     [void](New-Item -ItemType Directory -Path $workWithDir -Force)
     [System.IO.File]::WriteAllText((Join-Path $workWithForWebDir 'WorkWithWebInvoice.xml'), $workWithForWebXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $workWithDir 'WorkWithDevicesInvoice.xml'), $workWithXml, (Get-Utf8NoBomEncoding))
+    # Extra attributes the conditions name: some must be extracted, the others share their name
+    # with a variable, a string literal, a call, a member or a keyword and must not be.
+    $extraAttributes = @(
+        'InvoiceAmount', 'InvoiceStatus', 'InvoiceDiscount', 'InvoiceDueDate', 'InvoiceRegion',
+        'InvoiceBalance', 'InvoiceCredit', 'InvoiceSearch', 'InvoiceNote', 'InvoiceCheck', 'InvoiceRule', 'InvoiceMonth',
+        'Like', 'When', 'Not', 'And', 'Or', 'Null'
+    )
+    for ($index = 0; $index -lt $extraAttributes.Count; $index++) {
+        $attributeXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<Attribute name="$($extraAttributes[$index])" guid="0c000000-0000-4000-8000-0000000001$('{0:d2}' -f $index)" lastUpdate="2026-01-01T00:00:00" description="Synthetic condition attribute">
+  <Properties />
+</Attribute>
+"@
+        [System.IO.File]::WriteAllText((Join-Path $corpus "Attribute/$($extraAttributes[$index]).xml"), $attributeXml, (Get-Utf8NoBomEncoding))
+    }
 
     $indexPath = Join-Path $tempRoot 'index/kb-intelligence.sqlite'
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $indexPath) -Force)
@@ -144,15 +190,27 @@ try {
     # inventory's casing, whichever part of the instance names it. The evidence points at the
     # first naming line of the written file (1-based, counted in the whole XML, so the CDATA
     # offset and the line-preserving <variable> masking must both hold) with the tag's role.
-    $expectedTargets = @('CustomerId', 'CustomerName', 'InvoiceDate', 'InvoiceId', 'InvoiceTotal', 'ProductName', 'Quantity')
+    # A condition names the attribute at the line of its <condition> tag; Quantity is named by a
+    # selection condition before the Grid tab names it, so its first occurrence is the condition.
+    $expectedTargets = @(
+        'CustomerId', 'CustomerName', 'InvoiceAmount', 'InvoiceBalance', 'InvoiceDate', 'InvoiceDiscount', 'InvoiceDueDate',
+        'InvoiceId', 'InvoiceRegion', 'InvoiceStatus', 'InvoiceTotal', 'LineNumber', 'ProductName', 'Quantity'
+    )
     $evidenceMarkers = @{
-        CustomerId   = @('<descriptionAttribute attribute="adbb33c9-0906-4971-833c-998de27e0676-CustomerId"', 'WorkWithForWeb description attribute')
-        CustomerName = @('-CustomerName" />', 'WorkWithForWeb attribute')
-        InvoiceDate  = @('<filterAttribute name="InvoiceDate"', 'WorkWithForWeb filter attribute')
-        InvoiceId    = @('-invoiceid" />', 'WorkWithForWeb attribute')
-        InvoiceTotal = @('-InvoiceTotal" />', 'WorkWithForWeb attribute')
-        ProductName  = @('-ProductName" />', 'WorkWithForWeb attribute')
-        Quantity     = @('-Quantity" />', 'WorkWithForWeb attribute')
+        InvoiceAmount   = @('<condition value="Quantity &gt; 0 .and.', 'WorkWithForWeb condition')
+        InvoiceBalance  = @('<condition value="InvoiceTotal &gt; 0 // InvoiceNote', 'WorkWithForWeb condition')
+        CustomerId      = @('<descriptionAttribute attribute="adbb33c9-0906-4971-833c-998de27e0676-CustomerId"', 'WorkWithForWeb description attribute')
+        CustomerName    = @('-CustomerName" />', 'WorkWithForWeb attribute')
+        InvoiceDate     = @('<filterAttribute name="InvoiceDate"', 'WorkWithForWeb filter attribute')
+        InvoiceDiscount = @('<condition value="CustomerName like', 'WorkWithForWeb condition')
+        InvoiceDueDate  = @('<condition value="Quantity &gt; 0 .and.', 'WorkWithForWeb condition')
+        InvoiceId       = @('-invoiceid" />', 'WorkWithForWeb attribute')
+        InvoiceRegion   = @('<condition value="InvoiceRegion =', 'WorkWithForWeb condition')
+        InvoiceStatus   = @('<condition value="InvoiceStatus =', 'WorkWithForWeb condition')
+        InvoiceTotal    = @('-InvoiceTotal" />', 'WorkWithForWeb attribute')
+        LineNumber      = @('<condition value="LineNumber', 'WorkWithForWeb condition')
+        ProductName     = @('-ProductName" />', 'WorkWithForWeb attribute')
+        Quantity        = @('<condition value="Quantity &gt; 0 .and.', 'WorkWithForWeb condition')
     }
     $writtenLines = ([System.IO.File]::ReadAllText((Join-Path $workWithForWebDir 'WorkWithWebInvoice.xml'))) -split "`n"
     foreach ($attributeName in $expectedTargets) {
@@ -192,13 +250,19 @@ try {
         }
     }
 
-    # Negative cases: a name only inside a <variable> element or a condition expression.
-    foreach ($attributeName in @('ProductId', 'LineNumber')) {
+    # Negative cases: a name only inside a <variable> element (even in a condition written there),
+    # only in a condition outside any <filter>, or in a filter condition only as a &variable, a
+    # string literal, a comment, a called object, a member after '.', or a keyword.
+    $negativeTargets = @(
+        'ProductId', 'InvoiceCredit', 'InvoiceSearch', 'InvoiceNote', 'InvoiceCheck', 'InvoiceRule', 'InvoiceMonth',
+        'Like', 'When', 'Not', 'And', 'Or', 'Null'
+    )
+    foreach ($attributeName in $negativeTargets) {
         $label = "who-uses/Attribute:$attributeName"
         $payload = Invoke-QueryJson -IndexPath $indexPath -Arguments @('--query', 'who-uses', '--object-type', 'Attribute', '--object-name', $attributeName)
         $rows = @($payload.results | Where-Object { $_.relation_kind -eq $relationKind })
         if ($rows.Count -ne 0) {
-            Add-Failure "[$label] a variable or condition mention must not produce '$relationKind'; got $($rows.Count) row(s) from $(@($rows | ForEach-Object { '{0}:{1}' -f $_.source_type, $_.source_name }) -join ', ')"
+            Add-Failure "[$label] a variable, literal, comment, call, member or keyword mention must not produce '$relationKind'; got $($rows.Count) row(s) from $(@($rows | ForEach-Object { '{0}:{1}' -f $_.source_type, $_.source_name }) -join ', ')"
         }
     }
 

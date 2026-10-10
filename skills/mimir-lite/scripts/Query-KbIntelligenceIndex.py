@@ -11,6 +11,7 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -95,14 +96,39 @@ UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
         }
     )
 )
+class ExtractedPart(NamedTuple):
+    """A part of a partly extracted type and the extractor version that first indexed it."""
+
+    name: str
+    since_version: int
+
+
+class PartialAttributeUseExtraction(NamedTuple):
+    """What a partly extracted type's index holds (extracted) and what no version reads (missing)."""
+
+    extracted: tuple[ExtractedPart, ...]
+    missing: tuple[str, ...]
+
+
 # Types whose attribute uses are extracted only in part: what the index holds and what it
-# misses. WorkWithForWeb emits workwith_references_attribute from its pattern instance (grid,
-# filter, order and view attributes) but its condition expressions are not read.
-PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, dict[str, tuple[str, ...]]] = {
-    "WorkWithForWeb": {
-        "extracted": ("grids", "filters", "orders", "views"),
-        "missing": ("conditions",),
-    },
+# misses. "extracted" pairs each indexed part with the extractor_signature_version that first
+# indexed it (index metadata): an index built by an older extractor reports that part as missing,
+# and a type none of whose parts its index holds is reported as not extracted. "missing" lists
+# the parts no extractor version reads. WorkWithForWeb emits workwith_references_attribute from
+# its pattern instance: grid, filter, order and view attributes since 13, the attribute names of
+# filter <condition value="..."> expressions since 14; view captions, view and action
+# parameters, tab condition attributes and <variable> or event code are not read.
+PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExtraction] = {
+    "WorkWithForWeb": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("grids", 13),
+            ExtractedPart("filters", 13),
+            ExtractedPart("orders", 13),
+            ExtractedPart("views", 13),
+            ExtractedPart("filter conditions", 14),
+        ),
+        missing=("captions", "parameters", "tab conditions", "code"),
+    ),
 }
 COVERAGE_SCOPE_CALLS = "calls"
 COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
@@ -642,6 +668,34 @@ def search_objects(conn: sqlite3.Connection, object_name: str | None, object_typ
     }
 
 
+def index_extractor_version(conn: sqlite3.Connection) -> int:
+    """The index's extractor_signature_version as a number; 0 when absent or not numeric."""
+    value = metadata_map(conn).get("extractor_signature_version")
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def partial_extraction_for_version(version: int) -> dict[str, dict[str, tuple[str, ...]]]:
+    """Partly extracted attribute-use types as an index of that extractor version holds them.
+
+    A part the version predates moves to the front of "missing"; a type left with no extracted
+    part is omitted, so the caller reports it as not extracted.
+    """
+    partial: dict[str, dict[str, tuple[str, ...]]] = {}
+    for object_type, parts in PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES.items():
+        extracted = tuple(part.name for part in parts.extracted if version >= part.since_version)
+        if not extracted:
+            continue
+        not_yet = tuple(part.name for part in parts.extracted if version < part.since_version)
+        partial[object_type] = {
+            "extracted": extracted,
+            "missing": not_yet + parts.missing,
+        }
+    return partial
+
+
 def reverse_relation_coverage(
     conn: sqlite3.Connection, target_type: str | None = None
 ) -> dict[str, object]:
@@ -652,17 +706,21 @@ def reverse_relation_coverage(
     uses the calls scope (types whose calls are not extracted; nothing is partly extracted).
     The type is compared ignoring case, so a differently cased "attribute" never falls back to
     the calls scope and its empty answer still discloses the attribute gap. Coverage is complete
-    only when the index holds no object of an unextracted or partly extracted type.
+    only when the index holds no object of an unextracted or partly extracted type. A partly
+    extracted type claims only the parts the index's extractor_signature_version already
+    extracted; with none of them (or no readable version) it is listed as not extracted.
     """
     partial_types: dict[str, dict[str, tuple[str, ...]]] = {}
+    gated_types: tuple[str, ...] = ()
     if target_type is not None and target_type.casefold() == "attribute":
         scope = COVERAGE_SCOPE_ATTRIBUTE_REFERENCES
         source_types = UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES
-        partial_types = PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES
+        gated_types = tuple(sorted(PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES))
+        partial_types = partial_extraction_for_version(index_extractor_version(conn))
     else:
         scope = COVERAGE_SCOPE_CALLS
         source_types = UNEXTRACTED_CALL_SOURCE_TYPES
-    counted_types = tuple(source_types) + tuple(sorted(partial_types))
+    counted_types = tuple(source_types) + gated_types
     placeholders = ", ".join("?" for _ in counted_types)
     rows = fetch_all(
         conn,

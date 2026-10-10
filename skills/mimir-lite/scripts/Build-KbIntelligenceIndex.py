@@ -15,7 +15,8 @@ Current scope:
 - WorkWith and WorkWithForWeb explicit prompt attributes to WebPanel
 - WorkWith and WorkWithForWeb explicit transaction binding
 - WorkWithForWeb pattern instance attribute references (grids, orders, views, fixed data,
-  description and filter attributes) to Attribute; conditions and <variable> elements are not read
+  description and filter attributes, and the attribute names of filter <condition value="...">
+  expressions) to Attribute; <variable> elements are not read
 - Source WebComponent Create calls to WebPanel
 - literal ATTCUSTOMTYPE CustomType values
 - explicit Source for each table references in Procedure and WebPanel
@@ -47,7 +48,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "13"
+EXTRACTOR_SIGNATURE_VERSION = "14"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -304,6 +305,37 @@ WORKWITH_ATTRIBUTE_REFERENCE_ROLES = {
     "descriptionattribute": "WorkWithForWeb description attribute",
     "filterattribute": "WorkWithForWeb filter attribute",
 }
+WORKWITH_CONDITION_ROLE = "WorkWithForWeb condition"
+# <filter> elements (selection and Grid tab): only the <condition> elements inside one are read.
+WORKWITH_FOR_WEB_FILTER_RE = re.compile(
+    r"<filter\b[^>]*?(?:/>|>(?P<body>.*?)</filter>)",
+    re.IGNORECASE | re.DOTALL,
+)
+# <condition value="..."> inside a filter; quoted values may hold a raw '>'.
+WORKWITH_FOR_WEB_CONDITION_RE = re.compile(
+    r"<condition\b(?P<attrs>(?:[^>\"']|\"[^\"]*\"|'[^']*')*)/?>",
+    re.IGNORECASE,
+)
+# Condition expression tokens, tried in order: // comment (to the end of its line), string
+# literals, legacy dotted operators (.and. .or. .not.), &variables, numbers, names, a member dot,
+# any other character.
+WORKWITH_CONDITION_TOKEN_RE = re.compile(
+    r"(?P<comment>//[^\n]*)"
+    r"|(?P<literal>'[^']*(?:'|$)|\"[^\"]*(?:\"|$))"
+    r"|(?P<operator>\.(?:and|or|not)\.)"
+    r"|(?P<variable>&[A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?P<number>\d[A-Za-z0-9_]*(?:\.\d+)?)"
+    r"|(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?P<dot>\.)"
+    r"|(?P<other>\S)",
+    re.IGNORECASE,
+)
+# A name followed by '(' or by an object call method ('.udp(', '.call(', '.link(', '.submit(')
+# is a called object, not an attribute; an attribute method such as '.IsEmpty(' keeps the name.
+WORKWITH_CONDITION_CALL_FOLLOW_RE = re.compile(r"\s*(?:\(|\.\s*(?:udp|call|link|submit)\s*\()", re.IGNORECASE)
+# The first argument of the legacy udp(Name, ...) and call(Name, ...) forms names the object.
+WORKWITH_CONDITION_CALL_FUNCTIONS = frozenset({"udp", "call"})
+WORKWITH_CONDITION_KEYWORDS = frozenset({"and", "or", "not", "like", "when", "null", "true", "false", "in"})
 
 
 @dataclass(frozen=True)
@@ -1986,15 +2018,53 @@ def mask_preserving_lines(match: re.Match[str]) -> str:
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
+def workwith_condition_attribute_names(expression: str) -> list[str]:
+    """Names a WorkWithForWeb condition expression uses as attributes, in order of appearance.
+
+    The expression is already XML-unescaped. Skipped: // comments (each to the end of its line
+    only, so a multi-line value goes on after it), string literals, &variables, members after
+    '.', names followed by '(' or an object call method such as '.udp(' (called objects), the
+    object named first in udp(...) and call(...), and GeneXus keywords. The legacy
+    .and./.or./.not. operators are not member dots. The caller keeps only names in the
+    Attribute inventory.
+    """
+    names: list[str] = []
+    # (kind, lowercased text) of the last three tokens; ("start", "") pads the beginning.
+    previous: list[tuple[str, str]] = [("start", "")] * 3
+    for token in WORKWITH_CONDITION_TOKEN_RE.finditer(expression):
+        kind = token.lastgroup or "other"
+        if kind == "comment":
+            # A // comment ends at its line; a multi-line value goes on after it.
+            continue
+        if kind == "name":
+            name = token.group("name")
+            after_dot = previous[-1][0] == "dot"
+            is_call = WORKWITH_CONDITION_CALL_FOLLOW_RE.match(expression, token.end()) is not None
+            # udp(Name, ...) or call(Name, ...), but not the argument of Proc.udp(Arg).
+            is_called_object = (
+                previous[-3][0] != "dot"
+                and previous[-2][0] == "name"
+                and previous[-2][1] in WORKWITH_CONDITION_CALL_FUNCTIONS
+                and previous[-1] == ("other", "(")
+            )
+            if not (after_dot or is_call or is_called_object or name.lower() in WORKWITH_CONDITION_KEYWORDS):
+                names.append(name)
+        previous = previous[1:] + [(kind, token.group(0).lower())]
+    return names
+
+
 def extract_workwith_for_web_attribute_evidence(
     workwith_for_web_objects: Iterable[ObjectInfo],
     attribute_names: set[str],
 ) -> list[Evidence]:
     """Attribute references from the WorkWithForWeb pattern instance, one per source and target.
 
-    Reads <attribute>/<descriptionAttribute> (typeGuid-Name form) and bare <filterAttribute name>
-    inside the pattern instance Data only; <variable> elements are masked and condition
-    expressions are never read. Targets resolve against the Attribute inventory only.
+    Reads <attribute>/<descriptionAttribute> (typeGuid-Name form), bare <filterAttribute name>
+    and the attribute names of filter <condition value="..."> expressions (see
+    workwith_condition_attribute_names) inside the pattern instance Data only; a <condition>
+    outside a <filter> element is not read. <variable> elements are masked first. Targets
+    resolve against the Attribute inventory only. The first occurrence in document order wins,
+    whichever part names it.
     """
     evidences: list[Evidence] = []
     seen: set[tuple[str, str]] = set()
@@ -2004,6 +2074,8 @@ def extract_workwith_for_web_attribute_evidence(
         for data_match in WORKWITH_FOR_WEB_INSTANCE_DATA_RE.finditer(xml_text):
             body = WORKWITH_VARIABLE_ELEMENT_RE.sub(mask_preserving_lines, data_match.group("body"))
             body_offset = data_match.start("body")
+            # (offset in body, raw attribute name, snippet, evidence role)
+            candidates: list[tuple[int, str, str, str]] = []
             for match in WORKWITH_ATTRIBUTE_REFERENCE_RE.finditer(body):
                 if match.group("filter_tag"):
                     tag = match.group("filter_tag")
@@ -2012,6 +2084,23 @@ def extract_workwith_for_web_attribute_evidence(
                     tag = match.group("tag")
                     raw_value = html.unescape(match.group("value")).strip()
                 raw_attribute_name = gxobject_name(raw_value) or raw_value
+                candidates.append(
+                    (match.start(), raw_attribute_name, match.group(0), WORKWITH_ATTRIBUTE_REFERENCE_ROLES[tag.lower()])
+                )
+            for filter_match in WORKWITH_FOR_WEB_FILTER_RE.finditer(body):
+                if filter_match.group("body") is None:
+                    continue
+                # pos/endpos keep match offsets relative to the whole body.
+                for match in WORKWITH_FOR_WEB_CONDITION_RE.finditer(
+                    body, filter_match.start("body"), filter_match.end("body")
+                ):
+                    expression = parse_attributes(match.group("attrs")).get("value")
+                    if not expression:
+                        continue
+                    for raw_attribute_name in workwith_condition_attribute_names(expression):
+                        candidates.append((match.start(), raw_attribute_name, match.group(0), WORKWITH_CONDITION_ROLE))
+            candidates.sort(key=lambda candidate: candidate[0])
+            for offset, raw_attribute_name, snippet, role in candidates:
                 target_name = attribute_lookup.get(raw_attribute_name.lower())
                 if not target_name:
                     continue
@@ -2025,11 +2114,11 @@ def extract_workwith_for_web_attribute_evidence(
                     target_type="Attribute",
                     target_name=target_name,
                     relation_kind="workwith_references_attribute",
-                    line=line_number_at(xml_text, body_offset + match.start()),
+                    line=line_number_at(xml_text, body_offset + offset),
                     column=1,
-                    snippet=match.group(0),
+                    snippet=snippet,
                     extractor_rule="workwith_for_web_attribute_reference",
-                    evidence_role=WORKWITH_ATTRIBUTE_REFERENCE_ROLES[tag.lower()],
+                    evidence_role=role,
                 )
     return evidences
 

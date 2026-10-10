@@ -44,7 +44,7 @@ Runs on Windows 10/11 and Linux, both tested in CI, with PowerShell 7.4+ (7.4.6+
 
 An object type the skill does not know stops the sync before anything is written; the skill does not guess it. An export that mixes the GeneXus 9 and the modern formats is rejected the same way.
 
-Calls made from mobile objects (Smart Devices and Native Mobile panels and their Work With, the Offline Database object) and from GXflow business process diagrams are not indexed yet: a "who uses" answer can miss those callers, and it says so when the KB contains such objects. For an attribute, the index holds its structural relations (Transaction levels, Table keys and indexes) and its uses in the grids, filters, orders, and views of WorkWithForWeb objects; its uses in WorkWithForWeb conditions and in the grids, filters, code, rules, and formulas of other objects are not indexed, and a "who uses" answer for an attribute says so.
+Calls made from mobile objects (Smart Devices and Native Mobile panels and their Work With, the Offline Database object) and from GXflow business process diagrams are not indexed yet: a "who uses" answer can miss those callers, and it says so when the KB contains such objects. For an attribute, the index holds its structural relations (Transaction levels, Table keys and indexes) and its uses in the grids, filters, orders, views, and filter conditions of WorkWithForWeb objects; its uses in WorkWithForWeb captions, parameters, tab conditions, and code, and in the grids, filters, code, rules, and formulas of other objects are not indexed, and a "who uses" answer for an attribute says so.
 
 ## Use it with an AI agent
 

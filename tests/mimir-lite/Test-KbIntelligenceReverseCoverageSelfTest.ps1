@@ -20,13 +20,17 @@
     the structural Attribute relations (Transaction levels, Table keys and indexes) the index
     holds only the WorkWithForWeb grid, filter, order and view references, so coverage is
     incomplete whenever the index holds any type whose attribute uses are not extracted, or a
-    WorkWithForWeb, whose conditions are not read. Corpus A also holds one synthetic
-    WorkWithForWeb whose grid and filter name two fixture attributes: it is listed under
-    partially_extracted_source_types (extracted: grids, filters, orders, views; missing:
-    conditions), not under unextracted_source_types, and its relations appear in the answer.
-    Corpus C holds only that WorkWithForWeb: an Attribute target reports complete=false with no
-    unextracted type, and the note keeps only the partly extracted and structural parts. The
-    note is built from the coverage entry's own extracted list. Corpus B (no call-source types) must still report
+    WorkWithForWeb, whose captions, parameters, tab conditions and code are not read. Corpus A
+    also holds one synthetic WorkWithForWeb whose grid and filter name two fixture attributes: it
+    is listed under partially_extracted_source_types (extracted: grids, filters, orders, views,
+    filter conditions; missing: captions, parameters, tab conditions, code), not under
+    unextracted_source_types, and its relations appear in the answer. Copies of the corpus A
+    index whose extractor_signature_version is rewritten to 13, 12 or removed stand for older
+    indexes: 13 reports filter conditions as missing, 12 and a missing version report
+    WorkWithForWeb as not extracted. Corpus C holds only that WorkWithForWeb: an Attribute
+    target reports complete=false with no unextracted type, and the note keeps only the partly
+    extracted and structural parts. The note is built from the coverage entry's own extracted
+    list. Corpus B (no call-source types) must still report
     the attribute gap with an empty partly extracted list, while a Procedure target on corpus B
     stays complete with scope calls and an empty partly extracted list. The scope is chosen
     ignoring the case of --object-type, so a lowercase 'attribute' target still discloses the gap.
@@ -68,6 +72,30 @@ function New-Index {
     & $buildScript -SourceRoot $CorpusRoot -OutputPath $IndexPath | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Build-KbIntelligenceIndex failed for $CorpusRoot; exit $LASTEXITCODE"
+    }
+}
+
+# Copies an index and rewrites its extractor_signature_version ("absent" deletes the row),
+# standing for an index built by an older extractor.
+function Copy-IndexWithExtractorVersion {
+    param([string]$SourceIndexPath, [string]$IndexPath, [string]$Version)
+    [void](New-Item -ItemType Directory -Path (Split-Path -Parent $IndexPath) -Force)
+    Copy-Item -LiteralPath $SourceIndexPath -Destination $IndexPath
+    $patchScript = @'
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+if sys.argv[2] != "absent":
+    conn.execute("UPDATE metadata SET value = ? WHERE key = 'extractor_signature_version'", (sys.argv[2],))
+else:
+    conn.execute("DELETE FROM metadata WHERE key = 'extractor_signature_version'")
+conn.commit()
+conn.close()
+'@
+    $patchPath = Join-Path (Split-Path -Parent $IndexPath) 'patch-version.py'
+    [System.IO.File]::WriteAllText($patchPath, $patchScript, (Get-Utf8NoBomEncoding))
+    $output = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $patchPath $IndexPath $Version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not rewrite extractor_signature_version in ${IndexPath}: $(@($output) -join ' ')"
     }
 }
 
@@ -265,7 +293,12 @@ EndEvent
 
     # Attribute targets: structural relations and WorkWithForWeb references are indexed, so
     # coverage discloses every indexed type whose attribute uses are not extracted, even without
-    # call-source types, and lists WorkWithForWeb as partly extracted (conditions are not read).
+    # call-source types, and lists WorkWithForWeb as partly extracted (an index built by the
+    # current extractor reads grids, filters, orders, views and filter conditions; captions,
+    # parameters, tab conditions and code are not read).
+    $wwfwExtracted = 'grids,filters,orders,views,filter conditions'
+    $wwfwMissing = 'captions,parameters,tab conditions,code'
+    $wwfwNotePart = 'grids, filters, orders, views and filter conditions are indexed, captions, parameters, tab conditions and code are not'
     $attributeCases = @(
         [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Procedure', 'WebPanel', 'Panel') },
         [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Procedure', 'WebPanel', 'Panel') },
@@ -302,11 +335,11 @@ EndEvent
         }
         elseif ($case.Corpus -eq 'A') {
             $partial = @($payload.coverage.partially_extracted_source_types)
-            if ($partial.Count -ne 1 -or $partial[0].type -ne 'WorkWithForWeb' -or $partial[0].count -ne 1 -or @($partial[0].missing) -notcontains 'conditions') {
-                Add-Failure "[$label/json] partially_extracted_source_types should hold WorkWithForWeb once with count 1 and missing 'conditions'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+            if ($partial.Count -ne 1 -or $partial[0].type -ne 'WorkWithForWeb' -or $partial[0].count -ne 1 -or (@($partial[0].missing) -join ',') -ne $wwfwMissing) {
+                Add-Failure "[$label/json] partially_extracted_source_types should hold WorkWithForWeb once with count 1 and missing '$wwfwMissing'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
             }
-            elseif ($null -eq $partial[0].PSObject.Properties['extracted'] -or (@($partial[0].extracted) -join ',') -ne 'grids,filters,orders,views') {
-                Add-Failure "[$label/json] the WorkWithForWeb entry should carry extracted 'grids,filters,orders,views'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+            elseif ($null -eq $partial[0].PSObject.Properties['extracted'] -or (@($partial[0].extracted) -join ',') -ne $wwfwExtracted) {
+                Add-Failure "[$label/json] the WorkWithForWeb entry should carry extracted '$wwfwExtracted'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
             }
             $wwfwRows = @($payload.results | Where-Object { $_.source_type -eq 'WorkWithForWeb' -and $_.source_name -eq 'WorkWithWebInvoice' -and $_.relation_kind -eq 'workwith_references_attribute' })
             if ($wwfwRows.Count -ne 1) {
@@ -328,7 +361,7 @@ EndEvent
         elseif ($noteLines[0] -notmatch 'attribute uses' -or $noteLines[0] -notmatch 'only structural relations' -or $noteLines[0] -match 'calls made from') {
             Add-Failure "[$label/text] the note should describe unextracted attribute uses and structural-only relations: $($noteLines[0])"
         }
-        elseif ($case.Corpus -eq 'A' -and $noteLines[0] -notmatch 'partly extracted from WorkWithForWeb \(1\): grids, filters, orders and views are indexed, conditions are not') {
+        elseif ($case.Corpus -eq 'A' -and -not $noteLines[0].Contains("partly extracted from WorkWithForWeb (1): $wwfwNotePart")) {
             Add-Failure "[$label/text] the note should describe WorkWithForWeb (1) as partly extracted: $($noteLines[0])"
         }
         elseif ($case.Corpus -eq 'B' -and $noteLines[0] -match 'partly extracted') {
@@ -384,13 +417,43 @@ EndEvent
         }
     }
     $run = Invoke-Query -IndexPath $indexC -Arguments @('--query', 'who-uses', '--object-type', 'Attribute', '--object-name', 'InvoiceTotal', '--format', 'text')
-    $expectedNoteC = 'coverage: incomplete - attribute uses are partly extracted from WorkWithForWeb (1): grids, filters, orders and views are indexed, conditions are not; otherwise only structural relations (Transaction levels, Table keys and indexes) are indexed, so an empty or short list does not prove the attribute is unused'
+    $expectedNoteC = "coverage: incomplete - attribute uses are partly extracted from WorkWithForWeb (1): $wwfwNotePart; otherwise only structural relations (Transaction levels, Table keys and indexes) are indexed, so an empty or short list does not prove the attribute is unused"
     $noteLines = @($run.Text -split "`n" | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { $_ -match '^coverage:' })
     if ($run.ExitCode -ne 0) {
         Add-Failure "[$label/text] exit should stay 0; got $($run.ExitCode)"
     }
     elseif ($noteLines.Count -ne 1 -or $noteLines[0] -cne $expectedNoteC) {
         Add-Failure "[$label/text] expected exactly the note '$expectedNoteC'; got: $($noteLines -join ' | ')"
+    }
+
+    # The WorkWithForWeb claim follows the index's extractor_signature_version: version 13 indexed
+    # grids, filters, orders and views, version 14 added filter conditions. An older index (or one
+    # without the version) reports WorkWithForWeb as not extracted, never as partly extracted.
+    $versionCases = @(
+        [pscustomobject]@{ Version = '13'; Partial = $true; Extracted = 'grids,filters,orders,views'; Missing = "filter conditions,$wwfwMissing" },
+        [pscustomobject]@{ Version = '12'; Partial = $false },
+        [pscustomobject]@{ Version = 'absent'; Partial = $false }
+    )
+    foreach ($versionCase in $versionCases) {
+        $label = "who-uses/Attribute:InvoiceTotal/A@extractor-$($versionCase.Version)"
+        $versionIndex = Join-Path $tempRoot "index-a-$($versionCase.Version)/kb-intelligence.sqlite"
+        Copy-IndexWithExtractorVersion -SourceIndexPath $indexA -IndexPath $versionIndex -Version $versionCase.Version
+        $run = Invoke-Query -IndexPath $versionIndex -Arguments @('--query', 'who-uses', '--object-type', 'Attribute', '--object-name', 'InvoiceTotal', '--format', 'json')
+        if ($run.ExitCode -ne 0) {
+            Add-Failure "[$label/json] exit should stay 0; got $($run.ExitCode): $($run.Text)"
+            continue
+        }
+        $coverage = ($run.Text | ConvertFrom-Json).coverage
+        $partial = @($coverage.partially_extracted_source_types)
+        $unextractedWwfw = @($coverage.unextracted_source_types | Where-Object { $_.type -eq 'WorkWithForWeb' })
+        if ($versionCase.Partial) {
+            if ($partial.Count -ne 1 -or $partial[0].type -ne 'WorkWithForWeb' -or (@($partial[0].extracted) -join ',') -ne $versionCase.Extracted -or (@($partial[0].missing) -join ',') -ne $versionCase.Missing -or $unextractedWwfw.Count -ne 0) {
+                Add-Failure "[$label/json] WorkWithForWeb should be partly extracted with extracted '$($versionCase.Extracted)' and missing '$($versionCase.Missing)'; got $($coverage | ConvertTo-Json -Compress -Depth 4)"
+            }
+        }
+        elseif ($partial.Count -ne 0 -or $unextractedWwfw.Count -ne 1 -or $unextractedWwfw[0].count -ne 1) {
+            Add-Failure "[$label/json] WorkWithForWeb should be listed once under unextracted_source_types and nothing as partly extracted; got $($coverage | ConvertTo-Json -Compress -Depth 4)"
+        }
     }
 
     # The note describes the extracted parts from the coverage result, not from a constant.

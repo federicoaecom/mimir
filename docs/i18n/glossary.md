@@ -29,6 +29,9 @@ Term mappings used across the documentation. Add a term here before translating 
 | pattern instance | instancia de Pattern | An object that applies a Pattern to a base object (for example a `WorkWithForWeb` instance of a Transaction); the objects it generates are its output. "Pattern" keeps its capital, as in the row above. |
 | order (pattern instance) | orden | A sort order defined in a pattern instance, for example `<orders>` in a `WorkWithForWeb` grid. |
 | view (pattern instance) | vista | The view part of a pattern instance (`<view>` in a `WorkWithForWeb`), with its tabs and fixed data. |
+| tab (pattern instance) | pestaña | A tab of a pattern instance view (`<tab>` in a `WorkWithForWeb`); a tab condition is its `condition` attribute (condición de pestaña). |
+| caption (pattern instance) | título | The `caption` expression of a pattern instance view or action, shown to the user. |
+| filter condition | condición de filtro | A `<condition value="...">` expression of a pattern instance filter (selection or Grid tab). |
 | writability | capacidad de escritura | Whether a Transaction attribute is physically stored (`own-physical`, `extended-fk-key`, etc.); a read-only classification. |
 
 ## Reading and evidence
