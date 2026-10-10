@@ -16,7 +16,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
-- The setup workflow shows the settings file path and every allow and read rule, and the global instruction file path and its exact block, in a visible fenced block in the same message as the question and before it; a rule or block that appears only in a tool input, a permission prompt, or the agent's reasoning was not shown. The README (English and Spanish) and the **install** workflow make the existing-clone report (clean state, current commit, `origin` match) visible text that precedes the update question, never only tool output or reasoning.
+- The setup workflow shows the settings file path and every allow and read rule, and the global instruction file path and its exact block, in a visible fenced block in the same message as the question and before it; a rule or block that appears only in a tool input, a permission prompt, or the agent's reasoning was not shown. The README (English and Spanish) and the **install** workflow make the existing-clone report (clean state, current commit, `origin` match) visible text that precedes the update question, never only tool output or reasoning. Both rules keep the agent tool's question prompt with options when it has one: the visible text goes right before the prompt, and no question becomes free text.
 
 ## [0.5.0] - 2026-10-10
 
