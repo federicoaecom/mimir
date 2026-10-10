@@ -17,6 +17,10 @@ Current scope:
 - WorkWithForWeb pattern instance attribute references (grids, orders, views, fixed data,
   description and filter attributes, and the attribute names of filter <condition value="...">
   expressions) to Attribute; <variable> elements are not read
+- attribute reads in code Parts selected by Part type (Procedure Source, Rules and Events of
+  Procedure, WebPanel and Transaction, DataProvider Source) to Attribute, skipping comments,
+  literals, variables, members, called objects, for each heads, Domain enumeration members,
+  Event headers, keywords, DataProvider group headers and SDT-output item names
 - Source WebComponent Create calls to WebPanel
 - literal ATTCUSTOMTYPE CustomType values
 - explicit Source for each table references in Procedure and WebPanel
@@ -44,11 +48,12 @@ import sqlite3
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "14"
+EXTRACTOR_SIGNATURE_VERSION = "15"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -336,6 +341,60 @@ WORKWITH_CONDITION_CALL_FOLLOW_RE = re.compile(r"\s*(?:\(|\.\s*(?:udp|call|link|
 # The first argument of the legacy udp(Name, ...) and call(Name, ...) forms names the object.
 WORKWITH_CONDITION_CALL_FUNCTIONS = frozenset({"udp", "call"})
 WORKWITH_CONDITION_KEYWORDS = frozenset({"and", "or", "not", "like", "when", "null", "true", "false", "in"})
+
+# Code Parts read for attribute uses (code_references_attribute), selected by Part type GUID, and
+# the Part name each evidence role starts with ("<Part> read" or "<Part> write"). WebForm, Layout
+# and Conditions Parts, and a bare <Source> outside any <Part>, are not read by this extractor
+# (the other Source extractors keep reading every <Source>).
+PROCEDURE_SOURCE_PART_GUID = "528d1c06-a9c2-420d-bd35-21dca83f12ff"
+RULES_PART_GUID = "9b0a32a3-de6d-4be1-a4dd-1b85d3741534"
+EVENTS_PART_GUID = "c44bd5ff-f918-415b-98e6-aca44fed84fa"
+DATA_PROVIDER_SOURCE_PART_GUID = "1d8aeb5a-6e98-45a7-92d2-d8de7384e432"
+CODE_ATTRIBUTE_PART_NAMES: dict[str, dict[str, str]] = {
+    "Procedure": {
+        PROCEDURE_SOURCE_PART_GUID: "Procedure Source",
+        RULES_PART_GUID: "Rules",
+        EVENTS_PART_GUID: "Events",
+    },
+    "WebPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
+    "Transaction": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
+    "DataProvider": {DATA_PROVIDER_SOURCE_PART_GUID: "DataProvider Source", RULES_PART_GUID: "Rules"},
+}
+# A <Part> element, self-closing or with a body (PART_RE would run a self-closing Part into the next one).
+CODE_PART_RE = re.compile(r"<Part\b(?P<attrs>[^>]*?)(?:/>|>(?P<body>.*?)</Part>)", re.IGNORECASE | re.DOTALL)
+# Code tokens, tried in order: // and /* */ comments, single-line string literals, legacy dotted
+# operators, &variables, numbers, names, a member dot, any other character.
+CODE_TOKEN_RE = re.compile(
+    r"(?P<comment>//[^\n]*|/\*.*?(?:\*/|\Z))"
+    r"|(?P<literal>'[^'\n]*'?|\"[^\"\n]*\"?)"
+    r"|(?P<operator>\.(?:and|or|not)\.)"
+    r"|(?P<variable>&[A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?P<number>\d[A-Za-z0-9_]*(?:\.\d+)?)"
+    r"|(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?P<dot>\.)"
+    r"|(?P<other>\S)",
+    re.IGNORECASE | re.DOTALL,
+)
+# A name followed, on its own line, by '(' or by an object call method ('.udp(', '.call(',
+# '.link(', '.submit(') is called, not used as an attribute. Never crosses a line break: a '('
+# opening the next line starts another expression.
+CODE_CALL_FOLLOW_RE = re.compile(r"[ \t]*(?:\(|\.[ \t]*(?:udp|call|link|submit)[ \t]*\()", re.IGNORECASE)
+# Commands that, alone on their line at a statement start, are not attribute uses (an attribute
+# may carry the same name, so they are not keywords).
+CODE_LINE_COMMANDS = frozenset({"load", "refresh"})
+# GeneXus keywords never read as attribute names, even when an attribute has that name.
+CODE_KEYWORDS = WORKWITH_CONDITION_KEYWORDS | frozenset(
+    {
+        "by", "call", "case", "commit", "default", "defined", "do", "duplicate", "each", "else",
+        "elseif", "endcase", "enddo", "endevent", "endfor", "endif", "endnew", "endsub", "error",
+        "event", "exit", "for", "if", "inout", "input", "msg", "new", "noaccept", "none", "order",
+        "otherwise", "out", "parm", "return", "rollback", "sub", "to", "udp", "unique", "using",
+        "where", "while",
+    }
+)
+# A token before a line break that carries the expression on to the next line.
+CODE_CONTINUATION_OTHERS = frozenset({"+", "-", "*", "/", ",", "(", "=", "<", ">", "["})
+CODE_CONTINUATION_NAMES = frozenset({"and", "or", "not", "like"})
 
 
 @dataclass(frozen=True)
@@ -752,8 +811,8 @@ def unwrap_source_body(raw_body: str) -> str:
     return html.unescape(body)
 
 
-def source_blocks(xml_text: str) -> Iterable[SourceBlock]:
-    for match in SOURCE_RE.finditer(xml_text):
+def source_blocks(xml_text: str, start: int = 0, end: int | None = None) -> Iterable[SourceBlock]:
+    for match in SOURCE_RE.finditer(xml_text, start, len(xml_text) if end is None else end):
         raw_body = match.group("body")
         body_start = match.start("body")
         cdata_prefix = re.match(r"\s*<!\[CDATA\[", raw_body, re.DOTALL)
@@ -2123,6 +2182,277 @@ def extract_workwith_for_web_attribute_evidence(
     return evidences
 
 
+@dataclass(frozen=True)
+class CodeToken:
+    kind: str
+    text: str
+    start: int
+    end: int
+    line: int  # 0-based line inside the code block
+
+
+def code_tokens(code: str) -> list[CodeToken]:
+    """Significant tokens of a code block (comments dropped), each with its 0-based line."""
+    tokens: list[CodeToken] = []
+    line = 0
+    position = 0
+    for match in CODE_TOKEN_RE.finditer(code):
+        line += code.count("\n", position, match.start())
+        position = match.start()
+        kind = match.lastgroup or "other"
+        if kind != "comment":
+            tokens.append(CodeToken(kind, match.group(0), match.start(), match.end(), line))
+    return tokens
+
+
+class CodeMode(Enum):
+    """How code_attribute_names reads a code block, chosen from its Part and object."""
+
+    # Procedure Source and Events: writes only inside for each / new blocks.
+    BLOCK_CODE = "block code"
+    # Rules of a Procedure, WebPanel or DataProvider: reads only.
+    PLAIN_RULES = "plain rules"
+    # Transaction Rules: an assignment rule 'Attr = expr [if ...];' writes its target.
+    TRANSACTION_RULES = "transaction rules"
+    # DataProvider Source whose output is a Transaction: item left sides are writes.
+    DATA_PROVIDER_TRANSACTION_OUTPUT = "data provider transaction output"
+    # DataProvider Source whose output is an SDT: item left sides name SDT items, not uses.
+    DATA_PROVIDER_SDT_OUTPUT = "data provider sdt output"
+
+
+@dataclass
+class CodeBlockFrame:
+    """An open 'for each' ... endfor, new ... endnew or plain 'for' ... endfor block."""
+
+    kind: str  # "each", "new" or "loop"
+    in_exception_branch: bool = False  # inside its when none / when duplicate branch
+
+
+def code_attribute_names(code: str, *, domain_names: set[str], mode: CodeMode) -> list[tuple[str, int, str]]:
+    """(name, 0-based line, "read" or "write") of the names a code block may use as attributes.
+
+    Skipped: comments (// and /* */), string literals, &variables, members after '.', names
+    followed on their own line by '(' or an object call method such as '.udp(' (a '(' opening
+    the next line does not count), the object named first in udp(...) and call(...), the table
+    named after 'for each' on its line, a Domain name followed by '.Member' that is not a method
+    call (an enumeration value), every name on an 'Event' header line, the Load and Refresh
+    commands alone on their line at a statement start, and GeneXus keywords. In a DataProvider
+    Source (either DATA_PROVIDER_* mode), a group header (a name that starts a statement and is
+    not followed by '=', '.' or '(') is skipped, and so is an item's left side (a
+    statement-start name followed by '=') in DATA_PROVIDER_SDT_OUTPUT: it names an SDT item.
+
+    "write" marks only an unambiguous assignment target: in DATA_PROVIDER_TRANSACTION_OUTPUT,
+    an item's left side; in TRANSACTION_RULES, a name followed by '=' that starts a rule (first
+    in the block or after ';'); in BLOCK_CODE, a name followed by '=' at a statement start
+    (first on its line, not continuing an expression, outside parentheses) whose innermost
+    enclosing 'for each' ... endfor or new ... endnew block is not in its when none / when
+    duplicate branch. A plain 'for' loop is neither a write block nor a barrier; an Event or
+    Sub boundary closes every open block. PLAIN_RULES has no write. Every other use is "read".
+    The caller keeps only names in the Attribute inventory.
+    """
+    tokens = code_tokens(code)
+    names: list[tuple[str, int, str]] = []
+    event_header_line = -1
+    track_blocks = mode is CodeMode.BLOCK_CODE
+    data_provider_source = mode in (CodeMode.DATA_PROVIDER_TRANSACTION_OUTPUT, CodeMode.DATA_PROVIDER_SDT_OUTPUT)
+    # Open blocks, innermost last.
+    blocks: list[CodeBlockFrame] = []
+    depth = 0
+    for index, token in enumerate(tokens):
+        if token.kind == "other":
+            if token.text == "(":
+                depth += 1
+            elif token.text == ")":
+                depth = max(0, depth - 1)
+            continue
+        if token.kind != "name":
+            continue
+        lowered = token.text.lower()
+        previous = tokens[index - 1] if index > 0 else None
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        first_on_line = previous is None or previous.line != token.line
+        continues_expression = previous is not None and (
+            (previous.kind == "other" and previous.text in CODE_CONTINUATION_OTHERS)
+            or previous.kind == "operator"
+            or (previous.kind == "name" and previous.text.lower() in CODE_CONTINUATION_NAMES)
+        )
+        line_start = first_on_line and not continues_expression and depth == 0
+        alone_on_line = following is None or following.line != token.line
+        if track_blocks and line_start:
+            following_lowered = following.text.lower() if following is not None else ""
+            if lowered in ("event", "endevent", "sub", "endsub"):
+                blocks.clear()
+                depth = 0
+            elif lowered == "for":
+                blocks.append(CodeBlockFrame("each" if following_lowered == "each" else "loop"))
+            elif lowered == "new" and (alone_on_line or following.kind == "name"):
+                blocks.append(CodeBlockFrame("new"))
+            elif lowered in ("endfor", "endnew"):
+                closing = ("each", "loop") if lowered == "endfor" else ("new",)
+                while blocks:
+                    if blocks.pop().kind in closing:
+                        break
+            elif lowered == "when" and following_lowered in ("none", "duplicate"):
+                branch_kind = "each" if following_lowered == "none" else "new"
+                for frame in reversed(blocks):
+                    if frame.kind == branch_kind:
+                        frame.in_exception_branch = True
+                        break
+        if lowered == "event" and first_on_line:
+            event_header_line = token.line
+            depth = 0
+        if token.line == event_header_line or lowered in CODE_KEYWORDS:
+            continue
+        if lowered in CODE_LINE_COMMANDS and line_start and alone_on_line:
+            continue
+        if previous is not None and previous.kind == "dot":
+            continue
+        if CODE_CALL_FOLLOW_RE.match(code, token.end) is not None:
+            continue
+        # udp(Name, ...) or call(Name, ...), but not the argument of Proc.udp(Arg).
+        if (
+            index >= 2
+            and previous is not None
+            and previous.text == "("
+            and tokens[index - 2].kind == "name"
+            and tokens[index - 2].text.lower() in WORKWITH_CONDITION_CALL_FUNCTIONS
+            and (index < 3 or tokens[index - 3].kind != "dot")
+        ):
+            continue
+        # for each Table[.Level]: the head names a table, not an attribute.
+        if (
+            index >= 2
+            and previous is not None
+            and previous.kind == "name"
+            and previous.text.lower() == "each"
+            and previous.line == token.line
+            and tokens[index - 2].kind == "name"
+            and tokens[index - 2].text.lower() == "for"
+        ):
+            continue
+        # Domain.Member (an enumeration value); Domain.Method(...) keeps the attribute.
+        if (
+            lowered in domain_names
+            and following is not None
+            and following.kind == "dot"
+            and index + 2 < len(tokens)
+            and tokens[index + 2].kind == "name"
+            and CODE_CALL_FOLLOW_RE.match(code, tokens[index + 2].end) is None
+        ):
+            continue
+        followed_by_assignment = following is not None and following.text == "="
+        access = "read"
+        if data_provider_source:
+            statement_start = (first_on_line and not continues_expression) or (
+                previous is not None and previous.text in ("{", "}")
+            )
+            if statement_start:
+                if not followed_by_assignment and not (
+                    following is not None and (following.kind == "dot" or following.text == "(")
+                ):
+                    continue  # group header
+                if followed_by_assignment:
+                    if mode is CodeMode.DATA_PROVIDER_SDT_OUTPUT:
+                        continue  # SDT item name
+                    access = "write"
+        elif mode is CodeMode.TRANSACTION_RULES:
+            if followed_by_assignment and (previous is None or previous.text == ";"):
+                access = "write"
+        elif track_blocks and followed_by_assignment and line_start:
+            write_block = next((frame for frame in reversed(blocks) if frame.kind in ("each", "new")), None)
+            if write_block is not None and not write_block.in_exception_branch:
+                access = "write"
+        names.append((token.text, token.line, access))
+    return names
+
+
+def code_part_blocks(xml_text: str, part_names: dict[str, str]) -> Iterable[tuple[SourceBlock, str, str]]:
+    """(<Source> block, Part type GUID, Part name) of every <Part> whose type GUID is in part_names."""
+    for part in CODE_PART_RE.finditer(xml_text):
+        if part.group("body") is None:
+            continue
+        part_type = (parse_attributes(part.group("attrs")).get("type") or "").strip().lower()
+        part_name = part_names.get(part_type)
+        if part_name is None:
+            continue
+        for block in source_blocks(xml_text, part.start("body"), part.end("body")):
+            yield block, part_type, part_name
+
+
+def data_provider_output_kind(xml_text: str, transaction_type_guid: str) -> str:
+    """'transaction' when the DataProvider's OutputSDT names a Transaction (by type GUID), else 'sdt'."""
+    try:
+        props = object_level_property_dict_via_parse(xml_text)
+    except (ElementTree.ParseError, ValueError):
+        props = object_level_property_dict_via_regex(xml_text)
+    output = html.unescape(props.get("OutputSDT", "")).strip().lower()
+    return "transaction" if output.startswith(transaction_type_guid.lower() + "-") else "sdt"
+
+
+def extract_code_attribute_evidence(
+    code_objects: Iterable[ObjectInfo],
+    attribute_names: set[str],
+    domain_names: set[str],
+    transaction_type_guid: str,
+) -> list[Evidence]:
+    """Attribute uses from GeneXus code Parts (CODE_ATTRIBUTE_PART_NAMES), roles '<Part> read'
+    and '<Part> write'.
+
+    Reads only <Source> elements inside the selected <Part> elements; names come from
+    code_attribute_names in the CodeMode of their Part (which decides read or write;
+    Transaction Rules carry assignment rules) and resolve against the Attribute inventory
+    only. One relation per source, attribute and evidence role: the first occurrence in
+    document order. A write occurrence gives no read row of its own.
+    """
+    evidences: list[Evidence] = []
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    domain_keys = {name.lower() for name in domain_names}
+    for source in code_objects:
+        part_names = CODE_ATTRIBUTE_PART_NAMES.get(source.object_type)
+        if not part_names:
+            continue
+        xml_text = read_text(source.path)
+        data_provider_mode = None
+        if source.object_type == "DataProvider":
+            data_provider_mode = (
+                CodeMode.DATA_PROVIDER_TRANSACTION_OUTPUT
+                if data_provider_output_kind(xml_text, transaction_type_guid) == "transaction"
+                else CodeMode.DATA_PROVIDER_SDT_OUTPUT
+            )
+        rules_mode = CodeMode.TRANSACTION_RULES if source.object_type == "Transaction" else CodeMode.PLAIN_RULES
+        seen: set[tuple[str, str]] = set()
+        for block, part_type, part_name in code_part_blocks(xml_text, part_names):
+            code_lines = block.text.split("\n")
+            if part_type == RULES_PART_GUID:
+                mode = rules_mode
+            elif part_type == DATA_PROVIDER_SOURCE_PART_GUID and data_provider_mode is not None:
+                mode = data_provider_mode
+            else:
+                mode = CodeMode.BLOCK_CODE
+            for raw_name, code_line, access in code_attribute_names(block.text, domain_names=domain_keys, mode=mode):
+                target_name = attribute_lookup.get(raw_name.lower())
+                if not target_name:
+                    continue
+                role = f"{part_name} {access}"
+                key = (target_name.lower(), role)
+                if key in seen:
+                    continue
+                seen.add(key)
+                add_evidence(
+                    evidences,
+                    source=source,
+                    target_type="Attribute",
+                    target_name=target_name,
+                    relation_kind="code_references_attribute",
+                    line=block.start_line + code_line,
+                    column=1,
+                    snippet=code_lines[code_line],
+                    extractor_rule="code_attribute_reference",
+                    evidence_role=role,
+                )
+    return evidences
+
+
 def normalize_custom_type(value: str) -> str:
     return " ".join(html.unescape(value).strip().split())
 
@@ -3336,6 +3666,12 @@ def main() -> int:
         objects_by_type.get("WorkWithForWeb", {}).values(),
         attribute_names=set(attributes),
     )
+    code_attribute_evidences = extract_code_attribute_evidence(
+        [obj for obj in objects if obj.object_type in CODE_ATTRIBUTE_PART_NAMES],
+        attribute_names=set(attributes),
+        domain_names=set(domains),
+        transaction_type_guid=get_transaction_type_guid(GX_TYPE_CATALOG_BY_NAME),
+    )
     relation_scope_objects = [
         *procedures.values(),
         *webpanels.values(),
@@ -3430,6 +3766,7 @@ def main() -> int:
         *workwith_webpanel_link_evidences,
         *workwith_prompt_evidences,
         *workwith_for_web_attribute_evidences,
+        *code_attribute_evidences,
         *custom_type_evidences,
         *resolved_custom_type_evidences,
         *sdt_item_attcustomtype_resolved_sdt_evidences,

@@ -66,17 +66,17 @@ UNEXTRACTED_CALL_SOURCE_TYPES = (
 )
 # Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
 # views, layouts, or item types) while the extractor emits no attribute-use relation for any
-# of them. Besides workwith_references_attribute (WorkWithForWeb, see
-# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES), the relations that target an Attribute are
+# of them. Besides workwith_references_attribute (WorkWithForWeb) and code_references_attribute
+# (Procedure, WebPanel, Transaction, DataProvider), see
+# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
 # structural: has_level_attribute (Transaction levels), has_key_attribute and
 # has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
-# Source scope (INDEXED_SOURCE_TYPES: Procedure, WebPanel, DataProvider, Transaction
-# rules/events, API, DataSelector), Attribute (formulas), SDT (items based on an attribute),
-# DataView and Query (attribute lists), the web pattern WorkWithPlusInstance (grid, filter,
-# order and view attributes), and every type of UNEXTRACTED_CALL_SOURCE_TYPES. Table is left
-# out: its attributes come from Transaction levels and its keys and indexes are extracted. Must
-# include UNEXTRACTED_CALL_SOURCE_TYPES and stay disjoint from
-# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES (checked by
+# rest of the Source scope (INDEXED_SOURCE_TYPES: API, DataSelector), Attribute (formulas), SDT
+# (items based on an attribute), DataView and Query (attribute lists), the web pattern
+# WorkWithPlusInstance (grid, filter, order and view attributes), and every type of
+# UNEXTRACTED_CALL_SOURCE_TYPES. Table is left out: its attributes come from Transaction levels
+# and its keys and indexes are extracted. Must include UNEXTRACTED_CALL_SOURCE_TYPES and stay
+# disjoint from PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES (checked by
 # tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
 UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
     sorted(
@@ -84,14 +84,10 @@ UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
         | {
             "API",
             "Attribute",
-            "DataProvider",
             "DataSelector",
             "DataView",
-            "Procedure",
             "Query",
             "SDT",
-            "Transaction",
-            "WebPanel",
             "WorkWithPlusInstance",
         }
     )
@@ -117,8 +113,55 @@ class PartialAttributeUseExtraction(NamedTuple):
 # the parts no extractor version reads. WorkWithForWeb emits workwith_references_attribute from
 # its pattern instance: grid, filter, order and view attributes since 13, the attribute names of
 # filter <condition value="..."> expressions since 14; view captions, view and action
-# parameters, tab condition attributes and <variable> or event code are not read.
+# parameters, tab condition attributes and <variable> or event code are not read. Procedure,
+# WebPanel, Transaction and DataProvider emit code_references_attribute since 15 from the code
+# Parts the builder selects by type (Procedure Source, Rules and Events, DataProvider Source and
+# Rules): reads, and writes only where the target is unambiguous ("block writes": a
+# statement-start assignment inside for each or new; "rule writes": a Transaction assignment
+# rule; "Transaction item writes": an item's left side when the DataProvider outputs a
+# Transaction). Not read: other assignment targets (ambiguous writes, reported as reads),
+# Conditions, Procedure Layout and WebForm Parts, the items of an SDT-output DataProvider,
+# Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>.
 PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExtraction] = {
+    "DataProvider": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("Source reads", 15),
+            ExtractedPart("rule reads", 15),
+            ExtractedPart("Transaction item writes", 15),
+        ),
+        missing=("SDT output items", "Business Component members", "code outside a Part"),
+    ),
+    "Procedure": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("Source reads", 15),
+            ExtractedPart("rule reads", 15),
+            ExtractedPart("block writes", 15),
+        ),
+        missing=("ambiguous writes", "conditions", "layout", "Business Component members", "code outside a Part"),
+    ),
+    "Transaction": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("rule reads", 15),
+            ExtractedPart("rule writes", 15),
+            ExtractedPart("event reads", 15),
+            ExtractedPart("block writes", 15),
+        ),
+        missing=("ambiguous writes", "WebForm bindings", "Business Component members", "code outside a Part"),
+    ),
+    "WebPanel": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("rule reads", 15),
+            ExtractedPart("event reads", 15),
+            ExtractedPart("block writes", 15),
+        ),
+        missing=(
+            "ambiguous writes",
+            "conditions",
+            "WebForm bindings",
+            "Business Component members",
+            "code outside a Part",
+        ),
+    ),
     "WorkWithForWeb": PartialAttributeUseExtraction(
         extracted=(
             ExtractedPart("grids", 13),

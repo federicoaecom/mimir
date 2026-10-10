@@ -32,6 +32,9 @@ Term mappings used across the documentation. Add a term here before translating 
 | tab (pattern instance) | pestaña | A tab of a pattern instance view (`<tab>` in a `WorkWithForWeb`); a tab condition is its `condition` attribute (condición de pestaña). |
 | caption (pattern instance) | título | The `caption` expression of a pattern instance view or action, shown to the user. |
 | filter condition | condición de filtro | A `<condition value="...">` expression of a pattern instance filter (selection or Grid tab). |
+| attribute read (code) | lectura (de atributo) | An attribute named in GeneXus code (`code_references_attribute`, read role); an assignment is reported as a read unless its target is unambiguous (write role). |
+| write role | rol de escritura | The role of a code use that assigns an attribute where the target is unambiguous: `Attribute = expression` inside `for each`/`new` blocks, a Transaction assignment rule, or an item of a Transaction-output DataProvider. |
+| Business Component member | miembro de Business Component | An attribute reached through a Business Component variable (`&bc.Attribute`); "Business Component" is not translated. |
 | writability | capacidad de escritura | Whether a Transaction attribute is physically stored (`own-physical`, `extended-fk-key`, etc.); a read-only classification. |
 
 ## Reading and evidence

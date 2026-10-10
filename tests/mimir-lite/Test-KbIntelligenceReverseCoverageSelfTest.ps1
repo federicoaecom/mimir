@@ -18,27 +18,34 @@
 
     Coverage is target-aware. For an Attribute target the scope is attribute_references: besides
     the structural Attribute relations (Transaction levels, Table keys and indexes) the index
-    holds only the WorkWithForWeb grid, filter, order and view references, so coverage is
-    incomplete whenever the index holds any type whose attribute uses are not extracted, or a
-    WorkWithForWeb, whose captions, parameters, tab conditions and code are not read. Corpus A
-    also holds one synthetic WorkWithForWeb whose grid and filter name two fixture attributes: it
-    is listed under partially_extracted_source_types (extracted: grids, filters, orders, views,
-    filter conditions; missing: captions, parameters, tab conditions, code), not under
-    unextracted_source_types, and its relations appear in the answer. Copies of the corpus A
-    index whose extractor_signature_version is rewritten to 13, 12 or removed stand for older
-    indexes: 13 reports filter conditions as missing, 12 and a missing version report
-    WorkWithForWeb as not extracted. Corpus C holds only that WorkWithForWeb: an Attribute
+    holds the WorkWithForWeb grid, filter, order, view and filter condition references and the
+    code reads of Procedure, WebPanel, Transaction and DataProvider, so coverage is incomplete
+    whenever the index holds any type whose attribute uses are not extracted, or a partly
+    extracted type. Corpus A also holds one synthetic WorkWithForWeb whose grid and filter name two
+    fixture attributes: it is listed under partially_extracted_source_types (extracted: grids,
+    filters, orders, views, filter conditions; missing: captions, parameters, tab conditions,
+    code), not under unextracted_source_types, and its relations appear in the answer; the
+    fixture's Procedure, Transaction and WebPanel objects are listed there too, each with its
+    extracted code reads and writes and missing parts, and so is one synthetic Transaction-output
+    DataProvider whose item assigns InvoiceTotal (its write row appears in the answer and the
+    text note describes it first). Copies of the corpus A index whose
+    extractor_signature_version is rewritten to 14, 13, 12 or removed stand for older indexes: 14
+    and 13 report DataProvider, Procedure, Transaction and WebPanel as not extracted, 13 also reports filter
+    conditions as missing, 12 and a missing version report WorkWithForWeb as not extracted too.
+    Corpus C holds only that WorkWithForWeb: an Attribute
     target reports complete=false with no unextracted type, and the note keeps only the partly
     extracted and structural parts. The note is built from the coverage entry's own extracted
     list. Corpus B (no call-source types) must still report
-    the attribute gap with an empty partly extracted list, while a Procedure target on corpus B
+    the attribute gap, with its Procedure, Transaction and WebPanel as partly extracted and no
+    WorkWithForWeb, while a Procedure target on corpus B
     stays complete with scope calls and an empty partly extracted list. The scope is chosen
     ignoring the case of --object-type, so a lowercase 'attribute' target still discloses the gap.
 
     Forward answers (what-uses) carry no coverage object. The engine's list of unextracted
     caller types must stay disjoint from the extractor's INDEXED_SOURCE_TYPES; the attribute-use
     list must include every unextracted caller type; the partly extracted attribute-use types
-    must include WorkWithForWeb and stay disjoint from the unextracted attribute-use list.
+    must include WorkWithForWeb, Procedure, WebPanel, Transaction and DataProvider and stay
+    disjoint from the unextracted attribute-use list.
 #>
 
 Set-StrictMode -Version Latest
@@ -60,6 +67,13 @@ $builderPy = Join-Path $scriptDir 'Build-KbIntelligenceIndex.py'
 
 $failures = [System.Collections.Generic.List[string]]::new()
 function Add-Failure([string]$Message) { $failures.Add($Message) }
+
+# partially_extracted_source_types as "Type=count:extracted,.../missing,...;..." in list order.
+function Format-PartialEntries($Coverage) {
+    return (@($Coverage.partially_extracted_source_types | ForEach-Object {
+                '{0}={1}:{2}/{3}' -f $_.type, $_.count, (@($_.extracted) -join ','), (@($_.missing) -join ',')
+            }) -join ';')
+}
 
 function Invoke-Query {
     param([string]$IndexPath, [string[]]$Arguments)
@@ -178,6 +192,36 @@ EndEvent
 </instance>]]></Data></Part>
 </Object>
 '@
+    # Synthetic DataProvider whose output is the Invoice Transaction: its item assigns InvoiceTotal
+    # (a DataProvider Source write).
+    $dataProviderXml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="00000000-0000-0000-0000-000000000000" user="SampleKbUser" lastUpdate="2026-01-01T00:00:00" fullyQualifiedName="InvoiceSeed" moduleGuid="00000000-0000-0000-0000-000000000000" guid="0b000000-0000-4000-8000-000000000005" name="InvoiceSeed" type="2a9e9aba-d2de-4801-ae7f-5e3819222daf" description="Synthetic Transaction-output data provider">
+  <Part type="1d8aeb5a-6e98-45a7-92d2-d8de7384e432">
+    <Source><![CDATA[InvoiceCollection
+{
+    Invoice
+    {
+        InvoiceTotal = &Total
+    }
+}
+]]></Source>
+  </Part>
+  <Properties>
+    <Property>
+      <Name>Name</Name>
+      <Value>InvoiceSeed</Value>
+    </Property>
+    <Property>
+      <Name>OutputSDT</Name>
+      <Value>1db606f2-af09-4cf9-a3b5-b481519d28f6-Invoice</Value>
+    </Property>
+  </Properties>
+</Object>
+'@
+    $dataProviderDir = Join-Path $corpusA 'DataProvider'
+    [void](New-Item -ItemType Directory -Path $dataProviderDir -Force)
+    [System.IO.File]::WriteAllText((Join-Path $dataProviderDir 'InvoiceSeed.xml'), $dataProviderXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $workWithForWebDir 'WorkWithWebInvoice.xml'), $workWithForWebXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $workWithDir 'WorkWithDevicesInvoice.xml'), $workWithXml, (Get-Utf8NoBomEncoding))
     [System.IO.File]::WriteAllText((Join-Path $offlineDbDir 'InvoiceOfflineDatabase.xml'), $offlineDbXml, (Get-Utf8NoBomEncoding))
@@ -291,18 +335,36 @@ EndEvent
         Add-Failure "[who-uses/A] WebPanel:CustomerView should still be listed as a caller"
     }
 
-    # Attribute targets: structural relations and WorkWithForWeb references are indexed, so
-    # coverage discloses every indexed type whose attribute uses are not extracted, even without
-    # call-source types, and lists WorkWithForWeb as partly extracted (an index built by the
-    # current extractor reads grids, filters, orders, views and filter conditions; captions,
-    # parameters, tab conditions and code are not read).
+    # Attribute targets: structural relations, WorkWithForWeb references and code reads are
+    # indexed, so coverage discloses every indexed type whose attribute uses are not extracted,
+    # even without call-source types, and lists WorkWithForWeb, Procedure, WebPanel, Transaction
+    # and DataProvider as partly extracted (an index built by the current extractor reads
+    # WorkWithForWeb grids, filters, orders, views and filter conditions, the attribute reads of
+    # Procedure Source, Rules and Events and DataProvider Source and Rules, and the unambiguous
+    # writes: for each / new blocks, Transaction assignment rules, Transaction-output DataProvider
+    # items; captions, parameters, tab conditions and pattern code, ambiguous writes, conditions,
+    # layouts, WebForm bindings, SDT output items, Business Component members and code outside a
+    # Part are not read).
     $wwfwExtracted = 'grids,filters,orders,views,filter conditions'
     $wwfwMissing = 'captions,parameters,tab conditions,code'
     $wwfwNotePart = 'grids, filters, orders, views and filter conditions are indexed, captions, parameters, tab conditions and code are not'
+    $procedurePart = 'Source reads,rule reads,block writes/ambiguous writes,conditions,layout,Business Component members,code outside a Part'
+    $transactionPart = 'rule reads,rule writes,event reads,block writes/ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
+    $webPanelPart = 'rule reads,event reads,block writes/ambiguous writes,conditions,WebForm bindings,Business Component members,code outside a Part'
+    $dataProviderPart = 'Source reads,rule reads,Transaction item writes/SDT output items,Business Component members,code outside a Part'
+    $procedureNotePart = 'Source reads, rule reads and block writes are indexed, ambiguous writes, conditions, layout, Business Component members and code outside a Part are not'
+    $dataProviderNotePart = 'Source reads, rule reads and Transaction item writes are indexed, SDT output items, Business Component members and code outside a Part are not'
+    $codeTypes = @('DataProvider', 'Procedure', 'Transaction', 'WebPanel')
+    # Counts are the checked-in fixture's objects (tests/fixtures/sample-kb/): one Procedure
+    # (CalculateInvoiceTotal), three Transactions (Customer, Invoice, Product) and one WebPanel
+    # (CustomerView); corpus A adds the one synthetic DataProvider (InvoiceSeed) and the one
+    # WorkWithForWeb (WorkWithWebInvoice) written above.
+    $expectedPartialB = "Procedure=1:$procedurePart;Transaction=3:$transactionPart;WebPanel=1:$webPanelPart"
+    $expectedPartialA = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
     $attributeCases = @(
-        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Procedure', 'WebPanel', 'Panel') },
-        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Procedure', 'WebPanel', 'Panel') },
-        [pscustomobject]@{ Corpus = 'B'; Index = $indexB; Name = 'InvoiceTotal'; MustList = @('Procedure', 'WebPanel') }
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Panel', 'Attribute', 'WorkWith'); Partial = $expectedPartialA },
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Panel', 'Attribute', 'WorkWith'); Partial = $expectedPartialA },
+        [pscustomobject]@{ Corpus = 'B'; Index = $indexB; Name = 'InvoiceTotal'; MustList = @('Attribute'); Partial = $expectedPartialB }
     )
     foreach ($case in $attributeCases) {
         $label = "who-uses/Attribute:$($case.Name)/$($case.Corpus)"
@@ -327,27 +389,31 @@ EndEvent
         if ($missingTypes.Count -gt 0) {
             Add-Failure "[$label/json] unextracted_source_types should list $($case.MustList -join ', '); missing $($missingTypes -join ', ')"
         }
-        if ($listedTypes -contains 'WorkWithForWeb') {
-            Add-Failure "[$label/json] WorkWithForWeb is partly extracted; it must not be listed under unextracted_source_types"
+        $wronglyListed = @(@($codeTypes + 'WorkWithForWeb') | Where-Object { $listedTypes -contains $_ })
+        if ($wronglyListed.Count -gt 0) {
+            Add-Failure "[$label/json] partly extracted types must not be listed under unextracted_source_types: $($wronglyListed -join ', ')"
         }
         if ($null -eq $payload.coverage.PSObject.Properties['partially_extracted_source_types']) {
             Add-Failure "[$label/json] coverage has no partially_extracted_source_types list"
         }
-        elseif ($case.Corpus -eq 'A') {
-            $partial = @($payload.coverage.partially_extracted_source_types)
-            if ($partial.Count -ne 1 -or $partial[0].type -ne 'WorkWithForWeb' -or $partial[0].count -ne 1 -or (@($partial[0].missing) -join ',') -ne $wwfwMissing) {
-                Add-Failure "[$label/json] partially_extracted_source_types should hold WorkWithForWeb once with count 1 and missing '$wwfwMissing'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
+        else {
+            $actualPartial = Format-PartialEntries $payload.coverage
+            if ($actualPartial -cne $case.Partial) {
+                Add-Failure "[$label/json] partially_extracted_source_types should be '$($case.Partial)'; got '$actualPartial'"
             }
-            elseif ($null -eq $partial[0].PSObject.Properties['extracted'] -or (@($partial[0].extracted) -join ',') -ne $wwfwExtracted) {
-                Add-Failure "[$label/json] the WorkWithForWeb entry should carry extracted '$wwfwExtracted'; got $($payload.coverage | ConvertTo-Json -Compress -Depth 4)"
-            }
+        }
+        if ($case.Corpus -eq 'A') {
             $wwfwRows = @($payload.results | Where-Object { $_.source_type -eq 'WorkWithForWeb' -and $_.source_name -eq 'WorkWithWebInvoice' -and $_.relation_kind -eq 'workwith_references_attribute' })
             if ($wwfwRows.Count -ne 1) {
                 Add-Failure "[$label/json] WorkWithForWeb:WorkWithWebInvoice should be listed once as workwith_references_attribute; got $($wwfwRows.Count)"
             }
         }
-        elseif (@($payload.coverage.partially_extracted_source_types).Count -ne 0) {
-            Add-Failure "[$label/json] corpus B holds no WorkWithForWeb; partially_extracted_source_types must be empty"
+        if ($case.Corpus -eq 'A' -and $case.Name -eq 'InvoiceTotal') {
+            # The synthetic Transaction-output DataProvider assigns InvoiceTotal: one write row.
+            $dpRows = @($payload.results | Where-Object { $_.source_type -eq 'DataProvider' -and $_.source_name -eq 'InvoiceSeed' -and $_.relation_kind -eq 'code_references_attribute' })
+            if ($dpRows.Count -ne 1 -or $dpRows[0].evidence_role -ne 'DataProvider Source write') {
+                Add-Failure "[$label/json] DataProvider:InvoiceSeed should be listed once as code_references_attribute with role 'DataProvider Source write'; got $(@($dpRows | ForEach-Object { $_.evidence_role }) -join ', ')"
+            }
         }
 
         $run = Invoke-Query -IndexPath $case.Index -Arguments @('--query', 'who-uses', '--object-type', 'Attribute', '--object-name', $case.Name, '--format', 'text')
@@ -361,11 +427,20 @@ EndEvent
         elseif ($noteLines[0] -notmatch 'attribute uses' -or $noteLines[0] -notmatch 'only structural relations' -or $noteLines[0] -match 'calls made from') {
             Add-Failure "[$label/text] the note should describe unextracted attribute uses and structural-only relations: $($noteLines[0])"
         }
-        elseif ($case.Corpus -eq 'A' -and -not $noteLines[0].Contains("partly extracted from WorkWithForWeb (1): $wwfwNotePart")) {
+        elseif (-not $noteLines[0].Contains("Procedure (1): $procedureNotePart")) {
+            Add-Failure "[$label/text] the note should describe Procedure (1) as partly extracted: $($noteLines[0])"
+        }
+        elseif ($case.Corpus -eq 'A' -and -not $noteLines[0].Contains("partly extracted from DataProvider (1): $dataProviderNotePart; Procedure (1)")) {
+            Add-Failure "[$label/text] the note should describe DataProvider (1) as partly extracted, before Procedure: $($noteLines[0])"
+        }
+        elseif ($case.Corpus -eq 'B' -and -not $noteLines[0].Contains("partly extracted from Procedure (1): $procedureNotePart")) {
+            Add-Failure "[$label/text] corpus B holds no DataProvider; the partly extracted list should start with Procedure (1): $($noteLines[0])"
+        }
+        elseif ($case.Corpus -eq 'A' -and -not $noteLines[0].Contains("WorkWithForWeb (1): $wwfwNotePart")) {
             Add-Failure "[$label/text] the note should describe WorkWithForWeb (1) as partly extracted: $($noteLines[0])"
         }
-        elseif ($case.Corpus -eq 'B' -and $noteLines[0] -match 'partly extracted') {
-            Add-Failure "[$label/text] corpus B holds no WorkWithForWeb; the note must not mention partly extracted types: $($noteLines[0])"
+        elseif ($case.Corpus -eq 'B' -and $noteLines[0] -match 'WorkWithForWeb') {
+            Add-Failure "[$label/text] corpus B holds no WorkWithForWeb; the note must not mention it: $($noteLines[0])"
         }
     }
 
@@ -426,13 +501,17 @@ EndEvent
         Add-Failure "[$label/text] expected exactly the note '$expectedNoteC'; got: $($noteLines -join ' | ')"
     }
 
-    # The WorkWithForWeb claim follows the index's extractor_signature_version: version 13 indexed
-    # grids, filters, orders and views, version 14 added filter conditions. An older index (or one
-    # without the version) reports WorkWithForWeb as not extracted, never as partly extracted.
+    # The partly extracted claims follow the index's extractor_signature_version: version 13
+    # indexed the WorkWithForWeb grids, filters, orders and views, version 14 added its filter
+    # conditions, version 15 the code reads and writes of Procedure, WebPanel, Transaction and
+    # DataProvider (corpus A holds one of each, so 14 lists all four as not extracted).
+    # An older index (or one without the version) reports a type whose parts it predates as not
+    # extracted, never as partly extracted.
     $versionCases = @(
-        [pscustomobject]@{ Version = '13'; Partial = $true; Extracted = 'grids,filters,orders,views'; Missing = "filter conditions,$wwfwMissing" },
-        [pscustomobject]@{ Version = '12'; Partial = $false },
-        [pscustomobject]@{ Version = 'absent'; Partial = $false }
+        [pscustomobject]@{ Version = '14'; Partial = "WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"; Unextracted = $codeTypes },
+        [pscustomobject]@{ Version = '13'; Partial = "WorkWithForWeb=1:grids,filters,orders,views/filter conditions,$wwfwMissing"; Unextracted = $codeTypes },
+        [pscustomobject]@{ Version = '12'; Partial = ''; Unextracted = @($codeTypes + 'WorkWithForWeb') },
+        [pscustomobject]@{ Version = 'absent'; Partial = ''; Unextracted = @($codeTypes + 'WorkWithForWeb') }
     )
     foreach ($versionCase in $versionCases) {
         $label = "who-uses/Attribute:InvoiceTotal/A@extractor-$($versionCase.Version)"
@@ -444,15 +523,14 @@ EndEvent
             continue
         }
         $coverage = ($run.Text | ConvertFrom-Json).coverage
-        $partial = @($coverage.partially_extracted_source_types)
-        $unextractedWwfw = @($coverage.unextracted_source_types | Where-Object { $_.type -eq 'WorkWithForWeb' })
-        if ($versionCase.Partial) {
-            if ($partial.Count -ne 1 -or $partial[0].type -ne 'WorkWithForWeb' -or (@($partial[0].extracted) -join ',') -ne $versionCase.Extracted -or (@($partial[0].missing) -join ',') -ne $versionCase.Missing -or $unextractedWwfw.Count -ne 0) {
-                Add-Failure "[$label/json] WorkWithForWeb should be partly extracted with extracted '$($versionCase.Extracted)' and missing '$($versionCase.Missing)'; got $($coverage | ConvertTo-Json -Compress -Depth 4)"
-            }
+        $actualPartial = Format-PartialEntries $coverage
+        if ($actualPartial -cne $versionCase.Partial) {
+            Add-Failure "[$label/json] partially_extracted_source_types should be '$($versionCase.Partial)'; got '$actualPartial'"
         }
-        elseif ($partial.Count -ne 0 -or $unextractedWwfw.Count -ne 1 -or $unextractedWwfw[0].count -ne 1) {
-            Add-Failure "[$label/json] WorkWithForWeb should be listed once under unextracted_source_types and nothing as partly extracted; got $($coverage | ConvertTo-Json -Compress -Depth 4)"
+        $listedTypes = @($coverage.unextracted_source_types | ForEach-Object { $_.type })
+        $notListed = @($versionCase.Unextracted | Where-Object { $listedTypes -notcontains $_ })
+        if ($notListed.Count -gt 0) {
+            Add-Failure "[$label/json] unextracted_source_types should list $($versionCase.Unextracted -join ', '); missing $($notListed -join ', ')"
         }
     }
 
@@ -508,13 +586,15 @@ print("attribute_list_missing=" + ",".join(missing))
 partial = set(getattr(engine, "PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES", {}))
 partial_overlap = sorted(partial & attribute_uses)
 print("partial_overlap=" + ",".join(partial_overlap))
-sys.exit(1 if overlap or not unextracted or missing or partial_overlap or "WorkWithForWeb" not in partial else 0)
+code_types = {"WorkWithForWeb", "Procedure", "WebPanel", "Transaction", "DataProvider"}
+print("partial_missing=" + ",".join(sorted(code_types - partial)))
+sys.exit(1 if overlap or not unextracted or missing or partial_overlap or not code_types <= partial else 0)
 '@
     $parityPath = Join-Path $tempRoot 'parity.py'
     [System.IO.File]::WriteAllText($parityPath, $parityScript, (Get-Utf8NoBomEncoding))
     $parityOutput = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $parityPath $queryScript $builderPy 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Add-Failure "UNEXTRACTED_CALL_SOURCE_TYPES must exist, be non-empty and stay disjoint from INDEXED_SOURCE_TYPES; UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include it; PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include WorkWithForWeb and stay disjoint from the unextracted list: $(@($parityOutput) -join ' ')"
+        Add-Failure "UNEXTRACTED_CALL_SOURCE_TYPES must exist, be non-empty and stay disjoint from INDEXED_SOURCE_TYPES; UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include it; PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include WorkWithForWeb, Procedure, WebPanel, Transaction and DataProvider and stay disjoint from the unextracted list: $(@($parityOutput) -join ' ')"
     }
 }
 finally {
