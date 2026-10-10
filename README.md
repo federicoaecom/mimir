@@ -74,7 +74,7 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
    Cloning is installing software, and a fetch, pull, or reset changes the clone: ask the user before any clone, fetch, pull, or reset of the skill checkout, and run it only after an explicit yes. For a clone, name the target path (for example `$HOME/mimir-lite`). Read this README from its URL instead of cloning the repository somewhere else to read it; clone once, into the approved path.
 
-   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, running each command below as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule. Then, before asking about an update, tell the user in one short message whether the clone is clean, its current commit, and whether `origin` is the URL in this README:
+   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, running each command below as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule. Then, before asking about an update, tell the user in visible text whether the clone is clean, its current commit, and whether `origin` is the URL in this README, as a short message of its own or as the first lines of the message that asks the update question; a report that appears only in tool output or the agent's reasoning was not given:
 
    ```powershell
    git -C "$HOME/mimir-lite" status
@@ -289,7 +289,7 @@ The tools write outside this repository in these places:
 |---|---|---|
 | `<KB workspace>` | The new workspace next to your KB: `scripts` (local wrappers), `README.md`, `AGENTS.md`, `kb-source-metadata.md`, `.gitignore`, and the folders `Temp`, `IdeXpzExports`, `KbObjectsXml`, `KbIntelligence` | `mimir-lite` **setup** workflow, with the `New-MimirKbWorkspace.ps1` scaffolder |
 | `<KB workspace>\KbObjectsXml`, `<KB workspace>\KbIntelligence` | The XML corpus and the derived index, next to your KB | `mimir-lite` **sync** and **setup** workflows |
-| `<KB workspace>\.claude\settings.json` | Claude Code allow rules for the workspace's `scripts` folder and the shared engine scripts, and a read rule for the clone's `skills` folder | **setup** workflow (steps 20 and 20a), Claude Code only; you can decline |
+| `<KB workspace>\.claude\settings.json` | Claude Code allow rules for the workspace's `scripts` folder and the shared engine scripts, and read rules for the clone's `skills` folder and the skill links under `~/.claude/skills` | **setup** workflow (steps 20 and 20a), Claude Code only; you can decline |
 | Agent-tool skills directories (for example `~/.claude/skills/`) | One link per skill, never a copy | **install** workflow, after your confirmation |
 | Global instruction files of your agent tools | The "KB workspace" trigger section | **setup** workflow, only after your explicit confirmation |
 | `%LOCALAPPDATA%\mimir-delegate` (Windows), `~/.local/share/mimir-delegate` (Linux), typically `~/Library/Application Support/mimir-delegate` (macOS, not tested in CI; the Linux location when `~/Library/Application Support` does not exist) | `capabilities.json`, `preferred-reviewers.json` (and per-tool `preferred-reviewers.<tool>.json`), circuit-breaker state | `mimir-delegate` |
