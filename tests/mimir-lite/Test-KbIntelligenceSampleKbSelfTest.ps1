@@ -117,6 +117,128 @@ if ($webPanelCallers.Count -lt 1) {
     throw "who-uses(Procedure, CalculateInvoiceTotal) should list WebPanel:CustomerView as a caller; got: $($whoUsesJson -join ' ')"
 }
 
+# --- who-uses on an attribute: each Transaction level row carries that Transaction's
+#     materialized writability classification (CustomerId is the key of Customer and a
+#     foreign key in Invoice); rows from other relations carry no such field ---
+$whoUsesAttributeJson = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $sqlitePath --query who-uses --object-type Attribute --object-name CustomerId --format json
+if ($LASTEXITCODE -ne 0) {
+    throw "who-uses(Attribute, CustomerId) failed; exit $LASTEXITCODE"
+}
+$whoUsesAttribute = $whoUsesAttributeJson | ConvertFrom-Json
+$expectedLevelWritability = @{
+    Customer = @{ classification = 'key-attribute'; writable = $true }
+    Invoice  = @{ classification = 'extended-fk-key'; writable = $true }
+}
+foreach ($transactionName in $expectedLevelWritability.Keys) {
+    $expected = $expectedLevelWritability[$transactionName]
+    $levelRows = @($whoUsesAttribute.results | Where-Object {
+        $_.source_type -eq 'Transaction' -and $_.source_name -eq $transactionName -and $_.relation_kind -eq 'has_level_attribute'
+    })
+    if ($levelRows.Count -ne 1) {
+        throw "who-uses(Attribute, CustomerId) should list one has_level_attribute row from Transaction:$transactionName; got $($levelRows.Count)"
+    }
+    $levelRow = $levelRows[0]
+    if ($null -eq $levelRow.PSObject.Properties['writability'] -or $null -eq $levelRow.writability) {
+        throw "who-uses(Attribute, CustomerId) row from Transaction:$transactionName should carry the materialized writability; got: $($levelRow | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    $writability = $levelRow.writability
+    if ($writability.classification -ne $expected.classification -or $writability.writable -ne $expected.writable -or $writability.transaction -ne $transactionName -or $writability.attribute -ne 'CustomerId') {
+        throw ("who-uses(Attribute, CustomerId) Transaction:{0} writability = {1}; expected classification '{2}' writable {3}" -f `
+            $transactionName, ($writability | ConvertTo-Json -Depth 6 -Compress), $expected.classification, $expected.writable)
+    }
+}
+$tableRows = @($whoUsesAttribute.results | Where-Object { $_.source_type -eq 'Table' })
+if ($tableRows.Count -lt 1) {
+    throw "who-uses(Attribute, CustomerId) should list at least one Table row (key or index member); got: $($whoUsesAttributeJson -join ' ')"
+}
+$tableRowsWithWritability = @($tableRows | Where-Object { $null -ne $_.PSObject.Properties['writability'] })
+if ($tableRowsWithWritability.Count -ne 0) {
+    throw "who-uses(Attribute, CustomerId) rows from Tables should carry no writability field; got: $($whoUsesAttributeJson -join ' ')"
+}
+$whoUsesAttributeText = (& $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $sqlitePath --query who-uses --object-type Attribute --object-name CustomerId --format text) -join "`n"
+if ($LASTEXITCODE -ne 0) {
+    throw "who-uses(Attribute, CustomerId) text failed; exit $LASTEXITCODE"
+}
+if ($whoUsesAttributeText -notmatch '(?m)^  writability: \[Invoice\] classification=extended-fk-key writable=True ') {
+    throw "who-uses(Attribute, CustomerId) text should show the Invoice level writability; got:`n$whoUsesAttributeText"
+}
+# impact-basic reuses who-uses, so its dependents carry the same writability (JSON and text).
+$impactAttributeJson = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $sqlitePath --query impact-basic --object-type Attribute --object-name CustomerId --format json
+if ($LASTEXITCODE -ne 0) {
+    throw "impact-basic(Attribute, CustomerId) failed; exit $LASTEXITCODE"
+}
+$impactAttribute = $impactAttributeJson | ConvertFrom-Json
+foreach ($transactionName in $expectedLevelWritability.Keys) {
+    $expected = $expectedLevelWritability[$transactionName]
+    $dependentRows = @($impactAttribute.dependents | Where-Object {
+        $_.source_type -eq 'Transaction' -and $_.source_name -eq $transactionName -and $_.relation_kind -eq 'has_level_attribute'
+    })
+    if ($dependentRows.Count -ne 1 -or $null -eq $dependentRows[0].PSObject.Properties['writability'] -or $dependentRows[0].writability.classification -ne $expected.classification) {
+        throw "impact-basic(Attribute, CustomerId) dependent from Transaction:$transactionName should carry writability classification '$($expected.classification)'; got: $($impactAttributeJson -join ' ')"
+    }
+}
+$impactAttributeText = (& $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $sqlitePath --query impact-basic --object-type Attribute --object-name CustomerId --format text) -join "`n"
+if ($LASTEXITCODE -ne 0) {
+    throw "impact-basic(Attribute, CustomerId) text failed; exit $LASTEXITCODE"
+}
+if ($impactAttributeText -notmatch '(?m)^    writability: \[Invoice\] classification=extended-fk-key writable=True ') {
+    throw "impact-basic(Attribute, CustomerId) text should show the indented Invoice level writability; got:`n$impactAttributeText"
+}
+# who-uses stays an index-only query: a copy of the index whose source_root names a missing
+# corpus still answers with the writability, which carries no file-backed attribute facts.
+$detachedRoot = Join-Path $tempRoot 'detached'
+[void](New-Item -ItemType Directory -Path $detachedRoot -Force)
+$detachedSqlitePath = Join-Path $detachedRoot 'kb-intelligence.sqlite'
+Copy-Item -LiteralPath $sqlitePath -Destination $detachedSqlitePath
+# Runs one SQL statement on the detached copy through a temporary .py file (UTF-8 without BOM),
+# so the statement never passes through native command-line quoting.
+function Invoke-DetachedIndexSql([string]$Sql) {
+    $sqlScriptPath = Join-Path $tempRoot ('detached-sql-{0}.py' -f ([guid]::NewGuid().ToString('N')))
+    $sqlScript = @(
+        'import sqlite3, sys'
+        'connection = sqlite3.connect(sys.argv[1])'
+        ('connection.execute("""{0}""")' -f $Sql)
+        'connection.commit()'
+        'connection.close()'
+    ) -join "`n"
+    [System.IO.File]::WriteAllText($sqlScriptPath, $sqlScript + "`n", (New-Object System.Text.UTF8Encoding($false)))
+    & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $sqlScriptPath $detachedSqlitePath
+}
+Invoke-DetachedIndexSql "UPDATE metadata SET value = 'missing-corpus' WHERE key = 'source_root'"
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not point the detached index copy at a missing corpus; exit $LASTEXITCODE"
+}
+$detachedJson = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $detachedSqlitePath --query who-uses --object-type Attribute --object-name CustomerId --format json 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "who-uses(Attribute, CustomerId) on an index without its corpus should still succeed; exit $LASTEXITCODE. Output: $($detachedJson -join ' ')"
+}
+$detachedInvoiceRow = @(($detachedJson | ConvertFrom-Json).results | Where-Object {
+    $_.source_type -eq 'Transaction' -and $_.source_name -eq 'Invoice' -and $_.relation_kind -eq 'has_level_attribute'
+})
+if ($detachedInvoiceRow.Count -ne 1 -or $detachedInvoiceRow[0].writability.classification -ne 'extended-fk-key') {
+    throw "who-uses(Attribute, CustomerId) on an index without its corpus should carry the Invoice writability; got: $($detachedJson -join ' ')"
+}
+foreach ($fileBackedField in @('isFormula', 'formulaExpression')) {
+    if ($null -ne $detachedInvoiceRow[0].writability.PSObject.Properties[$fileBackedField]) {
+        throw "who-uses writability should not carry the file-backed field '$fileBackedField'"
+    }
+}
+# A Transaction level with no materialized writability row carries an explicit null.
+Invoke-DetachedIndexSql "DELETE FROM transaction_attribute_writability WHERE transaction_name = 'Customer'"
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not remove the Customer writability rows from the detached index copy; exit $LASTEXITCODE"
+}
+$unmaterializedJson = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $detachedSqlitePath --query who-uses --object-type Attribute --object-name CustomerId --format json
+if ($LASTEXITCODE -ne 0) {
+    throw "who-uses(Attribute, CustomerId) without Customer writability rows failed; exit $LASTEXITCODE"
+}
+$unmaterializedRow = @(($unmaterializedJson | ConvertFrom-Json).results | Where-Object {
+    $_.source_type -eq 'Transaction' -and $_.source_name -eq 'Customer' -and $_.relation_kind -eq 'has_level_attribute'
+})
+if ($unmaterializedRow.Count -ne 1 -or $null -eq $unmaterializedRow[0].PSObject.Properties['writability'] -or $null -ne $unmaterializedRow[0].writability) {
+    throw "who-uses(Attribute, CustomerId) row from a Transaction without a materialized row should carry writability=null; got: $($unmaterializedJson -join ' ')"
+}
+
 # --- what-uses: CustomerView calls CalculateInvoiceTotal ---
 $whatUsesJson = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $sqlitePath --query what-uses --object-type WebPanel --object-name CustomerView --format json
 if ($LASTEXITCODE -ne 0) {

@@ -21,7 +21,7 @@ Mimir Lite reads and understands a GeneXus KB from its XPZ/XML exports. It never
 
 | Workflow | File | Use when |
 |---|---|---|
-| Setup | [workflows/setup.md](workflows/setup.md) | Creating (with the `New-MimirKbWorkspace.ps1` scaffolder), auditing, or fixing the KB workspace structure — required before any other workflow acts on a folder that has `KbObjectsXml/` or `KbIntelligence/` |
+| Setup | [workflows/setup.md](workflows/setup.md) | Creating (with the `New-MimirKbWorkspace.ps1` scaffolder), auditing, or fixing the KB workspace structure — required before any other workflow acts on a folder that has `KbObjectsXml/` or `KbIntelligence/`. Its pointers name the files under `workflows/setup/` to read when they apply (`audit.md`, `update.md`, `common-steps.md`, `wrappers.md`, `constraints.md`) |
 | Sync | [workflows/sync.md](workflows/sync.md) | Materializing or checking XML from an XPZ exported by the GeneXus IDE |
 | Find | [workflows/find.md](workflows/find.md) | Locating objects, dependencies, or impact via the derived index before opening XML — "who uses X", "what does Y use", "what does this button open" |
 | Read | [workflows/read.md](workflows/read.md) | Structurally classifying a single GeneXus object XML (type, family, Part types, risk, writability) |

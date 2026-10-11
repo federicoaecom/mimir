@@ -64,34 +64,6 @@ UNEXTRACTED_CALL_SOURCE_TYPES = (
     "WorkPanel",
     "WorkWith",
 )
-# Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
-# views, layouts, or item types) while the extractor emits no attribute-use relation for any
-# of them. Besides workwith_references_attribute (WorkWithForWeb) and code_references_attribute
-# (Procedure, WebPanel, Transaction, DataProvider), see
-# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
-# structural: has_level_attribute (Transaction levels), has_key_attribute and
-# has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
-# rest of the Source scope (INDEXED_SOURCE_TYPES: API, DataSelector), Attribute (formulas), SDT
-# (items based on an attribute), DataView and Query (attribute lists), the web pattern
-# WorkWithPlusInstance (grid, filter, order and view attributes), and every type of
-# UNEXTRACTED_CALL_SOURCE_TYPES. Table is left out: its attributes come from Transaction levels
-# and its keys and indexes are extracted. Must include UNEXTRACTED_CALL_SOURCE_TYPES and stay
-# disjoint from PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES (checked by
-# tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
-UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
-    sorted(
-        set(UNEXTRACTED_CALL_SOURCE_TYPES)
-        | {
-            "API",
-            "Attribute",
-            "DataSelector",
-            "DataView",
-            "Query",
-            "SDT",
-            "WorkWithPlusInstance",
-        }
-    )
-)
 class ExtractedPart(NamedTuple):
     """A part of a partly extracted type and the extractor version that first indexed it."""
 
@@ -121,7 +93,10 @@ class PartialAttributeUseExtraction(NamedTuple):
 # rule; "Transaction item writes": an item's left side when the DataProvider outputs a
 # Transaction). Not read: other assignment targets (ambiguous writes, reported as reads),
 # Conditions, Procedure Layout and WebForm Parts, the items of an SDT-output DataProvider,
-# Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>.
+# Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>. The mobile
+# WorkWith emits workwith_references_attribute since 18 from its pattern instance: layout
+# <data attribute>, order, search and break by attributes, and advanced filter attributes; grid
+# conditions, rules, events and captions are not read.
 PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExtraction] = {
     "DataProvider": PartialAttributeUseExtraction(
         extracted=(
@@ -162,6 +137,16 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
             "code outside a Part",
         ),
     ),
+    "WorkWith": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("layouts", 18),
+            ExtractedPart("orders", 18),
+            ExtractedPart("search", 18),
+            ExtractedPart("break by", 18),
+            ExtractedPart("filters", 18),
+        ),
+        missing=("grid conditions", "rules", "events", "captions"),
+    ),
     "WorkWithForWeb": PartialAttributeUseExtraction(
         extracted=(
             ExtractedPart("grids", 13),
@@ -173,6 +158,38 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
         missing=("captions", "parameters", "tab conditions", "code"),
     ),
 }
+# Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
+# views, layouts, or item types) while the extractor emits no attribute-use relation for any
+# of them. Besides workwith_references_attribute (WorkWithForWeb, WorkWith) and
+# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider), see
+# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
+# structural: has_level_attribute (Transaction levels), has_key_attribute and
+# has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
+# rest of the Source scope (INDEXED_SOURCE_TYPES: API, DataSelector), Attribute (formulas), SDT
+# (items based on an attribute), DataView and Query (attribute lists), the web pattern
+# WorkWithPlusInstance (grid, filter, order and view attributes), and every type of
+# UNEXTRACTED_CALL_SOURCE_TYPES that is not partly extracted for attribute uses (the mobile
+# WorkWith is). Table is left out: its attributes come from Transaction levels and its keys and
+# indexes are extracted. Every UNEXTRACTED_CALL_SOURCE_TYPES type must be here or in
+# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, and the two stay disjoint (checked by
+# tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
+UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
+    sorted(
+        (
+            set(UNEXTRACTED_CALL_SOURCE_TYPES)
+            | {
+                "API",
+                "Attribute",
+                "DataSelector",
+                "DataView",
+                "Query",
+                "SDT",
+                "WorkWithPlusInstance",
+            }
+        )
+        - set(PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES)
+    )
+)
 COVERAGE_SCOPE_CALLS = "calls"
 COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
 _CATALOG_TYPES_CACHE: dict[tuple[str | None, str | None, str], dict[str, dict[str, object]]] = {}
@@ -556,10 +573,19 @@ def nullable_bool_from_sqlite(value: object) -> bool | None:
 def fetch_materialized_writability_rows(
     conn: sqlite3.Connection,
     transaction_name: str,
+    attribute_name: str | None = None,
+    include_attribute_facts: bool = True,
 ) -> list[dict[str, object]]:
+    """Materialized writability rows of a Transaction, optionally for one attribute only.
+
+    include_attribute_facts=False leaves out isFormula and formulaExpression, the two fields read
+    from the attribute's XML file, so the rows come from the index alone.
+    """
+    attribute_clause = "AND LOWER(w.attribute_name) = LOWER(?)" if attribute_name is not None else ""
+    params: tuple[object, ...] = (transaction_name,) if attribute_name is None else (transaction_name, attribute_name)
     materialized = fetch_all(
         conn,
-        """
+        f"""
         SELECT
             w.transaction_name,
             w.level_name,
@@ -576,16 +602,21 @@ def fetch_materialized_writability_rows(
         FROM transaction_attribute_writability w
         JOIN objects o_tx ON o_tx.object_id = w.transaction_object_id
         LEFT JOIN objects o ON o.type = 'Attribute' AND LOWER(o.name) = LOWER(w.attribute_name)
-        WHERE LOWER(o_tx.name) = LOWER(?)
+        WHERE LOWER(o_tx.name) = LOWER(?) {attribute_clause}
         ORDER BY w.level_name, w.attribute_name
         """,
-        (transaction_name,),
+        params,
     )
     rows: list[dict[str, object]] = []
     for row in materialized:
         attr_name = str(row["attribute_name"])
-        attr_payload = attribute_info(conn, attr_name)
-        is_formula = bool(attr_payload.get("isFormula")) if attr_payload.get("found") else None
+        attribute_facts: dict[str, object] = {}
+        if include_attribute_facts:
+            attr_payload = attribute_info(conn, attr_name)
+            attribute_facts = {
+                "isFormula": bool(attr_payload.get("isFormula")) if attr_payload.get("found") else None,
+                "formulaExpression": attr_payload.get("formulaExpression"),
+            }
         writable = nullable_bool_from_sqlite(row.get("writable"))
         rows.append(
             {
@@ -594,8 +625,7 @@ def fetch_materialized_writability_rows(
                 "attribute": attr_name,
                 "key": bool(row["key_in_level"]),
                 "isRedundant": bool(row["is_redundant"]),
-                "isFormula": is_formula,
-                "formulaExpression": attr_payload.get("formulaExpression"),
+                **attribute_facts,
                 "classification": row["classification"],
                 "writable": writable,
                 "canAssignInNew": nullable_bool_from_sqlite(row.get("can_assign_in_new")),
@@ -844,6 +874,44 @@ def format_coverage_note(result: dict[str, object]) -> str | None:
     )
 
 
+def attach_level_writability(conn: sqlite3.Connection, rows: list[dict[str, object]]) -> None:
+    """Attach to each Transaction level row that Transaction's materialized writability row.
+
+    Only has_level_attribute rows whose source is a Transaction get the "writability" key: the
+    object transaction-writable-attributes returns for that attribute without its file-backed
+    isFormula and formulaExpression (so who-uses keeps reading the index alone), or None when the
+    Transaction has no materialized row for it. Rows from other relations are left unchanged.
+    """
+    cache: dict[tuple[str, str], dict[str, object] | None] = {}
+    for row in rows:
+        if row.get("source_type") != "Transaction" or row.get("relation_kind") != "has_level_attribute":
+            continue
+        transaction_name = str(row["source_name"])
+        attribute_name = str(row["target_name"])
+        cache_key = (transaction_name.casefold(), attribute_name.casefold())
+        if cache_key not in cache:
+            materialized = fetch_materialized_writability_rows(
+                conn, transaction_name, attribute_name, include_attribute_facts=False
+            )
+            # GeneXus allows an attribute only once per Transaction structure, so at most one
+            # materialized row exists per (Transaction, attribute); the first one is attached.
+            cache[cache_key] = materialized[0] if materialized else None
+        row["writability"] = cache[cache_key]
+
+
+def format_writability_line(row: dict[str, object], indent: str) -> str | None:
+    if "writability" not in row:
+        return None
+    writability = row.get("writability")
+    if not isinstance(writability, dict):
+        return f"{indent}writability: (no materialized row)"
+    return (
+        f"{indent}writability: [{writability.get('levelName')}] "
+        f"classification={writability.get('classification')} writable={writability.get('writable')} "
+        f"reason={writability.get('reason')}"
+    )
+
+
 def who_uses(conn: sqlite3.Connection, object_type: str, object_name: str, limit: int | None) -> dict[str, object]:
     rows = fetch_all(
         conn,
@@ -871,12 +939,15 @@ def who_uses(conn: sqlite3.Connection, object_type: str, object_name: str, limit
         (object_type, object_name),
     )
     total = len(rows)
+    shown_rows = limit_rows(rows, limit)
+    if object_type.casefold() == "attribute":
+        attach_level_writability(conn, shown_rows)
     return {
         "query": "who-uses",
         "object": {"type": object_type, "name": object_name},
         "total": total,
-        "shown": len(limit_rows(rows, limit)),
-        "results": limit_rows(rows, limit),
+        "shown": len(shown_rows),
+        "results": shown_rows,
     }
 
 
@@ -1494,6 +1565,9 @@ def format_result_text(result: dict[str, object]) -> str:
                     f"{row.get('evidence_role')} via {row.get('extractor_rule')}"
                 )
                 lines.append(f"    {row.get('snippet')}")
+                writability_line = format_writability_line(row, "    ")
+                if writability_line:
+                    lines.append(writability_line)
         return "\n".join(lines)
 
     if query == "functional-trace-basic" and isinstance(obj, dict):
@@ -1564,6 +1638,9 @@ def format_result_text(result: dict[str, object]) -> str:
             f"{row.get('evidence_role')} via {row.get('extractor_rule')}"
         )
         lines.append(f"  {row.get('snippet')}")
+        writability_line = format_writability_line(row, "  ")
+        if writability_line:
+            lines.append(writability_line)
     return "\n".join(lines)
 
 

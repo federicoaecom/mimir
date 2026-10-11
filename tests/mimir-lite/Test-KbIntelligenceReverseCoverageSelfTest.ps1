@@ -28,9 +28,12 @@
     fixture's Procedure, Transaction and WebPanel objects are listed there too, each with its
     extracted code reads and writes and missing parts, and so is one synthetic Transaction-output
     DataProvider whose item assigns InvoiceTotal (its write row appears in the answer and the
-    text note describes it first). Copies of the corpus A index whose
-    extractor_signature_version is rewritten to 14, 13, 12 or removed stand for older indexes: 14
-    and 13 report DataProvider, Procedure, Transaction and WebPanel as not extracted, 13 also reports filter
+    text note describes it first). The synthetic mobile WorkWith is listed there as well
+    (extracted: layouts, orders, search, break by, filters; missing: grid conditions, rules,
+    events, captions), while it stays an unextracted call source. Copies of the corpus A index
+    whose extractor_signature_version is rewritten to 17, 14, 13, 12 or removed stand for older
+    indexes: each reports the mobile WorkWith as not extracted, 14 and 13 also report
+    DataProvider, Procedure, Transaction and WebPanel as not extracted, 13 also reports filter
     conditions as missing, 12 and a missing version report WorkWithForWeb as not extracted too.
     Corpus C holds only that WorkWithForWeb: an Attribute
     target reports complete=false with no unextracted type, and the note keeps only the partly
@@ -42,10 +45,10 @@
     ignoring the case of --object-type, so a lowercase 'attribute' target still discloses the gap.
 
     Forward answers (what-uses) carry no coverage object. The engine's list of unextracted
-    caller types must stay disjoint from the extractor's INDEXED_SOURCE_TYPES; the attribute-use
-    list must include every unextracted caller type; the partly extracted attribute-use types
-    must include WorkWithForWeb, Procedure, WebPanel, Transaction and DataProvider and stay
-    disjoint from the unextracted attribute-use list.
+    caller types must stay disjoint from the extractor's INDEXED_SOURCE_TYPES; every unextracted
+    caller type must be on the unextracted or the partly extracted attribute-use list; the partly
+    extracted attribute-use types must include WorkWith, WorkWithForWeb, Procedure, WebPanel,
+    Transaction and DataProvider and stay disjoint from the unextracted attribute-use list.
 #>
 
 Set-StrictMode -Version Latest
@@ -348,6 +351,9 @@ EndEvent
     $wwfwExtracted = 'grids,filters,orders,views,filter conditions'
     $wwfwMissing = 'captions,parameters,tab conditions,code'
     $wwfwNotePart = 'grids, filters, orders, views and filter conditions are indexed, captions, parameters, tab conditions and code are not'
+    $wwsdExtracted = 'layouts,orders,search,break by,filters'
+    $wwsdMissing = 'grid conditions,rules,events,captions'
+    $wwsdNotePart = 'layouts, orders, search, break by and filters are indexed, grid conditions, rules, events and captions are not'
     $procedurePart = 'Source reads,rule reads,block writes/ambiguous writes,conditions,layout,Business Component members,code outside a Part'
     $transactionPart = 'rule reads,rule writes,event reads,block writes/ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
     $webPanelPart = 'rule reads,event reads,block writes/ambiguous writes,conditions,WebForm bindings,Business Component members,code outside a Part'
@@ -360,10 +366,13 @@ EndEvent
     # (CustomerView); corpus A adds the one synthetic DataProvider (InvoiceSeed) and the one
     # WorkWithForWeb (WorkWithWebInvoice) written above.
     $expectedPartialB = "Procedure=1:$procedurePart;Transaction=3:$transactionPart;WebPanel=1:$webPanelPart"
-    $expectedPartialA = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
+    # Corpus A also holds the one synthetic mobile WorkWith (WorkWithDevicesInvoice); an index of
+    # extractor 17 or older predates its attribute uses and lists it as not extracted.
+    $expectedPartialA17 = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
+    $expectedPartialA = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWith=1:$wwsdExtracted/$wwsdMissing;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
     $attributeCases = @(
-        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Panel', 'Attribute', 'WorkWith'); Partial = $expectedPartialA },
-        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Panel', 'Attribute', 'WorkWith'); Partial = $expectedPartialA },
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Panel', 'Attribute'); Partial = $expectedPartialA },
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Panel', 'Attribute'); Partial = $expectedPartialA },
         [pscustomobject]@{ Corpus = 'B'; Index = $indexB; Name = 'InvoiceTotal'; MustList = @('Attribute'); Partial = $expectedPartialB }
     )
     foreach ($case in $attributeCases) {
@@ -389,7 +398,7 @@ EndEvent
         if ($missingTypes.Count -gt 0) {
             Add-Failure "[$label/json] unextracted_source_types should list $($case.MustList -join ', '); missing $($missingTypes -join ', ')"
         }
-        $wronglyListed = @(@($codeTypes + 'WorkWithForWeb') | Where-Object { $listedTypes -contains $_ })
+        $wronglyListed = @(@($codeTypes + 'WorkWith' + 'WorkWithForWeb') | Where-Object { $listedTypes -contains $_ })
         if ($wronglyListed.Count -gt 0) {
             Add-Failure "[$label/json] partly extracted types must not be listed under unextracted_source_types: $($wronglyListed -join ', ')"
         }
@@ -438,6 +447,9 @@ EndEvent
         }
         elseif ($case.Corpus -eq 'A' -and -not $noteLines[0].Contains("WorkWithForWeb (1): $wwfwNotePart")) {
             Add-Failure "[$label/text] the note should describe WorkWithForWeb (1) as partly extracted: $($noteLines[0])"
+        }
+        elseif ($case.Corpus -eq 'A' -and -not $noteLines[0].Contains("WorkWith (1): $wwsdNotePart")) {
+            Add-Failure "[$label/text] the note should describe the mobile WorkWith (1) as partly extracted: $($noteLines[0])"
         }
         elseif ($case.Corpus -eq 'B' -and $noteLines[0] -match 'WorkWithForWeb') {
             Add-Failure "[$label/text] corpus B holds no WorkWithForWeb; the note must not mention it: $($noteLines[0])"
@@ -504,14 +516,17 @@ EndEvent
     # The partly extracted claims follow the index's extractor_signature_version: version 13
     # indexed the WorkWithForWeb grids, filters, orders and views, version 14 added its filter
     # conditions, version 15 the code reads and writes of Procedure, WebPanel, Transaction and
-    # DataProvider (corpus A holds one of each, so 14 lists all four as not extracted).
+    # DataProvider (corpus A holds one of each, so 14 lists all four as not extracted), version 18
+    # the mobile WorkWith layouts, orders, search, break by and filters (17 and older list it as
+    # not extracted).
     # An older index (or one without the version) reports a type whose parts it predates as not
     # extracted, never as partly extracted.
     $versionCases = @(
-        [pscustomobject]@{ Version = '14'; Partial = "WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"; Unextracted = $codeTypes },
-        [pscustomobject]@{ Version = '13'; Partial = "WorkWithForWeb=1:grids,filters,orders,views/filter conditions,$wwfwMissing"; Unextracted = $codeTypes },
-        [pscustomobject]@{ Version = '12'; Partial = ''; Unextracted = @($codeTypes + 'WorkWithForWeb') },
-        [pscustomobject]@{ Version = 'absent'; Partial = ''; Unextracted = @($codeTypes + 'WorkWithForWeb') }
+        [pscustomobject]@{ Version = '17'; Partial = $expectedPartialA17; Unextracted = @('WorkWith') },
+        [pscustomobject]@{ Version = '14'; Partial = "WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"; Unextracted = @($codeTypes + 'WorkWith') },
+        [pscustomobject]@{ Version = '13'; Partial = "WorkWithForWeb=1:grids,filters,orders,views/filter conditions,$wwfwMissing"; Unextracted = @($codeTypes + 'WorkWith') },
+        [pscustomobject]@{ Version = '12'; Partial = ''; Unextracted = @($codeTypes + 'WorkWith' + 'WorkWithForWeb') },
+        [pscustomobject]@{ Version = 'absent'; Partial = ''; Unextracted = @($codeTypes + 'WorkWith' + 'WorkWithForWeb') }
     )
     foreach ($versionCase in $versionCases) {
         $label = "who-uses/Attribute:InvoiceTotal/A@extractor-$($versionCase.Version)"
@@ -581,12 +596,12 @@ unextracted = set(engine.UNEXTRACTED_CALL_SOURCE_TYPES)
 overlap = sorted(unextracted & indexed)
 print("overlap=" + ",".join(overlap))
 attribute_uses = set(getattr(engine, "UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES", ()))
-missing = sorted(unextracted - attribute_uses)
-print("attribute_list_missing=" + ",".join(missing))
 partial = set(getattr(engine, "PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES", {}))
+missing = sorted(unextracted - attribute_uses - partial)
+print("attribute_list_missing=" + ",".join(missing))
 partial_overlap = sorted(partial & attribute_uses)
 print("partial_overlap=" + ",".join(partial_overlap))
-code_types = {"WorkWithForWeb", "Procedure", "WebPanel", "Transaction", "DataProvider"}
+code_types = {"WorkWith", "WorkWithForWeb", "Procedure", "WebPanel", "Transaction", "DataProvider"}
 print("partial_missing=" + ",".join(sorted(code_types - partial)))
 sys.exit(1 if overlap or not unextracted or missing or partial_overlap or not code_types <= partial else 0)
 '@
@@ -594,7 +609,7 @@ sys.exit(1 if overlap or not unextracted or missing or partial_overlap or not co
     [System.IO.File]::WriteAllText($parityPath, $parityScript, (Get-Utf8NoBomEncoding))
     $parityOutput = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $parityPath $queryScript $builderPy 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Add-Failure "UNEXTRACTED_CALL_SOURCE_TYPES must exist, be non-empty and stay disjoint from INDEXED_SOURCE_TYPES; UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include it; PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include WorkWithForWeb, Procedure, WebPanel, Transaction and DataProvider and stay disjoint from the unextracted list: $(@($parityOutput) -join ' ')"
+        Add-Failure "UNEXTRACTED_CALL_SOURCE_TYPES must exist, be non-empty and stay disjoint from INDEXED_SOURCE_TYPES; every type in it must be in UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES or PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES; PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES must include WorkWith, WorkWithForWeb, Procedure, WebPanel, Transaction and DataProvider and stay disjoint from the unextracted list: $(@($parityOutput) -join ' ')"
     }
 }
 finally {

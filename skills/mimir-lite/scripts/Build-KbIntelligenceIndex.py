@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "17"
+EXTRACTOR_SIGNATURE_VERSION = "18"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -311,6 +311,34 @@ WORKWITH_ATTRIBUTE_REFERENCE_ROLES = {
     "filterattribute": "WorkWithForWeb filter attribute",
 }
 WORKWITH_CONDITION_ROLE = "WorkWithForWeb condition"
+# Mobile WorkWith (WorkWith for Smart Devices) pattern instance: <Data Pattern="<mobile WorkWith
+# pattern guid>"> holds the CDATA <instance>. The body ends only at a case-sensitive </Data>: a
+# layout control inside the instance can be written <data attribute="..."></data>, and a
+# case-insensitive end would cut the body there and drop every later reference.
+WORKWITH_SD_INSTANCE_DATA_RE = re.compile(
+    r"<Data\b[^>]*\bPattern=\"15cf49b5-fc38-4899-91b5-395d02d79889\"[^>]*>(?P<body>.*?)(?-i:</Data>)",
+    re.IGNORECASE | re.DOTALL,
+)
+# Layout controls bound to an attribute: <data attribute="<Name>"> (a variable is "&amp;<Name>").
+WORKWITH_SD_LAYOUT_DATA_RE = re.compile(r"<data\b[^>]*?\battribute=\"(?P<value>[^\"]+)\"", re.IGNORECASE)
+# <orders>, <search> and <breakBy> blocks (directly under <list> in X Evolution 2, under
+# <gridData> later); the opening tag is quote-aware and a self-closing one has no body.
+WORKWITH_SD_ATTRIBUTE_BLOCK_RE = re.compile(
+    r"<(?P<tag>orders|search|breakBy)\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*?(?:/>|>(?P<body>.*?)</(?P=tag)\s*>)",
+    re.IGNORECASE | re.DOTALL,
+)
+WORKWITH_SD_BLOCK_ATTRIBUTE_RE = re.compile(r"<attribute\b[^>]*?\battribute=\"(?P<value>[^\"]+)\"", re.IGNORECASE)
+# Advanced filters: <filterAttribute attribute="<typeGuid>-<Name>"> (the web pattern uses name=).
+WORKWITH_SD_FILTER_ATTRIBUTE_RE = re.compile(
+    r"<filterAttribute\b[^>]*?\battribute=\"(?P<value>[^\"]+)\"", re.IGNORECASE
+)
+WORKWITH_SD_LAYOUT_ROLE = "WorkWith layout attribute"
+WORKWITH_SD_BLOCK_ROLES = {
+    "orders": "WorkWith order attribute",
+    "search": "WorkWith search attribute",
+    "breakby": "WorkWith break by attribute",
+}
+WORKWITH_SD_FILTER_ROLE = "WorkWith filter attribute"
 # <filter> elements (selection and Grid tab): only the <condition> elements inside one are read.
 # The opening tag is quote-aware, so a quoted '>' or '/>' in its attributes does not end it. The
 # body ends at the first </filter>: the pattern instance never nests a <filter> in another (a
@@ -2220,6 +2248,72 @@ def extract_workwith_for_web_attribute_evidence(
     return evidences
 
 
+def extract_workwith_sd_attribute_evidence(
+    workwith_objects: Iterable[ObjectInfo],
+    attribute_names: set[str],
+) -> list[Evidence]:
+    """Attribute references from the mobile WorkWith pattern instance, one per source, target and role.
+
+    Reads, inside the pattern instance Data only: <data attribute="Name"> in the list and detail
+    layouts (a value starting with '&' after unescaping is a variable and is skipped), the
+    <attribute attribute="<typeGuid>-<Name>"> elements of <orders>, <search> and <breakBy>
+    blocks, and <filterAttribute attribute="<typeGuid>-<Name>"> advanced filters. Grid
+    conditions, rules, events and captions are not read. Targets resolve against the Attribute
+    inventory only. Rows are kept per (source type, source name, target, role): the first
+    occurrence in document order of each role wins, so one attribute can yield a layout row and a
+    search row, and a WorkWithForWeb with the same name never masks a mobile WorkWith row.
+    """
+    evidences: list[Evidence] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    for source in workwith_objects:
+        xml_text = read_text(source.path)
+        for data_match in WORKWITH_SD_INSTANCE_DATA_RE.finditer(xml_text):
+            body = data_match.group("body")
+            body_offset = data_match.start("body")
+            # (offset in body, raw value, snippet, evidence role)
+            candidates: list[tuple[int, str, str, str]] = []
+            for match in WORKWITH_SD_LAYOUT_DATA_RE.finditer(body):
+                candidates.append((match.start(), match.group("value"), match.group(0), WORKWITH_SD_LAYOUT_ROLE))
+            for block_match in WORKWITH_SD_ATTRIBUTE_BLOCK_RE.finditer(body):
+                if block_match.group("body") is None:
+                    continue
+                role = WORKWITH_SD_BLOCK_ROLES[block_match.group("tag").lower()]
+                # pos/endpos keep match offsets relative to the whole body.
+                for match in WORKWITH_SD_BLOCK_ATTRIBUTE_RE.finditer(
+                    body, block_match.start("body"), block_match.end("body")
+                ):
+                    candidates.append((match.start(), match.group("value"), match.group(0), role))
+            for match in WORKWITH_SD_FILTER_ATTRIBUTE_RE.finditer(body):
+                candidates.append((match.start(), match.group("value"), match.group(0), WORKWITH_SD_FILTER_ROLE))
+            candidates.sort(key=lambda candidate: candidate[0])
+            for offset, raw_value, snippet, role in candidates:
+                value = html.unescape(raw_value).strip()
+                if not value or value.startswith("&"):
+                    continue
+                raw_attribute_name = gxobject_name(value) or value
+                target_name = attribute_lookup.get(raw_attribute_name.lower())
+                if not target_name:
+                    continue
+                row_key = (source.object_type, source.name.lower(), target_name.lower(), role)
+                if row_key in seen:
+                    continue
+                seen.add(row_key)
+                add_evidence(
+                    evidences,
+                    source=source,
+                    target_type="Attribute",
+                    target_name=target_name,
+                    relation_kind="workwith_references_attribute",
+                    line=line_number_at(xml_text, body_offset + offset),
+                    column=1,
+                    snippet=snippet,
+                    extractor_rule="workwith_sd_attribute_reference",
+                    evidence_role=role,
+                )
+    return evidences
+
+
 @dataclass(frozen=True)
 class CodeToken:
     kind: str
@@ -3784,6 +3878,10 @@ def main() -> int:
         objects_by_type.get("WorkWithForWeb", {}).values(),
         attribute_names=set(attributes),
     )
+    workwith_sd_attribute_evidences = extract_workwith_sd_attribute_evidence(
+        objects_by_type.get("WorkWith", {}).values(),
+        attribute_names=set(attributes),
+    )
     code_attribute_evidences = extract_code_attribute_evidence(
         [obj for obj in objects if obj.object_type in CODE_ATTRIBUTE_PART_NAMES],
         attribute_names=set(attributes),
@@ -3884,6 +3982,7 @@ def main() -> int:
         *workwith_webpanel_link_evidences,
         *workwith_prompt_evidences,
         *workwith_for_web_attribute_evidences,
+        *workwith_sd_attribute_evidences,
         *code_attribute_evidences,
         *custom_type_evidences,
         *resolved_custom_type_evidences,

@@ -6,6 +6,15 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- `who-uses` on an `Attribute` attaches to each `has_level_attribute` row from a Transaction a `writability` object: that Transaction's materialized writability classification of the attribute (the fields of a `transaction-writable-attributes` row except the file-backed `isFormula` and `formulaExpression`), or `null` when the Transaction has no materialized row; the `text` output adds one `writability:` line to those rows, and the `dependents` of `impact-basic` carry the same field. A foreign key such as `extended-fk-key` is then direct evidence in the answer instead of an inference from the level structure. Existing fields, row order, limits, and the `coverage` object are unchanged, `who-uses` still reads the index alone, and neither the index schema nor the extractor version changes. The KB index reference and the find workflow follow.
+- The KB index extracts attribute references from mobile `WorkWith` (WorkWith for Smart Devices) pattern instances: `workwith_references_attribute` (rule `workwith_sd_attribute_reference`) links a `WorkWith` to each inventory attribute named by a `<data attribute="...">` in its list and detail layouts (variables skipped), by its `<orders>`, `<search>`, and `<breakBy>` blocks, and by its advanced `<filterAttribute attribute="...">` filters, in the X Evolution 2 layout and in the `gridData` layout of X Evolution 3, GeneXus 15, and GeneXus 16. One row per object, attribute, and role (`WorkWith layout attribute`, `WorkWith order attribute`, `WorkWith search attribute`, `WorkWith break by attribute`, `WorkWith filter attribute`); a `WorkWithForWeb` with the same name keeps its own rows. Reverse-relation coverage for an `Attribute` target lists `WorkWith` as partly extracted (extracted: layouts, orders, search, break by, filters; missing: grid conditions, rules, events, captions) instead of not extracted, and `WorkWith` stays an unextracted call source. The extractor version goes from 17 to 18, so the index gate reports existing indexes as built by an older extractor until they are rebuilt once. The KB index reference, the find workflow, and the backlog follow.
+
+### Changed
+
+- The **setup** workflow is split so each file reads in one call: `setup.md` keeps the entry, the checklist, and the creation flow, and points to five files under `workflows/setup/`: `audit.md` (the fast-path precondition and the post-audit correction plan), `update.md` (the update block, update mode only), `common-steps.md` (steps 9 to 34, every mode), `wrappers.md` (the expected local wrappers), and `constraints.md` (the constraints, read before any write). The text moved verbatim; step numbers are unchanged. The setup contract manifest lists the five files, so the setup contract signature changes and KB workspaces re-audit once.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

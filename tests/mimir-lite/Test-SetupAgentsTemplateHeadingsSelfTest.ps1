@@ -13,7 +13,9 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $setupDir = Join-Path $repoRoot 'skills/mimir-lite/workflows'
 $template = [System.IO.File]::ReadAllText((Join-Path $setupDir 'setup/examples/AGENTS.md.example'))
-$setupMd = [System.IO.File]::ReadAllText((Join-Path $setupDir 'setup.md'))
+# The setup workflow spans setup.md plus the files under setup/ (not setup/examples/).
+$setupFiles = @(Join-Path $setupDir 'setup.md') + @(Get-ChildItem -LiteralPath (Join-Path $setupDir 'setup') -File -Filter '*.md' | Sort-Object Name | ForEach-Object { $_.FullName })
+$setupWorkflowText = ($setupFiles | ForEach-Object { [System.IO.File]::ReadAllText($_) }) -join "`n"
 $findMd = [System.IO.File]::ReadAllText((Join-Path $setupDir 'find.md'))
 
 $failures = [System.Collections.Generic.List[string]]::new()
@@ -27,7 +29,7 @@ $englishHeadings = @('## Index triage', '## Local wrappers', '## Operational sta
 foreach ($heading in $englishHeadings) {
     $quoted = [string]([char]96) + $heading + [char]96
     Assert-True ($template -match "(?m)^$([regex]::Escape($heading))\s*$") "template must carry the heading '$heading'"
-    Assert-True ($setupMd.Contains($quoted)) "setup.md must match the heading '$heading'"
+    Assert-True ($setupWorkflowText.Contains($quoted)) "the setup workflow (setup.md and setup/*.md) must match the heading '$heading'"
 }
 Assert-True ($findMd.Contains('`## Index triage`')) "find.md must match the heading '## Index triage'"
 

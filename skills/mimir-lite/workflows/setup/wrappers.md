@@ -1,0 +1,66 @@
+# Setup wrappers
+
+Part of the [setup workflow](../setup.md). This file holds EXPECTED LOCAL WRAPPERS: the requirement matrix, what each local wrapper must do, and the fallback for reconstructing wrappers from the examples. Read it when creating, checking, or fixing local wrappers. WORKFLOW steps are in [`setup.md`](../setup.md), except steps 8.a to 8.h in [`update.md`](update.md) and steps 9 to 34 in [`common-steps.md`](common-steps.md); the fast-path precondition is in [`audit.md`](audit.md). Relative paths resolve from the `setup/` folder (see PATH RESOLUTION in `setup.md`).
+
+## EXPECTED LOCAL WRAPPERS
+
+### Requirement matrix
+
+Quick reference for how serious a missing wrapper is. Detailed classification rules (`MISSING`/`EQUIVALENT`/`CUSTOMIZED`) and evidence criteria stay in 8.a and 8.g2–8.g4 ([`update.md`](update.md)); this table is a quick read, not a substitute.
+
+| Wrapper | Required when | Missing blocks |
+|---|---|---|
+| `Test-*KbPowerShellRuntime.ps1` | Always (first gate of operational use) | Any operational use of the workspace |
+| `Test-*KbObjectsXmlNaming.ps1` | `KbObjectsXml` materialized | Clean `wrappers_updated` / `materialized_and_index_validated` |
+| `Test-*KbSetupFreshness.ps1` | Always (global trigger invocation) | The precondition's fast path — missing forces a full audit on every trigger |
+| `Set-*KbSetupAuditTimestamp.ps1` | Recommended whenever `last_setup_audit_run_at`/`setup_contract_signature_*` is missing, invalid, or stale after a successful audit | No state, as long as the shared engine can be called directly or manual editing follows WORKFLOW step 34 ([`common-steps.md`](common-steps.md)) |
+| `Update-*KbFromXpz.ps1` | Always (official materialization flow) | `ready_for_first_materialization` |
+| `Test-*KbFullSnapshot.ps1` | Always (official materialization flow) | `ready_for_first_materialization` |
+| `Query-*KbIntelligence.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+| `Rebuild-*KbIntelligenceIndex.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+| `Test-*KbIndexGate.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+| `Get-*KbMetadata.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+| `Resolve-*KbIdentity.ps1` | Expected at initial setup/audit when a native KB is confirmed and identity needs filling/checking; recommended for later reconciliations when an XPZ arrived with empty/incomplete `Source` | Stable identity metadata remains incomplete or divergent |
+| `Test-*KbMetadataWrapper.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+| `Test-*KbStructure.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+| `Test-*KbSetupAudit.ps1` | `KbIntelligence` adopted | `wrappers_updated` |
+
+- Beyond the mandatory `Test-*KbPowerShellRuntime.ps1` gate, `scripts` must have at least two local wrappers when the workspace runs the official XML materialization flow over the shared engine: a daily-update wrapper from an IDE-exported `.xpz` or XML export, and a full-check wrapper that reuses the daily one in `VerifyOnly + FullSnapshot` mode.
+- When the workspace needs to reconcile a native KB's stable identity because the exported XPZ had empty/incomplete `Source`, recommend the thin local wrapper `Resolve-*KbIdentity.ps1`:
+  - Delegates to `../../scripts/Resolve-GeneXusKbIdentity.ps1`.
+  - Read-only over `model.ini`, `knowledgebase.connection`, and the KB's internal database.
+  - Returns `kbGuid`, `kbName`, `versionGuid`, `versionName`, `UNCPath`, and `username` to support an approved write to `kb-source-metadata.md`.
+  - With an `-UpdateMetadata`-equivalent option, delegates to `../../scripts/Update-MimirKbSourceMetadataIdentity.ps1`, fills missing stable-identity fields, and blocks non-empty divergences unless explicitly approved to overwrite.
+  - Does not replace `Get-*KbMetadata.ps1`: this wrapper resolves identity from the native KB; `Get-*KbMetadata.ps1` reads metadata already written.
+- When the workspace adopts `KbIntelligence`, `scripts` must also have thin local wrappers for:
+  - Querying the derived index in `KbIntelligence\kb-intelligence.sqlite`.
+  - Regenerating/validating the index from `KbObjectsXml`.
+  - The freshness gate (`Test-*KbIndexGate.ps1`): calls the local query wrapper with `-Query index-metadata`, reads `kb-source-metadata.md`, compares timestamps, and returns `GATE_OK` or raises `BLOCK: <reason>`; depends on `Query-*KbIntelligence.ps1` in the same folder and must be the single entry point for the freshness gate.
+  - Reading key `kb-source-metadata.md` fields (`Get-*KbMetadata.ps1`): removes the recurring `Select-String + regex` pattern from callers; exposes at least `last_xpz_materialization_run_at`, `kb_name`, and `source_guid`. Canonical semantic contract: `last_xpz_materialization_run_at` is a top-level/frontmatter field; `kb_name` is the `name` field in the `## Source/Version` table (the KB's IDE name); `source_guid` is the `kb (GUID)` field in `## Source` — the KB's GUID, never the version GUID under `## Source/Version` (an implementation reading `source_guid` from there is semantically wrong even if parsing succeeds).
+  - Validating the metadata wrapper's functional contract (`Test-*KbMetadataWrapper.ps1`): calls the shared engine `Test-MimirKbMetadataWrapper.ps1`, compares what `Get-*KbMetadata.ps1` exposes against `kb-source-metadata.md`, and returns `METADATA_WRAPPER_OK`, `METADATA_WRAPPER_INCOMPLETE`, `PENDING_DATA`, or `BLOCK: ...`.
+  - Auditing `KbObjectsXml` naming (`Test-*KbObjectsXmlNaming.ps1`): calls the shared engine `../../scripts/Test-MimirKbObjectsXmlNaming.ps1`, covers every immediate directory of the snapshot, extracts the real type from a root `Attribute` element or `Object/@type`, compares against the **effective catalog** (`../../scripts/gx-object-type-catalog.json` merged with the workspace's own `scripts/gx-object-type-catalog.override.json` when present), and returns `NAMING_OK`, `NAMING_DIVERGENT`, or `NAMING_INDETERMINATE`; it never renames directories.
+  - A structure check (`Test-*KbStructure.ps1`): reports presence/absence of expected folders, scripts, and artifacts; returns `STRUCTURE_OK`, or one `MISSING:`/`PARSE_ERROR:` line per problem on stdout; used at setup and before any diagnostic operation. It requires `KbIntelligence/kb-intelligence.sqlite`: when that file is the only gap, it prints `PENDING: first index build pending: ...` until the first sync builds the index, and returns `STRUCTURE_OK` only after that first index build (see [Structure gate before the first index build](../setup.md#structure-gate-before-the-first-index-build)).
+  - The PowerShell runtime gate (`Test-*KbPowerShellRuntime.ps1`): calls the shared engine `../../scripts/Test-MimirPowerShellRuntime.ps1`, checks for `pwsh` 7.4 or later on Windows and 7.4.6 or later on Linux and macOS, and blocks any operational use on `BLOCK:`; must be the first wrapper run in setup, audit, freshness, sync, or indexing.
+  - The aggregated setup audit (`Test-*KbSetupAudit.ps1`): calls the shared engine `../../scripts/Test-MimirSetupAudit.ps1`, consolidating deterministic evidence for `powershell/runtime`, `sync/materialization`, `naming/kb-objects`, `index/gate`, `index/semantics`, `metadata wrapper`, `declarative/timestamps`, `wrappers/inventory`, and `suggested_operational_state`. It orchestrates the specific gates but never replaces them as primary evidence. When `-PowerShellRuntimeTestPath` is not given, it scans `scripts/Test-*KbPowerShellRuntime.ps1` in the workspace, uses the single wrapper it finds, and — if none exists — emits `powershell/runtime.detection=missing` plus a suggested wrapper name and template, without auto-creating a file. When it exists and the operational intent is `audit-setup`, run it and use its consolidated output as the handoff vehicle; its dimensions replace manual synthesis of those same dimensions, but never the specific gates' underlying evidence.
+
+
+
+
+
+
+- In `audit-setup`, already-registered identity metadata can support recommending `Resolve-*KbIdentity.ps1` for future reconciliations. This is advisory and does not block a clean state; preserve explicit approval before any identity update.
+- A local wrapper must be thin: resolve the workspace's paths, point at the shared engine, forward parameters, and optionally produce a Git summary, report, and KB metadata.
+- The materialization wrapper must pass `kb-source-metadata.md`'s path so `last_xpz_materialization_run_at` is written even when no XML materially changed, and must call the index regeneration/validation wrapper after a successful sync that is not `VerifyOnly`. The index regeneration wrapper must preserve the shared engine's produced metadata, including `last_index_build_run_at`.
+- A new shared-engine parameter does not automatically mean local wrappers already expose it. A stale local wrapper is an update opportunity to mention to the user and wait for explicit approval — never fix it automatically. A local wrapper must never reimplement the shared engine when the official flow already exists.
+
+### Reconstructing wrappers from the examples (fallback)
+
+The scaffolder (see [CREATION BLOCK](../setup.md#creation-block-scaffolder)) generates every wrapper from these examples, so hand adaptation is a fallback: use it only for a customized workspace the scaffolder cannot express (alternative folder names, local customizations to carry over) or when the scaffolder cannot run. Even then, prefer adapting this workflow's sanitized examples over improvising a new or partial flow. Name each wrapper `<Verb>-<KbName>Kb<Name>.ps1` (the KB name is letters and digits only) and rename the unprefixed sibling names it references (e.g. `Query-KbIntelligence.ps1` → `Query-SampleKbKbIntelligence.ps1`):
+
+[Update-KbFromXpz.example.ps1](examples/Update-KbFromXpz.example.ps1) · [Test-KbFullSnapshot.example.ps1](examples/Test-KbFullSnapshot.example.ps1) · [Query-KbIntelligence.example.ps1](examples/Query-KbIntelligence.example.ps1) · [Rebuild-KbIntelligenceIndex.example.ps1](examples/Rebuild-KbIntelligenceIndex.example.ps1) · [Test-KbPowerShellRuntime.example.ps1](examples/Test-KbPowerShellRuntime.example.ps1) · [Test-KbObjectsXmlNaming.example.ps1](examples/Test-KbObjectsXmlNaming.example.ps1) · [gx-object-type-catalog.override.json.example](examples/gx-object-type-catalog.override.json.example) · [Test-KbIndexGate.example.ps1](examples/Test-KbIndexGate.example.ps1) · [Get-KbMetadata.example.ps1](examples/Get-KbMetadata.example.ps1) · [Resolve-KbIdentity.example.ps1](examples/Resolve-KbIdentity.example.ps1) · [Test-KbMetadataWrapper.example.ps1](examples/Test-KbMetadataWrapper.example.ps1) · [Test-KbSetupAudit.example.ps1](examples/Test-KbSetupAudit.example.ps1) · [Test-KbStructure.example.ps1](examples/Test-KbStructure.example.ps1) · [Test-KbSetupFreshness.example.ps1](examples/Test-KbSetupFreshness.example.ps1) · [Set-KbSetupAuditTimestamp.example.ps1](examples/Set-KbSetupAuditTimestamp.example.ps1)
+
+
+
+These `.example.ps1` files are important methodological references for technical bootstrap and assisted wrapper reconstruction; they never substitute for the workspace's real local wrapper and must never become an automatic execution fallback in the normal flow. A wrapper derived from a `.example.ps1` only counts as a valid bootstrap wrapper once the agent has validated the `.ps1` parses and has no sanitized placeholders left in executable values, effective configuration, default paths, default parameters, or real calls. The sanitized placeholders in the examples are `C:\path\to\mimir-lite` (default `-SharedSkillsRoot`, the root of the shared Mimir Lite checkout) and `C:\path\to\native-kb` (native KB folder in `Resolve-KbIdentity.example.ps1`, set to an empty string in an XPZ-only workspace); the help blocks also use `<WorkspaceRoot>` in their `.EXAMPLE` commands, which the scaffolder fills with the workspace folder. Illustrative paths kept only inside comment/help blocks (e.g. `.EXAMPLE`) do not block bootstrap by themselves, but must never be cited as evidence of a validated local configuration.
+
+The sanitized examples embody a real KB-workspace trail with: KB metadata recorded in `kb-source-metadata.md`; `last_xpz_materialization_run_at` updated on every requested XPZ/XML run; mandatory derived-index refresh after a successful materialization; a Git summary scoped to the official corpus when there is a material change; localized cleanup of leftovers from a renamed object (preserving the XML under its current name with the more trustworthy `lastUpdate`); optional forwarding of `ExpectedItems` to distinguish the expected focus from additional official returns; the derived index at `KbIntelligence\kb-intelligence.sqlite`; `last_index_build_run_at` recorded in the SQLite `metadata` table and mirrored in the validation report; and index query/regeneration delegated to local wrappers, never reimplementing the shared engine.
