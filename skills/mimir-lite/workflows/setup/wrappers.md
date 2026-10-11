@@ -1,6 +1,6 @@
 # Setup wrappers
 
-Part of the [setup workflow](../setup.md). This file holds EXPECTED LOCAL WRAPPERS: the requirement matrix, what each local wrapper must do, and the fallback for reconstructing wrappers from the examples. Read it when creating, checking, or fixing local wrappers. WORKFLOW steps are in [`setup.md`](../setup.md), except steps 8.a to 8.h in [`update.md`](update.md) and steps 9 to 34 in [`common-steps.md`](common-steps.md); the fast-path precondition is in [`audit.md`](audit.md). Relative paths resolve from the `setup/` folder (see PATH RESOLUTION in `setup.md`).
+Part of the [setup workflow](../setup.md). This file holds EXPECTED LOCAL WRAPPERS: the requirement matrix, what each local wrapper must do, and the fallback for reconstructing wrappers from the examples. Read it when checking or fixing local wrappers, or when creating one by hand (update mode, or reconstructing a wrapper from the examples); in creation mode the scaffolder creates the wrappers and the setup audit checks them (its `wrappers/inventory` result), so read it then only when that audit reports a wrapper problem. WORKFLOW steps are in [`setup.md`](../setup.md), except steps 8.a to 8.h in [`update.md`](update.md) and steps 9 to 34 in [`common-steps.md`](common-steps.md); the fast-path precondition is in [`audit.md`](audit.md). Relative paths resolve from the `setup/` folder (see PATH RESOLUTION in `setup.md`).
 
 ## EXPECTED LOCAL WRAPPERS
 

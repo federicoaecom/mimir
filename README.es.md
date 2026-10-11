@@ -11,7 +11,7 @@ Mimir Lite es una skill de agente que lee y entiende una Base de Conocimiento (K
 
 ## Estado
 
-Versión actual: `0.6.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
+Versión actual: `0.7.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
 
 ## Soporte
 
@@ -74,7 +74,7 @@ Seguir estos pasos en orden. Los bloques de comandos son de PowerShell 7, salvo 
 
    Clonar es instalar software, y un fetch, pull o reset modifica el clon: preguntar al usuario antes de cualquier clone, fetch, pull o reset de la copia de la skill, y ejecutarlo solo después de un sí explícito. Para un clon, nombrar la ruta de destino (por ejemplo `$HOME/mimir-lite`). Leer este README desde su URL en lugar de clonar el repositorio en otro lugar para leerlo; clonar una sola vez, en la ruta aprobada.
 
-   Si `<mimir-lite-root>` ya existe, no clonar de nuevo y todavía no actualizarlo. Inspeccionarlo en modo de solo lectura, ejecutando cada comando siguiente en una llamada propia (sin `&&`, `;`, pipes ni `cd`), para que cada uno coincida con una regla de permiso simple. Después, antes de preguntar por una actualización, informar al usuario en texto visible si el clon está limpio, su commit actual y si `origin` es la URL de este README, en un mensaje breve propio o en las primeras líneas del mensaje que hace la pregunta de actualización; un informe que aparece solo en la salida de una herramienta o en el razonamiento del agente no se dio. Cuando la herramienta tiene un prompt de preguntas con opciones, imprimir el informe como texto visible justo antes de usarlo y mantener las opciones:
+   Si `<mimir-lite-root>` ya existe, no clonar de nuevo y todavía no actualizarlo. Inspeccionarlo en modo de solo lectura, ejecutando cada comando siguiente en una llamada propia (sin `&&`, `;`, pipes ni `cd`), para que cada uno coincida con una regla de permiso simple. Después, antes de preguntar por una actualización, informar al usuario en texto visible si el clon está limpio, su commit actual y si `origin` es la URL de este README, en un mensaje breve propio o en las primeras líneas del mensaje que hace la pregunta de actualización; un informe que aparece solo en la salida de una herramienta o en el razonamiento del agente no se dio. Dar el commit como su hash corto, antes y después de una actualización, y no rotularlo con una versión publicada: la versión que nombra este README o el CHANGELOG es la última versión publicada, no necesariamente este commit. Cuando la herramienta tiene un prompt de preguntas con opciones, mantener las opciones y poner el informe en el texto de la pregunta misma (por ejemplo `El clon en <ruta> está limpio, en el commit <hash corto>, y origin es la URL del README. ¿Actualizarlo (fetch y luego fast-forward)?`); no depender de un texto impreso antes de usarlo, que puede omitirse:
 
    ```powershell
    git -C "$HOME/mimir-lite" status

@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-11
+
 ### Added
 
 - `who-uses` on an `Attribute` attaches to each `has_level_attribute` row from a Transaction a `writability` object: that Transaction's materialized writability classification of the attribute (the fields of a `transaction-writable-attributes` row except the file-backed `isFormula` and `formulaExpression`), or `null` when the Transaction has no materialized row; the `text` output adds one `writability:` line to those rows, and the `dependents` of `impact-basic` carry the same field. A foreign key such as `extended-fk-key` is then direct evidence in the answer instead of an inference from the level structure. Existing fields, row order, limits, and the `coverage` object are unchanged, `who-uses` still reads the index alone, and neither the index schema nor the extractor version changes. The KB index reference and the find workflow follow.
@@ -14,6 +16,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Changed
 
 - The **setup** workflow is split so each file reads in one call: `setup.md` keeps the entry, the checklist, and the creation flow, and points to five files under `workflows/setup/`: `audit.md` (the fast-path precondition and the post-audit correction plan), `update.md` (the update block, update mode only), `common-steps.md` (steps 9 to 34, every mode), `wrappers.md` (the expected local wrappers), and `constraints.md` (the constraints, read before any write). The text moved verbatim; step numbers are unchanged. The setup contract manifest lists the five files, so the setup contract signature changes and KB workspaces re-audit once.
+
+### Fixed
+
+- The README agent steps (English and Spanish) and the **install** workflow, from a tenth end-to-end run: when the agent tool has a question prompt with options, the existing-clone report (clean state, current commit, `origin` match) goes into the update question text itself, since text printed right before the call can be skipped; the options stay and the question never becomes free text. The commit is given as its short hash, before and after an update, without a release label: the version the README or the CHANGELOG names is the latest release, not necessarily that commit.
+- The **setup** workflow pointer to `setup/wrappers.md` (in `setup.md` and in that file's own introduction), from the same run: in creation mode the scaffolder creates the wrappers and the setup audit checks them (`wrappers/inventory`), so the file is read only when that audit reports a wrapper problem, or when a wrapper is checked, fixed, or created by hand.
 
 ## [0.6.0] - 2026-10-10
 

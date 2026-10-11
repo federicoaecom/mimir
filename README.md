@@ -11,7 +11,7 @@ Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base
 
 ## Status
 
-Current release: `0.6.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+Current release: `0.7.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
 
 ## Support
 
@@ -74,7 +74,7 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
    Cloning is installing software, and a fetch, pull, or reset changes the clone: ask the user before any clone, fetch, pull, or reset of the skill checkout, and run it only after an explicit yes. For a clone, name the target path (for example `$HOME/mimir-lite`). Read this README from its URL instead of cloning the repository somewhere else to read it; clone once, into the approved path.
 
-   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, running each command below as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule. Then, before asking about an update, tell the user in visible text whether the clone is clean, its current commit, and whether `origin` is the URL in this README, as a short message of its own or as the first lines of the message that asks the update question; a report that appears only in tool output or the agent's reasoning was not given. When your tool has a question prompt with options, print the report as visible text right before it and keep the options:
+   If `<mimir-lite-root>` already exists, do not clone again and do not update it yet. Inspect it read-only, running each command below as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule. Then, before asking about an update, tell the user in visible text whether the clone is clean, its current commit, and whether `origin` is the URL in this README, as a short message of its own or as the first lines of the message that asks the update question; a report that appears only in tool output or the agent's reasoning was not given. Give the commit as its short hash, before and after an update, and do not label it with a release version: the version this README or the CHANGELOG names is the latest release, not necessarily this commit. When your tool has a question prompt with options, keep the options and put the report in the question text itself (for example `The clone at <path> is clean, at commit <short hash>, and origin is the README URL. Update it (fetch, then fast-forward)?`); do not rely on text printed before it, which can be skipped:
 
    ```powershell
    git -C "$HOME/mimir-lite" status

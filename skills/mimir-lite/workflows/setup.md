@@ -8,7 +8,7 @@ Defines and validates the initial structure of the **KB workspace** used alongsi
 
 Read this whole file before acting on it. When the tool shows only part of it, keep reading in parts until **CONSTRAINTS**, the last section, which points to [`setup/constraints.md`](setup/constraints.md): read that file before any write, in every mode.
 
-Five files under `setup/` hold the rest of this workflow; read each one when its pointer in this file says it applies: [`setup/audit.md`](setup/audit.md) (the fast-path precondition with its own steps 0 to 3, for the audit triggered by the global trigger, and the correction plan after any minimum audit), [`setup/update.md`](setup/update.md) (update mode only, steps 8.a to 8.h), [`setup/common-steps.md`](setup/common-steps.md) (every mode, steps 9 to 34), [`setup/wrappers.md`](setup/wrappers.md) (EXPECTED LOCAL WRAPPERS, when creating, checking, or fixing local wrappers), and [`setup/constraints.md`](setup/constraints.md) (CONSTRAINTS, before any write, in every mode). Every other WORKFLOW step, from step 0 (the catalog reminder), and every other section named in capitals, is in this file.
+Five files under `setup/` hold the rest of this workflow; read each one when its pointer in this file says it applies: [`setup/audit.md`](setup/audit.md) (the fast-path precondition with its own steps 0 to 3, for the audit triggered by the global trigger, and the correction plan after any minimum audit), [`setup/update.md`](setup/update.md) (update mode only, steps 8.a to 8.h), [`setup/common-steps.md`](setup/common-steps.md) (every mode, steps 9 to 34), [`setup/wrappers.md`](setup/wrappers.md) (EXPECTED LOCAL WRAPPERS, when checking or fixing local wrappers or creating one by hand), and [`setup/constraints.md`](setup/constraints.md) (CONSTRAINTS, before any write, in every mode). Every other WORKFLOW step, from step 0 (the catalog reminder), and every other section named in capitals, is in this file.
 
 Before declaring any completion state (see **SETUP COMPLETION STATES**), confirm that each applicable item below was done, or that the user explicitly refused it. These are steps of this workflow, not optional extras: never present them as optional items in a list of offers.
 
@@ -190,7 +190,7 @@ On closing initial setup, recommend the **install** workflow to audit the full s
 
 ## EXPECTED LOCAL WRAPPERS
 
-Read [`setup/wrappers.md`](setup/wrappers.md) when creating, checking, or fixing local wrappers: it holds the requirement matrix (which wrappers each scenario needs and what a missing one blocks), what each wrapper must do, and the fallback for reconstructing wrappers from the examples.
+Read [`setup/wrappers.md`](setup/wrappers.md) when checking or fixing local wrappers, or when creating one by hand (update mode, or reconstructing a wrapper from the examples). In creation mode the scaffolder creates the wrappers and the setup audit checks them (its `wrappers/inventory` result), so read the file then only when that audit reports a wrapper problem. It holds the requirement matrix (which wrappers each scenario needs and what a missing one blocks), what each wrapper must do, and the fallback for reconstructing wrappers from the examples.
 
 ---
 
