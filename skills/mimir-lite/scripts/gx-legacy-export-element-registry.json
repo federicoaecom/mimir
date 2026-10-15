@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Registry (not a catalog) of legacy GeneXus 9 export elements (ExportFile with <GXObject><Elemento> identified by element NAME, no type GUID). Representation/governance layer: classifies each legacy element as 'equivalent' (has a real modern type in the catalog) or 'orphan' (no modern equivalent, materialized in its own folder with typeToken gxlegacy/<Elemento>). The export/materialization engine is separate and confirms exact tag/casing when parsing real GX9. Doc owner: 01k-legacy-element-registry.md.",
+  "description": "Registry (not a catalog) of legacy GeneXus 8/9 export elements (ExportFile with <GXObject><Elemento> identified by element NAME, no type GUID). Representation/governance layer: classifies each legacy element as 'equivalent' (has a real modern type in the catalog) or 'orphan' (no modern equivalent, materialized in its own folder with typeToken gxlegacy/<Elemento>). The export/materialization engine is separate and confirms exact tag/casing when parsing real GX9. Doc owner: 01k-legacy-element-registry.md.",
   "elements": {
     "Transaction": { "class": "equivalent", "catalogType": "Transaction" },
     "StructureDataType": { "class": "equivalent", "catalogType": "SDT" },
@@ -9,6 +9,7 @@
     "Theme": { "class": "equivalent", "catalogType": "Theme" },
     "Folder": { "class": "equivalent", "catalogType": "Folder" },
     "WorkPanel": { "class": "equivalent", "catalogType": "WorkPanel" },
+    "WebPanel": { "class": "equivalent", "catalogType": "WebPanel" },
     "Group": { "class": "equivalent", "catalogType": "SubTypeGroup" },
     "Procedure": { "class": "equivalent", "catalogType": "Procedure" },
     "DataView": { "class": "equivalent", "catalogType": "DataView" },
@@ -17,6 +18,7 @@
       "class": "orphan",
       "materializedFolderName": "Report",
       "typeToken": "gxlegacy/Report",
+      "indexedByKbIntelligence": true,
       "modernSuccessor": "Procedure",
       "successorRelation": "absorbed"
     }

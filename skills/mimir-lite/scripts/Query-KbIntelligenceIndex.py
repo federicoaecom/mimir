@@ -93,7 +93,10 @@ class PartialAttributeUseExtraction(NamedTuple):
 # rule; "Transaction item writes": an item's left side when the DataProvider outputs a
 # Transaction). Not read: other assignment targets (ambiguous writes, reported as reads),
 # Conditions, Procedure Layout and WebForm Parts, the items of an SDT-output DataProvider,
-# Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>. The mobile
+# Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>. A classic
+# Report (GeneXus 7.5 to 9 export) emits code_references_attribute since 19 from its
+# Layout/Block/CodeBlock/Source, Rules and Events, read like a Procedure's; its layout print
+# blocks are not read. The mobile
 # WorkWith emits workwith_references_attribute since 18 from its pattern instance: layout
 # <data attribute>, order, search and break by attributes, and advanced filter attributes; grid
 # conditions, rules, events and captions are not read.
@@ -113,6 +116,14 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
             ExtractedPart("block writes", 15),
         ),
         missing=("ambiguous writes", "conditions", "layout", "Business Component members", "code outside a Part"),
+    ),
+    "Report": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("Source reads", 19),
+            ExtractedPart("rule reads", 19),
+            ExtractedPart("block writes", 19),
+        ),
+        missing=("ambiguous writes", "layout", "Business Component members"),
     ),
     "Transaction": PartialAttributeUseExtraction(
         extracted=(
@@ -161,7 +172,7 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
 # Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
 # views, layouts, or item types) while the extractor emits no attribute-use relation for any
 # of them. Besides workwith_references_attribute (WorkWithForWeb, WorkWith) and
-# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider), see
+# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider, Report), see
 # PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
 # structural: has_level_attribute (Transaction levels), has_key_attribute and
 # has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the

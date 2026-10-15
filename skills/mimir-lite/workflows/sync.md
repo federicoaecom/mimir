@@ -255,9 +255,9 @@ This file is also the expected location of `last_xpz_materialization_run_at` (th
 
 ---
 
-## LEGACY EXPORTS (GeneXus 9)
+## LEGACY EXPORTS (GeneXus 8 and 9)
 
-`Sync-GeneXusXpzToXml.ps1` recognizes and materializes **legacy GeneXus 9 exports** with no extra configuration. A legacy export is an `ExportFile` whose objects appear as `<GXObject><Element>` by **name** (e.g. `<Procedure>`, `<Report>`), **without** `Object/@type` (a type GUID) — unlike a modern GeneXus 18 export. Automatic detection by profile:
+`Sync-GeneXusXpzToXml.ps1` recognizes and materializes **legacy GeneXus 8 and 9 exports** with no extra configuration. A legacy export is an `ExportFile` whose objects appear as `<GXObject><Element>` by **name** (e.g. `<Procedure>`, `<Report>`), **without** `Object/@type` (a type GUID) — unlike a modern GeneXus 18 export. Automatic detection by profile:
 
 - **pure-legacy** = `/ExportFile/GXObject` exists **and** `Objects/Object`=0 **and** `Attributes/Attribute`=0
 - **mixed** (legacy and modern elements in the same `ExportFile`) = **fail-closed**: the sync throws a `BLOCK` error **without** writing `kb-source-metadata.md` and without materializing anything. Export the formats separately.
@@ -265,14 +265,15 @@ This file is also the expected location of `last_xpz_materialization_run_at` (th
 On the legacy branch the engine (`scripts/GeneXusLegacyExportFileSupport.ps1`) consumes the `scripts/gx-legacy-export-element-registry.json` registry (owner doc `01k-legacy-element-registry.md`):
 
 - `equivalent` → materializes under the modern type's `folderName`, with `type=<real catalog GUID>`
-- `orphan` (`Report`) → materializes under its own `materializedFolderName`, with `type="gxlegacy/<Element>"`
+- `orphan` (`Report`) → materializes under its own `materializedFolderName`, with `type="gxlegacy/<Element>"`; KB Intelligence indexes `Report` as its own type
 - **legacy `<Menubar>`** is `equivalent`→`Menubar` (a modern GUID), no longer an orphan. If the corpus still has XML with `type="gxlegacy/Menubar"` under `Menubar/` (materialized before the reclassification), the `KbIntelligence` rebuild **fails** — the folder is no longer skippable as an orphan. Re-sync the legacy package or clean up before the index; details in `01k`.
+- **ungrouped subtypes:** a `<Group>` with a blank `Info/Name` holds the subtypes that belong to no group (GeneXus 8 exports one in each package). It materializes as **one `SubTypeGroup/<subtype>.xml` per `<Subtype>`**, each keeping only its own `<Subtype>` and the blank `Info/Name`, so a later export that carries fewer subtypes never overwrites the others. A blank group with no `<Subtype>`, a subtype without a name, or two groups/ungrouped subtypes with the same name in one package → `throw`
 - each item becomes an `Object`/`Attribute` envelope with `dataSource="gx-legacy-export"`, the original payload preserved in `<GxLegacyPayload>`, and `guid=""` (does not take part in GUID-based rename)
 - **cross-flow collision:** if the same `FolderType|NormalizedName` already exists in the corpus as **modern** (no `dataSource`), cross-flow detection triggers when materializing the legacy item — fail-soft by default (`CrossFlowCollisions`), or block with `-BlockCrossFlowDataSource` (see "Daily-update wrapper" and the result-interpretation section)
 - a missing/invalid `lastUpdate` → a deterministic sentinel `0001-01-01T00:00:00.0000000Z` (conservative: in incremental materialization, sentinel × a real date → `skipped-older-lastUpdate`)
 - **a tag outside the registry** → `throw` with instructions to extend the registry (never materialize partially)
 
-Signals in the result JSON: `LegacyFormatDetected=true` and `MaterializationInterpretation`/`PackageInterpretation`=`legacy-export-adapted`. During normal materialization, when `-KbMetadataPath` is given, the metadata gets `-IsLegacyExport`: `Build` comes from `KMW/MaxGxBuildSaved` (a legacy export carries no `KMW/Build` or `<Source>` block), with a dedicated hint in place of the generic missing-`Source` warning. `-VerifyOnly` skips this metadata write. Reading is encoding-aware (a GX9 export is iso-8859-1, read via `XmlDocument.Load`). See `01k`, `02`, and the **read** workflow.
+Signals in the result JSON: `LegacyFormatDetected=true` and `MaterializationInterpretation`/`PackageInterpretation`=`legacy-export-adapted`. During normal materialization, when `-KbMetadataPath` is given, the metadata gets `-IsLegacyExport`: `Build` comes from `KMW/MaxGxBuildSaved` (a legacy export carries no `KMW/Build` or `<Source>` block), with a dedicated hint in place of the generic missing-`Source` warning. `-VerifyOnly` skips this metadata write. Reading is encoding-aware (GX8 and GX9 exports are iso-8859-1, read via `XmlDocument.Load`). KB Intelligence inventories legacy objects but does not yet extract relations from them (who-uses and impact return nothing for these formats). See `01k`, `02`, and the **read** workflow.
 
 ---
 

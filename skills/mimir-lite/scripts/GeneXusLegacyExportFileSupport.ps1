@@ -20,6 +20,9 @@
     - Shared profile detection (Test-GeneXusLegacyExportFilePackage / ...Mixed...).
     - A MIXED package (GXObject + modern Objects/Object|Attributes/Attribute) = fail-closed.
     - Tag not in the registry / >1 child element per GXObject / name collision = fail-closed.
+    - A <Group> with a blank Info/Name holds ungrouped subtypes (seen in GeneXus 8): it splits
+      into one SubTypeGroup item per <Subtype>, named after the subtype, so a later export
+      never overwrites subtypes it does not carry.
     - Missing/invalid lastUpdate => deterministic sentinel 0001-01-01 (NEVER Get-Date).
     - Legacy items expose Guid='' (do not participate in GUID-based rename).
 #>
@@ -44,6 +47,7 @@ if (-not (Test-Path -LiteralPath $fileBaseNameNormalizationSupportPath -PathType
 $script:LegacyExportSentinelLastUpdate = '0001-01-01T00:00:00.0000000Z'
 $script:LegacyExportDataSourceAttribute = 'gx-legacy-export'
 $script:LegacyExportPayloadElementName = 'GxLegacyPayload'
+$script:LegacyExportGroupElementName = 'Group'
 $script:LegacyExportRegistryCache = $null
 
 function Get-GeneXusLegacyExportElementRegistryPath {
@@ -167,6 +171,50 @@ function Get-GeneXusLegacyExportObjectName {
     throw "Legacy export: name not found in Info/Name for element '$($TypeElement.LocalName)'."
 }
 
+function Test-GeneXusLegacyUngroupedSubtypeContainer {
+    <# A <Group> whose Info/Name is missing or blank: the container GeneXus 8 exports for subtypes outside any group. #>
+    param([System.Xml.XmlElement]$TypeElement)
+
+    if ($TypeElement.LocalName -ne $script:LegacyExportGroupElementName) { return $false }
+    $infoName = $TypeElement.SelectSingleNode('./Info/Name')
+    return ($null -eq $infoName -or [string]::IsNullOrWhiteSpace($infoName.InnerText))
+}
+
+function Split-GeneXusLegacyUngroupedSubtypes {
+    <#
+        One (Name, Element) pair per <Subtype> of an ungrouped container. Each Element is a copy
+        of the container that keeps only that <Subtype> (and the blank Info/Name that marks it
+        ungrouped). No <Subtype> or a blank subtype name => fail-closed.
+    #>
+    param([System.Xml.XmlElement]$TypeElement)
+
+    $subtypes = @($TypeElement.SelectNodes('./Subtype'))
+    if ($subtypes.Count -eq 0) {
+        throw "Legacy export: name not found in Info/Name for element '$($TypeElement.LocalName)', and it holds no Subtype."
+    }
+    $parts = New-Object System.Collections.Generic.List[object]
+    for ($index = 0; $index -lt $subtypes.Count; $index++) {
+        $nameNode = $subtypes[$index].SelectSingleNode('./Name')
+        if ($null -eq $nameNode -or [string]::IsNullOrWhiteSpace($nameNode.InnerText)) {
+            throw "Legacy export: an ungrouped Subtype (Group with a blank name) has no Name."
+        }
+        $copy = [System.Xml.XmlElement]$TypeElement.CloneNode($true)
+        $copySubtypes = @($copy.SelectNodes('./Subtype'))
+        for ($other = 0; $other -lt $copySubtypes.Count; $other++) {
+            if ($other -ne $index) { [void]$copy.RemoveChild($copySubtypes[$other]) }
+        }
+        # Drop the container's own whitespace too: what the removed siblings left behind would make
+        # the same subtype's payload differ between packages (a false update on every sync).
+        foreach ($child in @($copy.ChildNodes)) {
+            if ($child.NodeType -eq [System.Xml.XmlNodeType]::Whitespace -or $child.NodeType -eq [System.Xml.XmlNodeType]::SignificantWhitespace) {
+                [void]$copy.RemoveChild($child)
+            }
+        }
+        $parts.Add([pscustomobject]@{ Name = $nameNode.InnerText.Trim(); Element = $copy }) | Out-Null
+    }
+    return @($parts.ToArray())
+}
+
 function Get-GeneXusLegacyObjectTypeElement {
     <# First (and only) child element of <GXObject>. >1 child element => defensive fail-closed. #>
     param([System.Xml.XmlElement]$GxObject)
@@ -272,7 +320,12 @@ function Get-GeneXusLegacyExportFileSyncItems {
 
         $element = $registryMap[$legacyTag]
         $class = [string](Get-LegacyElementPropertyValue -Element $element -Name 'class')
-        $logicalName = Get-GeneXusLegacyExportObjectName -TypeElement $typeElement
+        if (Test-GeneXusLegacyUngroupedSubtypeContainer -TypeElement $typeElement) {
+            $materializedParts = Split-GeneXusLegacyUngroupedSubtypes -TypeElement $typeElement
+        }
+        else {
+            $materializedParts = @([pscustomobject]@{ Name = (Get-GeneXusLegacyExportObjectName -TypeElement $typeElement); Element = $typeElement })
+        }
         $lastUpdateNode = $typeElement.SelectSingleNode('./LastUpdate')
         $rawLastUpdate = if ($null -ne $lastUpdateNode) { $lastUpdateNode.InnerText } else { '' }
         $lastUpdate = Convert-GeneXusLegacyLastUpdateToIso8601 -Raw $rawLastUpdate
@@ -295,21 +348,37 @@ function Get-GeneXusLegacyExportFileSyncItems {
             throw "Legacy export: unknown class '$class' for element '$legacyTag' in the registry."
         }
 
-        $xmlText = New-GeneXusLegacyWrappedXml -RootTag 'Object' -TypeAttribute $typeAttribute -Name $logicalName -LastUpdate $lastUpdate -LegacyInnerElement $typeElement
-        $node = Import-GeneXusLegacyWrappedXmlNode -XmlText $xmlText
+        foreach ($part in $materializedParts) {
+            $logicalName = $part.Name
+            $xmlText = New-GeneXusLegacyWrappedXml -RootTag 'Object' -TypeAttribute $typeAttribute -Name $logicalName -LastUpdate $lastUpdate -LegacyInnerElement $part.Element
+            $node = Import-GeneXusLegacyWrappedXmlNode -XmlText $xmlText
 
-        $items.Add([pscustomobject]@{
-            PackageSection = 'Objects'
-            RootTag        = 'Object'
-            FolderType     = $folderType
-            LogicalName    = $logicalName
-            NormalizedName = (& $NormalizeFileBaseName $logicalName)
-            TypeGuid       = $typeAttribute
-            Guid           = ''
-            LegacyElement  = $legacyTag
-            CanonicalType  = $canonicalType
-            Node           = $node
-        }) | Out-Null
+            $items.Add([pscustomobject]@{
+                PackageSection = 'Objects'
+                RootTag        = 'Object'
+                FolderType     = $folderType
+                LogicalName    = $logicalName
+                NormalizedName = (& $NormalizeFileBaseName $logicalName)
+                TypeGuid       = $typeAttribute
+                Guid           = ''
+                LegacyElement  = $legacyTag
+                CanonicalType  = $canonicalType
+                Node           = $node
+            }) | Out-Null
+        }
+    }
+
+    # An ungrouped subtype and a named group (or two ungrouped subtypes) with the same name would
+    # write the same file, and the second would silently replace the first: fail closed.
+    $duplicateGroups = @(
+        $items |
+        Where-Object { $_.LegacyElement -eq $script:LegacyExportGroupElementName } |
+        Group-Object { "$($_.FolderType)|$($_.NormalizedName)" } |
+        Where-Object { $_.Count -gt 1 }
+    )
+    if ($duplicateGroups.Count -gt 0) {
+        $details = ($duplicateGroups | ForEach-Object { "$($_.Name) (x$($_.Count))" }) -join ', '
+        throw "Legacy export: more than one Group or ungrouped Subtype with the same name: $details. Each would overwrite the other's file."
     }
 
     if ($unmappedCounts.Count -gt 0) {

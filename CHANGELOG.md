@@ -6,6 +6,19 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- The KB index extracts relations from classic GeneXus exports (GeneXus 7.5 to 9, root `dataSource="gx-legacy-export"`), so `who-uses`, `what-uses`, and `impact-basic` answer for GeneXus 8 and 9 objects, which were inventoried without relations before. A classic `Report` is indexed and queried as its own type `Report` instead of being skipped as a legacy orphan (registry flag `indexedByKbIntelligence`; classic identity is type + name, so a `Report` and a `Procedure` with the same name stay distinct). Classic calls are read from every `<Rules>` and `<Events>` body and every `<Source>` inside a `<CodeBlock>` (comments skipped; a `<Source>` elsewhere, such as the HTML of a `WebPanel` `HTMLForm` or of the `Documentation`, or a `Report` print control, is not read) by an extractor of their own that strips the object-type prefix of `call(`, `udp(`, and `link(`: `P` → `calls_procedure`, `R` → `calls_report`, `T` → `calls_transaction`, `W` → `calls_workpanel` (rules `classic_call_command`, `classic_udp_func`, `classic_link`); a call through a variable or with another prefix gives no relation, and the modern call forms no longer read classic code (the modern `call(PAGO)` would match a `Procedure` named `PAGO` instead of `AGO`). Attribute references (`code_references_attribute`, rule `code_attribute_reference`) come from the same sections, read like the matching modern Part: `Report Source` and `Procedure Source`, `Rules` (with `Rules write` for Transaction assignment rules), and `Events`, each with read and write roles. Reverse-relation coverage for an `Attribute` target lists `Report` as partly extracted (extracted: Source reads, rule reads, block writes; missing: ambiguous writes, layout, Business Component members). Not covered: a Web Panel call prefix (none observed), a `WorkPanel` as a call source or queried object, the table a classic `for each` navigates, and `.xpw` exports (GeneXus 7.0 and earlier). The extractor version goes from 18 to 19, so the index gate reports existing indexes as built by an older extractor until they are rebuilt once. The KB index reference and the README follow.
+
+### Changed
+
+- README: the GeneXus versions table lists GeneXus X and X Evolution 1 as tested with public samples: 21 small public exports (export header 3.1, builds 13780 to 27264 or no build, dated 2007 to 2010) sync, index, and produce relations. The files do not name the product version, so the two are not told apart, and no full agent run was made.
+
+### Fixed
+
+- The sync reads GeneXus 8 classic exports: the `<WebPanel>` element is registered as the modern `WebPanel` type, and the blank-name `<Group>` each package carries for its ungrouped subtypes is split into one `SubTypeGroup/<subtype>.xml` per subtype, so a later package with fewer subtypes never overwrites the others; a blank `Group` without a `Subtype`, an unnamed ungrouped `Subtype`, and two `Group` items with the same name in one package fail closed. A public GeneXus 8.0 export failed before with "name not found in Info/Name for element 'Group'". The README, the sync workflow, and the legacy element registry document GeneXus 8 support.
+- The README agent steps (English and Spanish) and the **install** workflow name where the commit after an update comes from: the `Updating <old>..<new>` line of the `pull --ff-only` output (`Already up to date` means it did not change), so reporting it needs no extra command and no extra permission approval.
+
 ## [0.7.0] - 2026-10-11
 
 ### Added

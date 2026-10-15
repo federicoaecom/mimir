@@ -185,5 +185,82 @@ try {
     if (Test-Path -LiteralPath $work4) { Remove-Item -LiteralPath $work4 -Recurse -Force }
 }
 
+# =====================================================================================
+# Case 5 — GeneXus 8 shapes: WebPanel and ungrouped subtypes; a later export keeps earlier subtypes
+# =====================================================================================
+$work5 = New-WorkRoot
+try {
+    $catalog = Get-Content -LiteralPath (Join-Path $scriptsRoot 'gx-object-type-catalog.json') -Raw | ConvertFrom-Json
+    $webPanelGuid = [string]$catalog.types.WebPanel.objectTypeGuid
+    $first = Join-Path $work5 'RptOrders_1.xml'
+    Write-Iso88591File -Path $first -Content @'
+<?xml version='1.0' encoding='iso-8859-1'?>
+<ExportFile>
+  <KMW><MajorVersion>2</MajorVersion><MinorVersion>1</MinorVersion><MaxGxBuildSaved>1595</MaxGxBuildSaved></KMW>
+  <GXObject><WebPanel><Info><Name>WpOrders</Name></Info><LastUpdate>2013-02-18 22:48:04GMT</LastUpdate></WebPanel></GXObject>
+  <GXObject>
+    <Group>
+      <Info>
+        <Name> </Name>
+      </Info>
+      <Subtype>
+        <Name>SubC</Name>
+        <Supertype>SuperC</Supertype>
+      </Subtype>
+      <Subtype>
+        <Name>SubB</Name>
+        <Supertype>SuperB</Supertype>
+      </Subtype>
+    </Group>
+  </GXObject>
+</ExportFile>
+'@
+    # Indented like a real export: the payload of SubC must not depend on how many siblings it had.
+    $second = Join-Path $work5 'WpOrders_1.xml'
+    Write-Iso88591File -Path $second -Content @'
+<?xml version='1.0' encoding='iso-8859-1'?>
+<ExportFile>
+  <KMW><MajorVersion>2</MajorVersion><MinorVersion>1</MinorVersion><MaxGxBuildSaved>1595</MaxGxBuildSaved></KMW>
+  <GXObject>
+    <Group>
+      <Info>
+        <Name> </Name>
+      </Info>
+      <Subtype>
+        <Name>SubC</Name>
+        <Supertype>SuperC</Supertype>
+      </Subtype>
+    </Group>
+  </GXObject>
+</ExportFile>
+'@
+    $dest = Join-Path $work5 'corpus'
+    [void](New-Item -ItemType Directory -Path $dest)
+
+    $summary = Invoke-SyncJson -SyncArgs @('-InputPath', $first, '-DestinationRoot', $dest)
+    if ($summary.Created -ne 3) { throw "Case5: Created=$($summary.Created) (expected 3: WebPanel + 2 ungrouped subtypes)." }
+
+    $wpFile = Join-Path (Join-Path $dest 'WebPanel') 'WpOrders.xml'
+    if (-not (Test-Path -LiteralPath $wpFile)) { throw "Case5: WebPanel not materialized at $wpFile." }
+    [xml]$wpXml = Get-Content -LiteralPath $wpFile -Raw
+    if ($wpXml.DocumentElement.GetAttribute('type') -ne $webPanelGuid) { throw "Case5: WebPanel type='$($wpXml.DocumentElement.GetAttribute('type'))' (expected $webPanelGuid)." }
+
+    $subBFile = Join-Path (Join-Path $dest 'SubTypeGroup') 'SubB.xml'
+    foreach ($name in @('SubC', 'SubB')) {
+        $file = Join-Path (Join-Path $dest 'SubTypeGroup') "$name.xml"
+        if (-not (Test-Path -LiteralPath $file)) { throw "Case5: ungrouped subtype not materialized at $file." }
+        [xml]$subXml = Get-Content -LiteralPath $file -Raw
+        $subtypeNames = @($subXml.DocumentElement.SelectNodes('./GxLegacyPayload/Group/Subtype/Name') | ForEach-Object { $_.InnerText })
+        if (($subtypeNames -join ',') -ne $name) { throw "Case5: $name.xml should carry only Subtype '$name'; got '$($subtypeNames -join ',')'." }
+    }
+    $subBBefore = Get-Content -LiteralPath $subBFile -Raw
+
+    $summary2 = Invoke-SyncJson -SyncArgs @('-InputPath', $second, '-DestinationRoot', $dest)
+    if ($summary2.Unchanged -ne 1 -or $summary2.Created -ne 0 -or $summary2.Updated -ne 0) { throw "Case5: second export should leave SubC unchanged (Unchanged=$($summary2.Unchanged), Created=$($summary2.Created), Updated=$($summary2.Updated))." }
+    if (-not (Test-Path -LiteralPath $subBFile) -or (Get-Content -LiteralPath $subBFile -Raw) -ne $subBBefore) { throw 'Case5: a later export without SubB must not remove or change SubTypeGroup/SubB.xml.' }
+} finally {
+    if (Test-Path -LiteralPath $work5) { Remove-Item -LiteralPath $work5 -Recurse -Force }
+}
+
 Write-Output 'MIMIR_SYNC_LEGACY_EXPORT_FULLSNAPSHOT_SELFTEST_OK'
 exit 0

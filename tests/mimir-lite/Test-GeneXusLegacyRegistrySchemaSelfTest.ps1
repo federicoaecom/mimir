@@ -2,8 +2,8 @@
 <#
 .SYNOPSIS
     Intra-registry shape of gx-legacy-export-element-registry.json: schemaVersion,
-    class equivalent|orphan, exact fields per class, typeToken and coherence
-    between successorRelation and modernSuccessor.
+    class equivalent|orphan, exact fields per class (orphans may add the optional boolean
+    indexedByKbIntelligence), typeToken and coherence between successorRelation and modernSuccessor.
 #>
 
 Set-StrictMode -Version Latest
@@ -27,6 +27,7 @@ if ($null -eq $registry.PSObject.Properties['elements'] -or $null -eq $registry.
 $typeTokenRegex = [regex]::new('^gxlegacy/[A-Za-z][A-Za-z0-9]*$')
 $equivalentFields = @('class', 'catalogType')
 $orphanFields = @('class', 'materializedFolderName', 'typeToken', 'modernSuccessor', 'successorRelation')
+$orphanOptionalFields = @('indexedByKbIntelligence')
 $knownRelations = @('absorbed', 'none')
 $elementCount = 0
 
@@ -51,9 +52,13 @@ foreach ($property in $registry.elements.PSObject.Properties) {
         }
     }
     elseif ($class -eq 'orphan') {
+        $requiredActual = @($actualFields | Where-Object { $orphanOptionalFields -notcontains $_ })
         $expected = @($orphanFields | Sort-Object)
-        if (($actualFields -join ',') -ne ($expected -join ',')) {
-            throw "Orphan element '$name' has fields [$($actualFields -join ', ')]; expected [$($expected -join ', ')]."
+        if (($requiredActual -join ',') -ne ($expected -join ',')) {
+            throw "Orphan element '$name' has fields [$($actualFields -join ', ')]; expected [$($expected -join ', ')] plus optional [$($orphanOptionalFields -join ', ')]."
+        }
+        if ($null -ne $value.PSObject.Properties['indexedByKbIntelligence'] -and $value.indexedByKbIntelligence -isnot [bool]) {
+            throw "Orphan element '$name' has a non-boolean indexedByKbIntelligence."
         }
         if ([string]::IsNullOrWhiteSpace([string]$value.materializedFolderName)) {
             throw "Orphan element '$name' has an empty materializedFolderName."

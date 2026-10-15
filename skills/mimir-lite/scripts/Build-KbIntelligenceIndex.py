@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "18"
+EXTRACTOR_SIGNATURE_VERSION = "19"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -121,7 +121,30 @@ EXTERNAL_OBJECT_METHOD_RE = re.compile(
     r"(?P<receiver>&[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*(?P<method>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
     re.IGNORECASE,
 )
-INDEXED_SOURCE_TYPES = ("Procedure", "WebPanel", "DataProvider", "Transaction", "API", "DataSelector")
+INDEXED_SOURCE_TYPES = ("Procedure", "WebPanel", "DataProvider", "Transaction", "API", "DataSelector", "Report")
+# Classic GeneXus exports (7.5 to 9) are synced verbatim under a root carrying this dataSource.
+# Their code is read by the classic call extractor, never by the modern call regexes: a classic
+# call names its target with an object-type prefix (call(PAGO) is Procedure AGO).
+LEGACY_EXPORT_DATA_SOURCE_RE = re.compile(r'<Object\b[^>]*\bdataSource="gx-legacy-export"')
+CLASSIC_CODE_BLOCK_RE = re.compile(
+    r"<(?P<tag>Source|Rules|Events)(?:\s[^>]*)?(?<!/)>(?P<body>.*?)</(?P=tag)>",
+    re.IGNORECASE | re.DOTALL,
+)
+# In a classic object only a <Source> inside a <CodeBlock> is code. Other <Source> elements hold HTML
+# (a WebPanel's HTMLForm, the Documentation) or a print control's value in a layout, so they are never read.
+CLASSIC_CODE_BLOCK_SPAN_RE = re.compile(r"<CodeBlock\b[^>]*(?<!/)>.*?</CodeBlock>", re.IGNORECASE | re.DOTALL)
+CLASSIC_CALL_RE = re.compile(
+    r"(?<![&.\w])(?P<verb>call|udp|link)\s*\(\s*['\"]?(?P<prefix>[A-Za-z])(?P<name>[A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
+# Observed prefixes only; the Web Panel prefix is unobserved, so it is not mapped.
+CLASSIC_CALL_PREFIX_TARGETS = {
+    "p": ("Procedure", "calls_procedure"),
+    "r": ("Report", "calls_report"),
+    "t": ("Transaction", "calls_transaction"),
+    "w": ("WorkPanel", "calls_workpanel"),
+}
+CLASSIC_CALL_VERB_RULES = {"call": "classic_call_command", "udp": "classic_udp_func", "link": "classic_link"}
 FOR_EACH_SOURCE_TYPES = ("Procedure", "WebPanel")
 BC_LOAD_SOURCE_TYPES = ("Procedure", "WebPanel", "DataProvider")
 ACTION_RE = re.compile(r"<action\b(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)
@@ -241,38 +264,60 @@ def load_legacy_export_registry() -> dict:
     return json.loads(registry_path.read_text(encoding="utf-8"))
 
 
-def build_legacy_orphan_folders(registry: dict) -> set[str]:
-    """Set of materializedFolderName values for legacy elements of class 'orphan' (e.g. Report)."""
-    folders: set[str] = set()
+def iter_legacy_orphans(registry: dict, indexed: bool):
+    """Yield the 'orphan' registry elements whose indexedByKbIntelligence flag equals `indexed`.
+
+    Only the JSON boolean true indexes an orphan; any other value (absent, false, "true") keeps it skipped.
+    """
     elements = registry.get("elements", {})
     if not isinstance(elements, dict):
-        return folders
+        return
     for element in elements.values():
         if isinstance(element, dict) and element.get("class") == "orphan":
-            folder = element.get("materializedFolderName")
-            if folder:
-                folders.add(str(folder))
+            if (element.get("indexedByKbIntelligence") is True) == indexed:
+                yield element
+
+
+def build_legacy_orphan_folders(registry: dict) -> set[str]:
+    """Set of materializedFolderName values for skipped legacy orphans (orphans not indexed by KB Intelligence)."""
+    folders: set[str] = set()
+    for element in iter_legacy_orphans(registry, indexed=False):
+        folder = element.get("materializedFolderName")
+        if folder:
+            folders.add(str(folder))
     return folders
 
 
 def build_legacy_orphan_folder_to_token(registry: dict) -> dict[str, str]:
-    """Map materializedFolderName -> typeToken (lower) for legacy elements of class 'orphan'."""
+    """Map materializedFolderName -> typeToken (lower) for skipped legacy orphans."""
     mapping: dict[str, str] = {}
-    elements = registry.get("elements", {})
-    if not isinstance(elements, dict):
-        return mapping
-    for element in elements.values():
-        if isinstance(element, dict) and element.get("class") == "orphan":
-            folder = element.get("materializedFolderName")
-            token = element.get("typeToken")
-            if folder and token:
-                mapping[str(folder)] = str(token).lower()
+    for element in iter_legacy_orphans(registry, indexed=False):
+        folder = element.get("materializedFolderName")
+        token = element.get("typeToken")
+        if folder and token:
+            mapping[str(folder)] = str(token).lower()
+    return mapping
+
+
+def build_legacy_indexed_token_to_type(registry: dict) -> dict[str, str]:
+    """Map typeToken (lower) -> type name for legacy orphans indexed as their own type (e.g. gxlegacy/report -> Report).
+
+    The type name is the materializedFolderName, so the folder/type consistency check applies unchanged.
+    """
+    mapping: dict[str, str] = {}
+    for element in iter_legacy_orphans(registry, indexed=True):
+        folder = element.get("materializedFolderName")
+        token = element.get("typeToken")
+        if folder and token:
+            mapping[str(token).lower()] = str(folder)
     return mapping
 
 
 GX_LEGACY_EXPORT_REGISTRY: dict = load_legacy_export_registry()
 LEGACY_ORPHAN_FOLDERS: set[str] = build_legacy_orphan_folders(GX_LEGACY_EXPORT_REGISTRY)
 LEGACY_ORPHAN_FOLDER_TO_TOKEN: dict[str, str] = build_legacy_orphan_folder_to_token(GX_LEGACY_EXPORT_REGISTRY)
+LEGACY_INDEXED_TOKEN_TO_TYPE: dict[str, str] = build_legacy_indexed_token_to_type(GX_LEGACY_EXPORT_REGISTRY)
+LEGACY_INDEXED_FOLDERS: set[str] = set(LEGACY_INDEXED_TOKEN_TO_TYPE.values())
 LEVEL_RE = re.compile(r"<Level\b(?P<attrs>[^>]*)>(?P<body>.*?)</Level>", re.IGNORECASE | re.DOTALL)
 LEVEL_ATTRIBUTE_RE = re.compile(
     r"<Attribute\b(?P<attrs>[^>]*)>(?P<name>.*?)</Attribute>",
@@ -391,6 +436,15 @@ CODE_ATTRIBUTE_PART_NAMES: dict[str, dict[str, str]] = {
     "WebPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
     "Transaction": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
     "DataProvider": {DATA_PROVIDER_SOURCE_PART_GUID: "DataProvider Source", RULES_PART_GUID: "Rules"},
+}
+# Classic code sections (see classic_code_blocks) read for attribute uses, by object type: the
+# role's section name for each tag. Mirrors CODE_ATTRIBUTE_PART_NAMES: a Source is read only
+# where the modern type has a code Source (a classic Report's is its Layout/Block/CodeBlock/Source).
+CLASSIC_CODE_ATTRIBUTE_SECTIONS: dict[str, dict[str, str]] = {
+    "Report": {"source": "Report Source", "rules": "Rules", "events": "Events"},
+    "Procedure": {"source": "Procedure Source", "rules": "Rules", "events": "Events"},
+    "WebPanel": {"rules": "Rules", "events": "Events"},
+    "Transaction": {"rules": "Rules", "events": "Events"},
 }
 # A <Part> element, self-closing or with a body (PART_RE would run a self-closing Part into the next one).
 CODE_PART_RE = re.compile(r"<Part\b(?P<attrs>[^>]*?)(?:/>|>(?P<body>.*?)</Part>)", re.IGNORECASE | re.DOTALL)
@@ -643,7 +697,8 @@ def resolve_canonical_type(text: str) -> tuple[str | None, str | None]:
     if not m:
         return None, None
     guid = m.group(1)
-    return GX_TYPE_BY_GUID.get(guid.lower()), guid
+    canonical_type = GX_TYPE_BY_GUID.get(guid.lower()) or LEGACY_INDEXED_TOKEN_TO_TYPE.get(guid.lower())
+    return canonical_type, guid
 
 
 def collect_objects(
@@ -739,7 +794,7 @@ def collect_all_objects(source_root: Path) -> tuple[dict[str, dict[str, ObjectIn
             legacy_orphan_directories_skipped.append({"directory": folder.name, "xml_count": xml_count})
             continue
         snapshot_objects_by_directory[folder.name] = xml_count
-        if folder.name not in GX_TYPE_CATALOG_BY_NAME:
+        if folder.name not in GX_TYPE_CATALOG_BY_NAME and folder.name not in LEGACY_INDEXED_FOLDERS:
             unknown_type_folders.append(folder.name)
         folder_objects = collect_objects(folder, source_root, unknown_guids, folder_type_mismatches)
         for type_name, objs in folder_objects.items():
@@ -1136,12 +1191,93 @@ def append_call_evidences_from_expression(
                 )
 
 
+def is_legacy_export_object(xml_text: str) -> bool:
+    return LEGACY_EXPORT_DATA_SOURCE_RE.search(xml_text[:2048]) is not None
+
+
+def classic_code_blocks(xml_text: str) -> Iterable[tuple[str, SourceBlock]]:
+    """(lowercase tag, block) of every <Rules> and <Events> body of a classic object, and of every
+    <Source> inside a <CodeBlock>, CDATA-unwrapped, with the line its text starts on. A <Source>
+    outside a <CodeBlock> (HTMLForm, Documentation, a print control in a layout) is not code."""
+    code_blocks = [(span.start(), span.end()) for span in CLASSIC_CODE_BLOCK_SPAN_RE.finditer(xml_text)]
+    for match in CLASSIC_CODE_BLOCK_RE.finditer(xml_text):
+        if match.group("tag").lower() == "source" and not any(
+            start <= match.start() < end for start, end in code_blocks
+        ):
+            continue
+        raw_body = match.group("body")
+        body_start = match.start("body")
+        cdata_prefix = re.match(r"\s*<!\[CDATA\[", raw_body, re.DOTALL)
+        if cdata_prefix:
+            body_start += cdata_prefix.end()
+        body = unwrap_source_body(raw_body)
+        if not body.strip():
+            continue
+        yield match.group("tag").lower(), SourceBlock(text=body, start_line=line_number_at(xml_text, body_start))
+
+
+def blank_block_comments(code: str) -> str:
+    """The code with every /* ... */ comment (outside a string literal) turned into spaces, its
+    line breaks kept, so a line-by-line reader neither sees a commented call nor shifts a line."""
+    parts: list[str] = []
+    last = 0
+    for token in CODE_TOKEN_RE.finditer(code):
+        text = token.group("comment")
+        if text is None or not text.startswith("/*"):
+            continue
+        parts.append(code[last:token.start()])
+        parts.append(re.sub(r"[^\n]", " ", text))
+        last = token.end()
+    parts.append(code[last:])
+    return "".join(parts)
+
+
+def append_classic_call_evidences(
+    evidences: list[Evidence],
+    *,
+    source: ObjectInfo,
+    xml_text: str,
+    lookups_by_type: dict[str, dict[str, str]],
+) -> None:
+    """Call(, Udp(, and Link( in classic code: the first letter of the name is the object-type
+    prefix (CLASSIC_CALL_PREFIX_TARGETS); the rest names an object of that type. A call through
+    a variable (&) or an unmapped prefix yields nothing."""
+    for _tag, block in classic_code_blocks(xml_text):
+        for offset, line in enumerate(blank_block_comments(block.text).splitlines()):
+            cleaned = active_line(line)
+            if not cleaned.strip():
+                continue
+            line_no = block.start_line + offset
+            for match in CLASSIC_CALL_RE.finditer(cleaned):
+                target = CLASSIC_CALL_PREFIX_TARGETS.get(match.group("prefix").lower())
+                if target is None:
+                    continue
+                target_type, relation_kind = target
+                target_name = lookups_by_type[target_type].get(match.group("name").lower())
+                if not target_name:
+                    continue
+                add_evidence(
+                    evidences,
+                    source=source,
+                    target_type=target_type,
+                    target_name=target_name,
+                    relation_kind=relation_kind,
+                    line=line_no,
+                    column=match.start("prefix") + 1,
+                    snippet=cleaned,
+                    extractor_rule=CLASSIC_CALL_VERB_RULES[match.group("verb").lower()],
+                )
+
+
 def extract_evidence(
     source_root: Path,
     source_objects: Iterable[ObjectInfo],
     procedure_names: set[str],
     webpanel_names: set[str],
     data_provider_names: set[str],
+    report_names: set[str] | None = None,
+    transaction_names: set[str] | None = None,
+    workpanel_names: set[str] | None = None,
 ) -> list[Evidence]:
     evidences: list[Evidence] = []
     procedure_lookup = case_insensitive_lookup(procedure_names, "Procedure")
@@ -1149,9 +1285,23 @@ def extract_evidence(
     data_provider_lookup = case_insensitive_lookup(data_provider_names, "DataProvider")
     procedure_direct_re = direct_call_pattern(procedure_names)
     data_provider_direct_re = direct_call_pattern(data_provider_names)
+    # Built on the first classic object only, so a modern KB never builds (or fails on) them.
+    classic_lookups_by_type: dict[str, dict[str, str]] | None = None
 
     for source in source_objects:
         xml_text = read_text(source.path)
+        if is_legacy_export_object(xml_text):
+            if classic_lookups_by_type is None:
+                classic_lookups_by_type = {
+                    "Procedure": procedure_lookup,
+                    "Report": case_insensitive_lookup(report_names or set(), "Report"),
+                    "Transaction": case_insensitive_lookup(transaction_names or set(), "Transaction"),
+                    "WorkPanel": case_insensitive_lookup(workpanel_names or set(), "WorkPanel"),
+                }
+            append_classic_call_evidences(
+                evidences, source=source, xml_text=xml_text, lookups_by_type=classic_lookups_by_type
+            )
+            continue
         for block in source_blocks(xml_text):
             for offset, line in enumerate(block.text.splitlines()):
                 cleaned = active_line(line)
@@ -2608,7 +2758,8 @@ def extract_code_attribute_evidence(
     transaction_type_guid: str,
 ) -> list[Evidence]:
     """Attribute uses from GeneXus code Parts (CODE_ATTRIBUTE_PART_NAMES), roles '<Part> read'
-    and '<Part> write'.
+    and '<Part> write', and from the code sections of classic objects
+    (CLASSIC_CODE_ATTRIBUTE_SECTIONS, see append_classic_attribute_evidences).
 
     Reads only <Source> elements inside the selected <Part> elements; names come from
     code_attribute_names in the CodeMode of their Part (which decides read or write;
@@ -2621,9 +2772,25 @@ def extract_code_attribute_evidence(
     domain_keys = {name.lower() for name in domain_names}
     for source in code_objects:
         part_names = CODE_ATTRIBUTE_PART_NAMES.get(source.object_type)
-        if not part_names:
+        classic_sections = CLASSIC_CODE_ATTRIBUTE_SECTIONS.get(source.object_type)
+        if not part_names and not classic_sections:
             continue
         xml_text = read_text(source.path)
+        rules_mode = CodeMode.TRANSACTION_RULES if source.object_type == "Transaction" else CodeMode.PLAIN_RULES
+        if is_legacy_export_object(xml_text):
+            if classic_sections:
+                append_classic_attribute_evidences(
+                    evidences,
+                    source=source,
+                    xml_text=xml_text,
+                    sections=classic_sections,
+                    rules_mode=rules_mode,
+                    attribute_lookup=attribute_lookup,
+                    domain_keys=domain_keys,
+                )
+            continue
+        if not part_names:
+            continue
         data_provider_mode = None
         if source.object_type == "DataProvider":
             data_provider_mode = (
@@ -2631,7 +2798,6 @@ def extract_code_attribute_evidence(
                 if data_provider_output_kind(xml_text, transaction_type_guid) == "transaction"
                 else CodeMode.DATA_PROVIDER_SDT_OUTPUT
             )
-        rules_mode = CodeMode.TRANSACTION_RULES if source.object_type == "Transaction" else CodeMode.PLAIN_RULES
         seen: set[tuple[str, str]] = set()
         for block, part_type, part_name in code_part_blocks(xml_text, part_names):
             code_lines = block.text.split("\n")
@@ -2663,6 +2829,50 @@ def extract_code_attribute_evidence(
                     evidence_role=role,
                 )
     return evidences
+
+
+def append_classic_attribute_evidences(
+    evidences: list[Evidence],
+    *,
+    source: ObjectInfo,
+    xml_text: str,
+    sections: dict[str, str],
+    rules_mode: CodeMode,
+    attribute_lookup: dict[str, str],
+    domain_keys: set[str],
+) -> None:
+    """Attribute uses in the code sections of a classic object, read like the matching modern
+    Part: <Rules> in rules_mode, <Source> and <Events> as block code; roles '<section> read' and
+    '<section> write'. Same rules as extract_code_attribute_evidence: one relation per attribute
+    and role, the first occurrence in document order."""
+    seen: set[tuple[str, str]] = set()
+    for tag, block in classic_code_blocks(xml_text):
+        section_name = sections.get(tag)
+        if section_name is None:
+            continue
+        mode = rules_mode if tag == "rules" else CodeMode.BLOCK_CODE
+        code_lines = block.text.split("\n")
+        for raw_name, code_line, access in code_attribute_names(block.text, domain_names=domain_keys, mode=mode):
+            target_name = attribute_lookup.get(raw_name.lower())
+            if not target_name:
+                continue
+            role = f"{section_name} {access}"
+            key = (target_name.lower(), role)
+            if key in seen:
+                continue
+            seen.add(key)
+            add_evidence(
+                evidences,
+                source=source,
+                target_type="Attribute",
+                target_name=target_name,
+                relation_kind="code_references_attribute",
+                line=block.start_line + code_line,
+                column=1,
+                snippet=code_lines[code_line],
+                extractor_rule="code_attribute_reference",
+                evidence_role=role,
+            )
 
 
 def normalize_custom_type(value: str) -> str:
@@ -3814,6 +4024,9 @@ def main() -> int:
         procedure_names=set(procedures),
         webpanel_names=set(webpanels),
         data_provider_names=set(data_providers),
+        report_names=set(objects_by_type.get("Report", {})),
+        transaction_names=set(transactions),
+        workpanel_names=set(objects_by_type.get("WorkPanel", {})),
     )
     source_for_each_explicit_table_evidences = extract_source_for_each_explicit_table_evidence(
         [obj for obj in objects if obj.object_type in FOR_EACH_SOURCE_TYPES],
@@ -3883,7 +4096,11 @@ def main() -> int:
         attribute_names=set(attributes),
     )
     code_attribute_evidences = extract_code_attribute_evidence(
-        [obj for obj in objects if obj.object_type in CODE_ATTRIBUTE_PART_NAMES],
+        [
+            obj
+            for obj in objects
+            if obj.object_type in CODE_ATTRIBUTE_PART_NAMES or obj.object_type in CLASSIC_CODE_ATTRIBUTE_SECTIONS
+        ],
         attribute_names=set(attributes),
         domain_names=set(domains),
         transaction_type_guid=get_transaction_type_guid(GX_TYPE_CATALOG_BY_NAME),

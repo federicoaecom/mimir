@@ -170,6 +170,63 @@ $threw = $false
 try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $collision -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
 if (-not $threw) { throw 'A normalized name collision should fail-closed.' }
 
+# --- GeneXus 8 shapes: WebPanel element and ungrouped subtypes (Group with a blank name) ---
+$webPanelGuid = [string]$merged.types.WebPanel.objectTypeGuid
+$gx8 = [xml]@'
+<ExportFile>
+  <GXObject><WebPanel><Info><Name>WpOrders</Name></Info><LastUpdate>2013-02-18 22:48:04GMT</LastUpdate></WebPanel></GXObject>
+  <GXObject><Group><Info><Name> </Name></Info><Subtype><Name>SubC</Name><Supertype>SuperC</Supertype></Subtype><Subtype><Name>SubB</Name><Supertype>SuperB</Supertype></Subtype></Group></GXObject>
+  <GXObject><Group><Info><Name>GrpClients</Name></Info><Subtype><Name>SubClient</Name><Supertype>SuperB</Supertype></Subtype></Group></GXObject>
+</ExportFile>
+'@
+$gx8Items = @((Get-GeneXusLegacyExportFileSyncItems -XmlDocument $gx8 -MergedCatalog $merged -Registry $registry).Items)
+if ($gx8Items.Count -ne 4) { throw "GX8: expected 4 items (WebPanel + 2 ungrouped subtypes + 1 named group), got $($gx8Items.Count)." }
+
+$gx8Wp = @($gx8Items | Where-Object { $_.LegacyElement -eq 'WebPanel' })
+if ($gx8Wp.Count -ne 1 -or $gx8Wp[0].FolderType -ne 'WebPanel' -or $gx8Wp[0].TypeGuid -ne $webPanelGuid) { throw "GX8: WebPanel should map to the catalog WebPanel type (folder WebPanel, GUID $webPanelGuid)." }
+if ($gx8Wp[0].Node.GetAttribute('lastUpdate') -ne '2013-02-18T22:48:04.0000000Z') { throw "GX8: WebPanel lastUpdate='$($gx8Wp[0].Node.GetAttribute('lastUpdate'))'." }
+
+$gx8Groups = @($gx8Items | Where-Object { $_.LegacyElement -eq 'Group' })
+$gx8GroupNames = @($gx8Groups | ForEach-Object { $_.LogicalName } | Sort-Object)
+if (($gx8GroupNames -join ',') -ne 'GrpClients,SubB,SubC') { throw "GX8: expected SubTypeGroup items GrpClients, SubB, SubC; got $($gx8GroupNames -join ', ')." }
+foreach ($g in $gx8Groups) {
+    if ($g.FolderType -ne 'SubTypeGroup') { throw "GX8: '$($g.LogicalName)' should materialize under SubTypeGroup; got $($g.FolderType)." }
+}
+foreach ($pair in @(@('SubC', 'SuperC'), @('SubB', 'SuperB'))) {
+    $split = @($gx8Groups | Where-Object { $_.LogicalName -eq $pair[0] })[0]
+    $subtypes = @($split.Node.SelectNodes('./GxLegacyPayload/Group/Subtype'))
+    if ($subtypes.Count -ne 1) { throw "GX8: ungrouped subtype '$($pair[0])' should carry exactly 1 Subtype; got $($subtypes.Count)." }
+    if ($subtypes[0].SelectSingleNode('./Name').InnerText -ne $pair[0] -or $subtypes[0].SelectSingleNode('./Supertype').InnerText -ne $pair[1]) { throw "GX8: ungrouped subtype '$($pair[0])' carries the wrong Subtype." }
+    if ($null -eq $split.Node.SelectSingleNode('./GxLegacyPayload/Group/Info/Name') -or -not [string]::IsNullOrWhiteSpace($split.Node.SelectSingleNode('./GxLegacyPayload/Group/Info/Name').InnerText)) { throw "GX8: '$($pair[0])' should keep the blank Info/Name marking it ungrouped." }
+    if ($split.Node.GetAttribute('lastUpdate') -ne '0001-01-01T00:00:00.0000000Z') { throw "GX8: ungrouped subtype without LastUpdate should get the sentinel." }
+}
+$named = @($gx8Groups | Where-Object { $_.LogicalName -eq 'GrpClients' })[0]
+if (@($named.Node.SelectNodes('./GxLegacyPayload/Group/Subtype')).Count -ne 1) { throw 'GX8: the named group should keep its own Subtype list unchanged.' }
+
+# A blank name on any other element still fails closed
+$blankTx = [xml]'<ExportFile><GXObject><Transaction><Info><Name> </Name></Info></Transaction></GXObject></ExportFile>'
+$threw = $false
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $blankTx -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
+if (-not $threw) { throw 'A blank Info/Name outside Group should still fail-closed.' }
+
+# A blank-name Group with no Subtype has nothing to materialize: fail closed
+$emptyGroup = [xml]'<ExportFile><GXObject><Group><Info><Name> </Name></Info></Group></GXObject></ExportFile>'
+$threw = $false
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $emptyGroup -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
+if (-not $threw) { throw 'A blank-name Group without Subtype should fail-closed.' }
+
+# An ungrouped Subtype without a name fails closed
+$blankSubtype = [xml]'<ExportFile><GXObject><Group><Info><Name> </Name></Info><Subtype><Name> </Name><Supertype>SuperB</Supertype></Subtype></Group></GXObject></ExportFile>'
+$threw = $false
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $blankSubtype -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
+if (-not $threw) { throw 'An ungrouped Subtype without a name should fail-closed.' }
+
+# An ungrouped subtype named like a named group would overwrite its file: fail closed
+$sameName = [xml]'<ExportFile><GXObject><Group><Info><Name> </Name></Info><Subtype><Name>SuperB</Name><Supertype>SuperD</Supertype></Subtype></Group></GXObject><GXObject><Group><Info><Name>SuperB</Name></Info><Subtype><Name>SubB</Name><Supertype>SuperB</Supertype></Subtype></Group></GXObject></ExportFile>'
+$threw = $false
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $sameName -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
+if (-not $threw) { throw 'An ungrouped subtype with the same name as a named group should fail-closed.' }
+
 if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
 
 Write-Output 'GENEXUS_LEGACY_EXPORT_FILE_SUPPORT_SELFTEST_OK'
