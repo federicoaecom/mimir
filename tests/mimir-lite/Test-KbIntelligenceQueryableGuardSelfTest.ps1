@@ -73,10 +73,10 @@ if ($infoJson.found -ne $true) {
     throw 'object-info should find SmartDevicesPlus in the index'
 }
 
-# Event-bearing types whose calls the index does not extract (the mobile types and the legacy
-# WorkPanel) are blocked as a source or target in the base catalog, like Panel, instead of
-# returning an empty graph.
-foreach ($mobileType in @('Panel', 'WorkWith', 'SmartDevicesApplication', 'WorkPanel')) {
+# Event-bearing types whose calls the index does not extract (the mobile types) are blocked as a
+# source or target in the base catalog, like Panel, instead of returning an empty graph. The
+# legacy WorkPanel is queryable since extractor 20 (Test-KbIntelligenceWorkPanelSourceSelfTest.ps1).
+foreach ($mobileType in @('Panel', 'WorkWith', 'SmartDevicesApplication')) {
     foreach ($semanticQuery in @('who-uses', 'what-uses')) {
         $mobileJson = & $queryScript `
             -IndexPath $sqlitePath `
@@ -129,6 +129,15 @@ $overrideJson = @{
             containerType               = $false
             notes                       = 'override selftest: block semantic query'
         }
+        WorkPanel        = @{
+            objectTypeGuid              = '198e8ea4-1d49-4c9c-8a9a-417024baa9d1'
+            rootKind                    = 'Object'
+            folderName                  = 'WorkPanel'
+            inventoryEligible           = $true
+            queryableByKbIntelligence   = $false
+            containerType               = $false
+            notes                       = 'override selftest: keep the legacy Work Panel blocked'
+        }
     }
 }
 $overrideJson | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $overridePath -Encoding utf8
@@ -174,6 +183,24 @@ if ($procBlockedObj.reason -ne 'QUERY_NOT_SEMANTIC_FOR_TYPE') {
     throw "Procedure override: expected reason QUERY_NOT_SEMANTIC_FOR_TYPE"
 }
 
+# A KB workspace override that keeps WorkPanel queryable=false still blocks it, although the base
+# catalog allows it since extractor 20 (Test-KbIntelligenceWorkPanelSourceSelfTest.ps1).
+foreach ($semanticQuery in @('who-uses', 'what-uses')) {
+    $wkpBlocked = & $queryScript `
+        -IndexPath $sqlitePath `
+        -KbWorkspaceRoot $tempRoot `
+        -CatalogOverridePath $overridePath `
+        -Query $semanticQuery `
+        -ObjectType WorkPanel `
+        -ObjectName 'AnyWorkPanel' `
+        -Format json 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 11) {
+        throw "$semanticQuery on WorkPanel with override queryable=false should exit 11; got $LASTEXITCODE"
+    }
+    if (($wkpBlocked | ConvertFrom-Json).reason -ne 'QUERY_NOT_SEMANTIC_FOR_TYPE') {
+        throw "WorkPanel override ${semanticQuery}: expected reason QUERY_NOT_SEMANTIC_FOR_TYPE"
+    }
+}
 Write-Output 'OK: Test-KbIntelligenceQueryableGuardSelfTest.ps1'
 } finally {
     if (Test-Path -LiteralPath $tempRoot) {

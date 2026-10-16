@@ -284,7 +284,7 @@ GeneXus 6 and 7.0 export a KB as `.xpw` text, not XML. The engine (`scripts/Gene
 - a `.zip` that mixes `.xpw` and `.xml` entries fails closed; a `.zip` with no `.xpw` entry is handled as before;
 - a folder of `.xpw` files is **not** accepted (the folder form still expects exactly one XML file): zip the files or sync them one by one.
 
-Malformed `.xpw` text (an unclosed block, wrong indentation, an unknown line shape) fails closed naming the file and line; files from two different models or with different `KMW` headers in one zip fail closed naming the files; nothing is written. `Menu`, `Prompt`, and `Formula` blocks sync as non-indexed legacy orphans (see above). KB Intelligence indexes Transaction, Procedure, Report, and Web Panel objects with the classic relations; Work Panel code, `Subroutines`, and `Conditions` are not indexed yet.
+Malformed `.xpw` text (an unclosed block, wrong indentation, an unknown line shape) fails closed naming the file and line; files from two different models or with different `KMW` headers in one zip fail closed naming the files; nothing is written. `Menu`, `Prompt`, and `Formula` blocks sync as non-indexed legacy orphans (see above). KB Intelligence indexes Transaction, Procedure, Report, Web Panel, and (since extractor 20) Work Panel objects with the classic relations; `Subroutines` and `Conditions` are not indexed yet.
 
 With `-KbMetadataPath`, a `.xpw` source writes `source_export_format: xpw`, takes the `KMW` values from the export only (`KMW` 1.x has `MajorVersion`/`MinorVersion` and no `Build`; some files have no `KMW` block at all), never inherits them from a previous modern export, and emits its own hint (`KbMetadataPath: GeneXus .xpw text export detected ...`) in place of the GeneXus 9 one.
 

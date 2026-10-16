@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "19"
+EXTRACTOR_SIGNATURE_VERSION = "20"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -121,7 +121,16 @@ EXTERNAL_OBJECT_METHOD_RE = re.compile(
     r"(?P<receiver>&[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*(?P<method>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
     re.IGNORECASE,
 )
-INDEXED_SOURCE_TYPES = ("Procedure", "WebPanel", "DataProvider", "Transaction", "API", "DataSelector", "Report")
+INDEXED_SOURCE_TYPES = (
+    "Procedure",
+    "WebPanel",
+    "DataProvider",
+    "Transaction",
+    "API",
+    "DataSelector",
+    "Report",
+    "WorkPanel",
+)
 # Classic GeneXus exports (7.5 to 9) are synced verbatim under a root carrying this dataSource.
 # Their code is read by the classic call extractor, never by the modern call regexes: a classic
 # call names its target with an object-type prefix (call(PAGO) is Procedure AGO).
@@ -435,6 +444,7 @@ CODE_ATTRIBUTE_PART_NAMES: dict[str, dict[str, str]] = {
     },
     "WebPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
     "Transaction": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
+    "WorkPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
     "DataProvider": {DATA_PROVIDER_SOURCE_PART_GUID: "DataProvider Source", RULES_PART_GUID: "Rules"},
 }
 # Classic code sections (see classic_code_blocks) read for attribute uses, by object type: the
@@ -445,6 +455,7 @@ CLASSIC_CODE_ATTRIBUTE_SECTIONS: dict[str, dict[str, str]] = {
     "Procedure": {"source": "Procedure Source", "rules": "Rules", "events": "Events"},
     "WebPanel": {"rules": "Rules", "events": "Events"},
     "Transaction": {"rules": "Rules", "events": "Events"},
+    "WorkPanel": {"rules": "Rules", "events": "Events"},
 }
 # A <Part> element, self-closing or with a body (PART_RE would run a self-closing Part into the next one).
 CODE_PART_RE = re.compile(r"<Part\b(?P<attrs>[^>]*?)(?:/>|>(?P<body>.*?)</Part>)", re.IGNORECASE | re.DOTALL)
@@ -1285,7 +1296,10 @@ def extract_evidence(
     data_provider_lookup = case_insensitive_lookup(data_provider_names, "DataProvider")
     procedure_direct_re = direct_call_pattern(procedure_names)
     data_provider_direct_re = direct_call_pattern(data_provider_names)
-    # Built on the first classic object only, so a modern KB never builds (or fails on) them.
+    # Built for every KB, like the Procedure lookup: a modern call can target a Work Panel too.
+    workpanel_lookup = case_insensitive_lookup(workpanel_names or set(), "WorkPanel")
+    # Built on the first classic object only, so a modern KB never builds (or fails on) the
+    # Report and Transaction lookups.
     classic_lookups_by_type: dict[str, dict[str, str]] | None = None
 
     for source in source_objects:
@@ -1296,7 +1310,7 @@ def extract_evidence(
                     "Procedure": procedure_lookup,
                     "Report": case_insensitive_lookup(report_names or set(), "Report"),
                     "Transaction": case_insensitive_lookup(transaction_names or set(), "Transaction"),
-                    "WorkPanel": case_insensitive_lookup(workpanel_names or set(), "WorkPanel"),
+                    "WorkPanel": workpanel_lookup,
                 }
             append_classic_call_evidences(
                 evidences, source=source, xml_text=xml_text, lookups_by_type=classic_lookups_by_type
@@ -1323,6 +1337,19 @@ def extract_evidence(
                             column=match.start("name") + 1,
                             snippet=cleaned,
                             extractor_rule="procedure_dot_call",
+                        )
+                    # A Work Panel is called like a Procedure; a Procedure of the same name wins.
+                    elif workpanel_name := workpanel_lookup.get(matched_name.lower()):
+                        add_evidence(
+                            evidences,
+                            source=source,
+                            target_type="WorkPanel",
+                            target_name=workpanel_name,
+                            relation_kind="calls_workpanel",
+                            line=line_no,
+                            column=match.start("name") + 1,
+                            snippet=cleaned,
+                            extractor_rule="workpanel_dot_call",
                         )
 
                 direct_matches = procedure_direct_re.finditer(cleaned) if procedure_direct_re else ()
@@ -1356,6 +1383,19 @@ def extract_evidence(
                             column=match.start("name") + 1,
                             snippet=cleaned,
                             extractor_rule="procedure_call_command",
+                        )
+                    # A Work Panel is called like a Procedure; a Procedure of the same name wins.
+                    elif workpanel_name := workpanel_lookup.get(matched_name.lower()):
+                        add_evidence(
+                            evidences,
+                            source=source,
+                            target_type="WorkPanel",
+                            target_name=workpanel_name,
+                            relation_kind="calls_workpanel",
+                            line=line_no,
+                            column=match.start("name") + 1,
+                            snippet=cleaned,
+                            extractor_rule="workpanel_call_command",
                         )
 
                 for match in PROCEDURE_UDP_FUNC_RE.finditer(cleaned):

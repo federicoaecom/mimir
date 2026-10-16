@@ -61,9 +61,12 @@ UNEXTRACTED_CALL_SOURCE_TYPES = (
     "OfflineDatabase",
     "Panel",
     "SmartDevicesApplication",
-    "WorkPanel",
     "WorkWith",
 )
+# Types whose calls an extractor version first indexed: an index built by an older extractor
+# (extractor_signature_version below the value, or none) reports the type as an unextracted
+# call source. A Work Panel's Rules and Events are read since 20, classic and modern.
+CALL_SOURCE_TYPES_EXTRACTED_SINCE: dict[str, int] = {"WorkPanel": 20}
 class ExtractedPart(NamedTuple):
     """A part of a partly extracted type and the extractor version that first indexed it."""
 
@@ -96,7 +99,9 @@ class PartialAttributeUseExtraction(NamedTuple):
 # Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>. A classic
 # Report (GeneXus 7.5 to 9 export) emits code_references_attribute since 19 from its
 # Layout/Block/CodeBlock/Source, Rules and Events, read like a Procedure's; its layout print
-# blocks are not read. The mobile
+# blocks are not read. A Work Panel, classic or modern, emits code_references_attribute since 20
+# from its Rules and Events, read like a WebPanel's; its Conditions and its Windows form are not
+# read. The mobile
 # WorkWith emits workwith_references_attribute since 18 from its pattern instance: layout
 # <data attribute>, order, search and break by attributes, and advanced filter attributes; grid
 # conditions, rules, events and captions are not read.
@@ -148,6 +153,20 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
             "code outside a Part",
         ),
     ),
+    "WorkPanel": PartialAttributeUseExtraction(
+        extracted=(
+            ExtractedPart("rule reads", 20),
+            ExtractedPart("event reads", 20),
+            ExtractedPart("block writes", 20),
+        ),
+        missing=(
+            "ambiguous writes",
+            "conditions",
+            "Windows form bindings",
+            "Business Component members",
+            "code outside a Part",
+        ),
+    ),
     "WorkWith": PartialAttributeUseExtraction(
         extracted=(
             ExtractedPart("layouts", 18),
@@ -172,7 +191,7 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
 # Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
 # views, layouts, or item types) while the extractor emits no attribute-use relation for any
 # of them. Besides workwith_references_attribute (WorkWithForWeb, WorkWith) and
-# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider, Report), see
+# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider, Report, WorkPanel), see
 # PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
 # structural: has_level_attribute (Transaction levels), has_key_attribute and
 # has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
@@ -787,7 +806,8 @@ def reverse_relation_coverage(
 
     An Attribute target uses the attribute_references scope (types whose attribute uses are
     not extracted, plus types whose attribute uses are extracted only in part); any other target
-    uses the calls scope (types whose calls are not extracted; nothing is partly extracted).
+    uses the calls scope (types whose calls are not extracted, or not yet by the index's
+    extractor_signature_version, see CALL_SOURCE_TYPES_EXTRACTED_SINCE; nothing is partly extracted).
     The type is compared ignoring case, so a differently cased "attribute" never falls back to
     the calls scope and its empty answer still discloses the attribute gap. Coverage is complete
     only when the index holds no object of an unextracted or partly extracted type. A partly
@@ -803,7 +823,14 @@ def reverse_relation_coverage(
         partial_types = partial_extraction_for_version(index_extractor_version(conn))
     else:
         scope = COVERAGE_SCOPE_CALLS
-        source_types = UNEXTRACTED_CALL_SOURCE_TYPES
+        version = index_extractor_version(conn)
+        source_types = UNEXTRACTED_CALL_SOURCE_TYPES + tuple(
+            sorted(
+                object_type
+                for object_type, since_version in CALL_SOURCE_TYPES_EXTRACTED_SINCE.items()
+                if version < since_version
+            )
+        )
     counted_types = tuple(source_types) + gated_types
     placeholders = ", ".join("?" for _ in counted_types)
     rows = fetch_all(
