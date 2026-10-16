@@ -23,6 +23,8 @@
     - A <Group> with a blank Info/Name holds ungrouped subtypes (seen in GeneXus 8): it splits
       into one SubTypeGroup item per <Subtype>, named after the subtype, so a later export
       never overwrites subtypes it does not carry.
+    - An object is named by Info/Name; only a <Formula> (GeneXus 7.0 and earlier, .xpw), which has
+      no Info block, falls back to its direct <Name> child, the attribute it computes.
     - Missing/invalid lastUpdate => deterministic sentinel 0001-01-01 (NEVER Get-Date).
     - Legacy items expose Guid='' (do not participate in GUID-based rename).
 #>
@@ -48,6 +50,7 @@ $script:LegacyExportSentinelLastUpdate = '0001-01-01T00:00:00.0000000Z'
 $script:LegacyExportDataSourceAttribute = 'gx-legacy-export'
 $script:LegacyExportPayloadElementName = 'GxLegacyPayload'
 $script:LegacyExportGroupElementName = 'Group'
+$script:LegacyExportFormulaElementName = 'Formula'
 $script:LegacyExportRegistryCache = $null
 
 function Get-GeneXusLegacyExportElementRegistryPath {
@@ -167,6 +170,14 @@ function Get-GeneXusLegacyExportObjectName {
     $infoName = $TypeElement.SelectSingleNode('./Info/Name')
     if ($null -ne $infoName -and -not [string]::IsNullOrWhiteSpace($infoName.InnerText)) {
         return $infoName.InnerText.Trim()
+    }
+    # A Formula (GeneXus 7.0 and earlier, .xpw) has no Info block: it is named after the attribute it computes.
+    if ($TypeElement.LocalName -eq $script:LegacyExportFormulaElementName) {
+        $directName = $TypeElement.SelectSingleNode('./Name')
+        if ($null -ne $directName -and -not [string]::IsNullOrWhiteSpace($directName.InnerText)) {
+            return $directName.InnerText.Trim()
+        }
+        throw "Legacy export: name not found in Info/Name or Name for element '$($TypeElement.LocalName)'."
     }
     throw "Legacy export: name not found in Info/Name for element '$($TypeElement.LocalName)'."
 }

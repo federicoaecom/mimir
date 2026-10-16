@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Registry (not a catalog) of legacy GeneXus 8/9 export elements (ExportFile with <GXObject><Elemento> identified by element NAME, no type GUID). Representation/governance layer: classifies each legacy element as 'equivalent' (has a real modern type in the catalog) or 'orphan' (no modern equivalent, materialized in its own folder with typeToken gxlegacy/<Elemento>). The export/materialization engine is separate and confirms exact tag/casing when parsing real GX9. Doc owner: 01k-legacy-element-registry.md.",
+  "description": "Registry (not a catalog) of legacy GeneXus export elements (GeneXus 8/9 XML, and GeneXus 7.0 and earlier .xpw translated to the same shape) (ExportFile with <GXObject><Elemento> identified by element NAME, no type GUID). Representation/governance layer: classifies each legacy element as 'equivalent' (has a real modern type in the catalog) or 'orphan' (no modern equivalent, materialized in its own folder with typeToken gxlegacy/<Elemento>). The export/materialization engine is separate and confirms exact tag/casing when parsing real GX9. Doc owner: 01k-legacy-element-registry.md.",
   "elements": {
     "Transaction": { "class": "equivalent", "catalogType": "Transaction" },
     "StructureDataType": { "class": "equivalent", "catalogType": "SDT" },
@@ -20,6 +20,27 @@
       "typeToken": "gxlegacy/Report",
       "indexedByKbIntelligence": true,
       "modernSuccessor": "Procedure",
+      "successorRelation": "absorbed"
+    },
+    "Menu": {
+      "class": "orphan",
+      "materializedFolderName": "Menu",
+      "typeToken": "gxlegacy/Menu",
+      "modernSuccessor": null,
+      "successorRelation": "none"
+    },
+    "Prompt": {
+      "class": "orphan",
+      "materializedFolderName": "Prompt",
+      "typeToken": "gxlegacy/Prompt",
+      "modernSuccessor": "WorkPanel",
+      "successorRelation": "absorbed"
+    },
+    "Formula": {
+      "class": "orphan",
+      "materializedFolderName": "Formula",
+      "typeToken": "gxlegacy/Formula",
+      "modernSuccessor": "Attribute",
       "successorRelation": "absorbed"
     }
   }

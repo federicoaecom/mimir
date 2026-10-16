@@ -5,11 +5,13 @@ Inventories objects actually present in import_file.xml or a GeneXus .xpz packag
 
 .DESCRIPTION
 Reads a GeneXus envelope with an <ExportFile> root (direct XML or inner XML inside a .xpz),
-lists the objects under <Objects> and top-level attributes under <Attributes>, maps type
+or a GeneXus 7.0 and earlier .xpw text export (a .xpw file, or a .zip of .xpw files) translated
+in memory into the classic ExportFile XML, lists the objects under <Objects> and top-level attributes under <Attributes>, maps type
 GUIDs via the shared catalog when possible, and reports unknown types for the sync pre-scan.
 
 .PARAMETER InputPath
-Path of import_file.xml, an equivalent XML with an <ExportFile> root, or a .xpz package.
+Path of import_file.xml, an equivalent XML with an <ExportFile> root, a .xpz package, a .xpw
+text export, or a .zip of .xpw files (a zip mixing .xpw and .xml entries is blocked).
 
 .PARAMETER CatalogPath
 Optional path to gx-object-type-catalog.json.
@@ -80,6 +82,12 @@ if (-not (Test-Path -LiteralPath $legacyExportSupport -PathType Leaf)) {
 }
 . $legacyExportSupport
 
+$xpwExportSupport = Join-Path $PSScriptRoot 'GeneXusXpwExportFileSupport.ps1'
+if (-not (Test-Path -LiteralPath $xpwExportSupport -PathType Leaf)) {
+    throw "BLOCK: support script not found: $xpwExportSupport"
+}
+. $xpwExportSupport
+
 function Get-IdentityKey {
     param(
         [string]$TypeName,
@@ -98,6 +106,39 @@ function Get-ExportFileXmlDocument {
 
     $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
     $extension = [System.IO.Path]::GetExtension($resolvedPath).ToLowerInvariant()
+
+    # GeneXus 7.0 and earlier .xpw (a file, or a .zip of .xpw files): translated in memory. A zip
+    # with no .xpw entry keeps the XML handling below; translation errors are blocks.
+    if ($extension -eq '.xpw' -or $extension -eq '.zip') {
+        try {
+            if ($extension -eq '.xpw') {
+                $xpwDocument = Read-GeneXusXpwExportFile -Path $resolvedPath
+                $xpwKind = 'xpw'
+                $xpwEntryNames = $null
+            } else {
+                # Statement form: an XmlDocument written to the pipeline would be enumerated.
+                $xpwZip = Read-GeneXusXpwZipExport -Path $resolvedPath
+                $xpwDocument = $null
+                $xpwEntryNames = $null
+                if ($null -ne $xpwZip) {
+                    $xpwDocument = $xpwZip.Document
+                    $xpwEntryNames = $xpwZip.EntryNames -join ', '
+                }
+                $xpwKind = 'xpw-zip'
+            }
+        } catch {
+            throw "BLOCK: $($_.Exception.Message)"
+        }
+        if ($null -ne $xpwDocument) {
+            return [pscustomobject]@{
+                Document     = $xpwDocument
+                ResolvedPath = $resolvedPath
+                InputKind    = $xpwKind
+                InnerXmlName = $xpwEntryNames
+                IsXpw        = $true
+            }
+        }
+    }
 
     if ($extension -eq '.xpz' -or $extension -eq '.zip') {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -143,6 +184,7 @@ function Get-ExportFileXmlDocument {
             ResolvedPath = $resolvedPath
             InputKind    = 'xpz'
             InnerXmlName = $candidateNames[0]
+            IsXpw        = $false
         }
     }
 
@@ -154,6 +196,7 @@ function Get-ExportFileXmlDocument {
         ResolvedPath = $resolvedPath
         InputKind    = 'xml'
         InnerXmlName = $null
+        IsXpw        = $false
     }
 }
 
@@ -258,8 +301,9 @@ if (Test-GeneXusMixedExportFilePackage -XmlDocument $package.Document) {
     throw "BLOCK: MIXED export package (legacy <GXObject> and modern <Objects>/<Attributes> elements in the same ExportFile); out of scope for the legacy export engine. Inventory the formats separately."
 }
 
-if (Test-GeneXusLegacyExportFilePackage -XmlDocument $package.Document) {
-    # ===== LEGACY BRANCH (GeneXus 9 export): known-legacy items via the shared support =====
+# A translated .xpw always takes the legacy branch, even with no GXObject (attributes only).
+if ($package.IsXpw -or (Test-GeneXusLegacyExportFilePackage -XmlDocument $package.Document)) {
+    # ===== LEGACY BRANCH (GeneXus 9 export; GeneXus 7.0 and earlier .xpw, translated): known-legacy items via the shared support =====
     # synthetic rootKind Object/Attribute, typeStatus='known-legacy', guid=null, typeName
     # non-null, legacyElement=<tag> (contract section 4.3). ./GXObject and ./Attributes/GXAtt.
     $legacyFormatDetected = $true

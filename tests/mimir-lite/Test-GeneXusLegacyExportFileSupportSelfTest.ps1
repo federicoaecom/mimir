@@ -10,7 +10,8 @@
     preserved, not transliterated); equivalent->real GUID / orphan->gxlegacy/<Tag>; sentinel;
     guid=''/dataSource/GxLegacyPayload; attributes; XPath-does-not-leak (nodes nested in the
     payload do not contaminate detection or materialization); fail-closed for mixed / unknown tag /
-    >1 child / collision; known-legacy inventory contract; no declared-delta helpers.
+    >1 child / collision; known-legacy inventory contract; no declared-delta helpers; the GeneXus 7.0
+    and earlier (.xpw) orphans Menu, Prompt, and Formula (named by its direct Name child).
     Success token on stdout + exit 0.
 #>
 
@@ -226,6 +227,46 @@ $sameName = [xml]'<ExportFile><GXObject><Group><Info><Name> </Name></Info><Subty
 $threw = $false
 try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $sameName -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
 if (-not $threw) { throw 'An ungrouped subtype with the same name as a named group should fail-closed.' }
+
+# --- GeneXus 7.0 and earlier shapes (.xpw): Menu, Prompt, and Formula are non-indexed orphans ---
+# Formula has no Info block: its identity is the attribute it computes, in a Name child of the element.
+$classic = [xml]@'
+<ExportFile>
+  <GXObject><Menu><Info><Name>MnuMain</Name></Info><MenuOptions><OptionCode>1</OptionCode><PgmName>PrcAlpha</PgmName></MenuOptions></Menu></GXObject>
+  <GXObject><Prompt><Info><Name>PrmCustomer</Name></Info><PromptInfo><Name>PrmCustomer</Name><Table>TblAlpha</Table></PromptInfo></Prompt></GXObject>
+  <GXObject><Formula><Name>CustTotal</Name><Type>1</Type><Source>CustQty * CustPrice</Source></Formula></GXObject>
+</ExportFile>
+'@
+$classicItems = @((Get-GeneXusLegacyExportFileSyncItems -XmlDocument $classic -MergedCatalog $merged -Registry $registry).Items)
+if ($classicItems.Count -ne 3) { throw "Classic: expected 3 items (Menu, Prompt, Formula), got $($classicItems.Count)." }
+foreach ($expected in @(@('Menu', 'MnuMain'), @('Prompt', 'PrmCustomer'), @('Formula', 'CustTotal'))) {
+    $classicItem = @($classicItems | Where-Object { $_.LegacyElement -eq $expected[0] })
+    if ($classicItem.Count -ne 1) { throw "Classic: expected 1 $($expected[0]) item, got $($classicItem.Count)." }
+    if ($classicItem[0].TypeGuid -ne "gxlegacy/$($expected[0])" -or $classicItem[0].Node.GetAttribute('type') -ne "gxlegacy/$($expected[0])") { throw "Classic: $($expected[0]) should carry type gxlegacy/$($expected[0]); got '$($classicItem[0].TypeGuid)'." }
+    if ($classicItem[0].FolderType -ne $expected[0]) { throw "Classic: $($expected[0]) should materialize under $($expected[0]); got $($classicItem[0].FolderType)." }
+    if ($classicItem[0].LogicalName -ne $expected[1] -or $classicItem[0].Node.GetAttribute('name') -ne $expected[1]) { throw "Classic: $($expected[0]) should be named $($expected[1]); got '$($classicItem[0].LogicalName)'." }
+    if ($classicItem[0].Node.GetAttribute('lastUpdate') -ne '0001-01-01T00:00:00.0000000Z') { throw "Classic: $($expected[0]) without LastUpdate should get the sentinel." }
+}
+$classicFormula = @($classicItems | Where-Object { $_.LegacyElement -eq 'Formula' })[0]
+if ($classicFormula.Node.SelectSingleNode('./GxLegacyPayload/Formula/Source').InnerText -ne 'CustQty * CustPrice') { throw 'Classic: the Formula payload should keep its Source.' }
+
+# A Formula with a blank Name fails closed
+$blankFormula = [xml]'<ExportFile><GXObject><Formula><Name> </Name><Type>1</Type></Formula></GXObject></ExportFile>'
+$threw = $false
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $blankFormula -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
+if (-not $threw) { throw 'A Formula with a blank Name should fail-closed.' }
+
+# A direct Name child names only a Formula: any other element without Info/Name still fails closed
+$directNameTx = [xml]'<ExportFile><GXObject><Transaction><Name>TrnAlpha</Name></Transaction></GXObject></ExportFile>'
+$threw = $false
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $directNameTx -MergedCatalog $merged -Registry $registry) } catch { $threw = $true }
+if (-not $threw) { throw 'A Transaction named only by a direct Name child should still fail-closed.' }
+
+# An unknown element next to the new orphans still aborts the whole package
+$classicUnknown = [xml]'<ExportFile><GXObject><Menu><Info><Name>MnuMain</Name></Info></Menu></GXObject><GXObject><FooBar><Info><Name>Z</Name></Info></FooBar></GXObject></ExportFile>'
+$unknownMessage = ''
+try { [void](Get-GeneXusLegacyExportFileSyncItems -XmlDocument $classicUnknown -MergedCatalog $merged -Registry $registry) } catch { $unknownMessage = $_.Exception.Message }
+if ($unknownMessage -notmatch 'not in the registry: FooBar \(x1\)') { throw "Classic: an unknown element should still fail-closed naming only FooBar; got '$unknownMessage'." }
 
 if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
 

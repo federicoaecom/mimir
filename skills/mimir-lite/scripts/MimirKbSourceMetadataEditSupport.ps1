@@ -10,7 +10,9 @@
     sync's scope).
 
     Sync authority (frontmatter): updated, last_xpz_materialization_run_at,
-    source_xpz, source_refresh_status. Other frontmatter keys, extra sections
+    source_xpz, source_refresh_status, and source_export_format (written only when the source
+    is a GeneXus `.xpw` text export, value `xpw`; a later XML/XPZ sync rewrites an existing
+    field to `xml` and never adds it). Other frontmatter keys, extra sections
     (e.g. ## Usage), and the existing file's formatting/EOL remain intact during the
     surgical update; creating a missing file still uses the full template.
 #>
@@ -35,6 +37,16 @@ $script:SyncOwnedFrontmatterFieldNames = @(
 # and validates the absence of the generic one. A legacy export has no <Source> block and uses
 # KMW/MaxGxBuildSaved as Build.
 $script:LegacyExportMetadataHintMessage = 'KbMetadataPath: legacy GeneXus 9 export detected (no <Source> block); Build filled from KMW/MaxGxBuildSaved and Source identity preserved from the previous baseline when present; kb-source-metadata.md received a partial refresh.'
+
+# Exact hint emitted for a GeneXus `.xpw` text export (GeneXus 7.0 and earlier); replaces the
+# GeneXus 9 hint. A `.xpw` carries KMW 1.x (MajorVersion/MinorVersion, no Build) or no KMW block,
+# and no <Source> block: the KMW values come from the export alone (never from a previous modern
+# export), and source_export_format records `xpw` so the version is not read as a modern one.
+$script:XpwExportMetadataHintMessage = 'KbMetadataPath: GeneXus .xpw text export detected (GeneXus 7.0 and earlier: KMW 1.x or no KMW block, no Build, no <Source> block); source_export_format set to xpw, KMW values taken from the export only, and Source identity preserved from the previous baseline when present; kb-source-metadata.md received a partial refresh.'
+
+# Frontmatter field naming the export format of the last sync. Written as `xpw` for a `.xpw`
+# source; for any other source it is rewritten to `xml` only when already present (never added).
+$script:SourceExportFormatFieldName = 'source_export_format'
 
 function Get-KbSourceMetadataSnapshot {
     param([string]$MetadataPath)
@@ -253,8 +265,12 @@ function Write-NewKbSourceMetadataTemplate {
         [string]$Username,
         [string]$UncPath,
         [string]$VersionGuid,
-        [string]$VersionName
+        [string]$VersionName,
+        [string]$SourceExportFormat = ''
     )
+
+    # Only a .xpw source adds the export-format line; every other template stays byte-identical.
+    $exportFormatLine = if ($SourceExportFormat -eq 'xpw') { "`n$($script:SourceExportFormatFieldName): xpw" } else { '' }
 
     $content = @"
 ---
@@ -263,7 +279,7 @@ description: GeneXus version, KB identity, and KB version read from the IDE's mo
 updated: $Timestamp
 last_xpz_materialization_run_at: $Timestamp
 source_xpz: $SourceXpzPath
-source_refresh_status: $MetadataStatus
+source_refresh_status: $MetadataStatus$exportFormatLine
 ---
 
 ## KMW
@@ -306,8 +322,14 @@ function Update-MimirKbSourceMetadataFromSync {
         [xml]$XmlDocument,
         [string]$SourceXpzPath,
         [string]$MetadataPath,
-        [bool]$IsLegacyExport = $false
+        [bool]$IsLegacyExport = $false,
+        # 'xpw' for a GeneXus .xpw text export; 'xml' for any XML/XPZ export (rewrites an existing
+        # source_export_format field, never adds it); '' leaves the field untouched.
+        [ValidateSet('', 'xml', 'xpw')]
+        [string]$SourceExportFormat = ''
     )
+
+    $isXpwExport = ($SourceExportFormat -eq 'xpw')
 
     $kmwNode = $XmlDocument.SelectSingleNode('/ExportFile/KMW')
     $sourceNode = $XmlDocument.SelectSingleNode('/ExportFile/Source')
@@ -328,6 +350,13 @@ function Update-MimirKbSourceMetadataFromSync {
     $majorVersion = if ([string]::IsNullOrWhiteSpace($packageMajorVersion)) { $existingMetadata.MajorVersion } else { $packageMajorVersion }
     $minorVersion = if ([string]::IsNullOrWhiteSpace($packageMinorVersion)) { $existingMetadata.MinorVersion } else { $packageMinorVersion }
     $build = if ([string]::IsNullOrWhiteSpace($packageBuild)) { $existingMetadata.Build } else { $packageBuild }
+    if ($isXpwExport) {
+        # A .xpw names its own version (KMW 1.x, no Build) or none: never inherit the values of a
+        # previous modern export, or a GeneXus 7.0 corpus would read as a modern version.
+        $majorVersion = $packageMajorVersion
+        $minorVersion = $packageMinorVersion
+        $build = $packageBuild
+    }
 
     $kbGuid = if ([string]::IsNullOrWhiteSpace($packageKbGuid)) { $existingMetadata.Kb } else { $packageKbGuid }
     $username = if ([string]::IsNullOrWhiteSpace($packageUsername)) { $existingMetadata.Username } else { $packageUsername }
@@ -363,7 +392,9 @@ function Update-MimirKbSourceMetadataFromSync {
     }
 
     $warnings = [System.Collections.Generic.List[string]]::new()
-    if ($IsLegacyExport -and [string]::IsNullOrWhiteSpace($packageBuild)) {
+    if ($isXpwExport) {
+        $warnings.Add($script:XpwExportMetadataHintMessage) | Out-Null
+    } elseif ($IsLegacyExport -and [string]::IsNullOrWhiteSpace($packageBuild)) {
         # Legacy GeneXus 9 branch (gated by -IsLegacyExport): no KMW/Build; the Build comes from
         # KMW/MaxGxBuildSaved. The legacy hint REPLACES the generic missing-KMW/Source warning
         # — the generic one does NOT fire here (a legacy export has no <Source> block).
@@ -397,7 +428,8 @@ function Update-MimirKbSourceMetadataFromSync {
             -Username $username `
             -UncPath $uncPath `
             -VersionGuid $versionGuid `
-            -VersionName $versionName
+            -VersionName $versionName `
+            -SourceExportFormat $SourceExportFormat
 
         return [pscustomobject]@{
             MetadataStatus   = $metadataStatus
@@ -432,6 +464,15 @@ function Update-MimirKbSourceMetadataFromSync {
         }
 
         Set-KbMetadataFrontmatterField -RowBuffer $kbMetadataLineList -FrontmatterKey $syncFieldName -FrontmatterValue $fieldValue | Out-Null
+    }
+
+    if ($isXpwExport) {
+        Set-KbMetadataFrontmatterField -RowBuffer $kbMetadataLineList -FrontmatterKey $script:SourceExportFormatFieldName -FrontmatterValue 'xpw' | Out-Null
+    } elseif ($SourceExportFormat -eq 'xml') {
+        $exportFormatPattern = '^\s*{0}\s*[:=]' -f [regex]::Escape($script:SourceExportFormatFieldName)
+        if (@($kbMetadataLineList | Where-Object { $_ -match $exportFormatPattern }).Count -gt 0) {
+            Set-KbMetadataFrontmatterField -RowBuffer $kbMetadataLineList -FrontmatterKey $script:SourceExportFormatFieldName -FrontmatterValue 'xml' | Out-Null
+        }
     }
 
     $lineArray = @($kbMetadataLineList.ToArray())

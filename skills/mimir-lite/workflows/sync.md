@@ -75,7 +75,7 @@ The exact wrapper names are defined per repository. Check the local `README.md` 
 The wrappers follow this parameter convention:
 
 ### Daily-update wrapper
-- `-InputPath` *(required)* — path to the `.xpz`, an XML, or a folder containing the XML
+- `-InputPath` *(required)* — path to the `.xpz`, an XML, or a folder containing the XML; for GeneXus 7.0 and earlier, a `.xpw` text export or a `.zip` of `.xpw` files (see [`.xpw` text exports](#xpw-text-exports-genexus-70-and-earlier))
 - `-VerifyOnly` *(switch)* — check without modifying the official corpus or KB metadata; XPZ extraction may use a temporary directory, and explicitly requested report or diagnostic output may still be written
 - `-FullSnapshot` *(switch)* — compare against the corpus' full snapshot
 - Under `-FullSnapshot`, the engine reconciles the corpus by the root node's stable identity (`guid`), not just by logical name: when the same `guid` appears in the corpus under a different file name, it treats this as a **rename** and renames the existing file (`Move-Item` old → new) instead of create-new + abandon-old; the result is a single file (new name) and Git detects a similarity-based rename. Covers `Attribute` and `Object`. Under `-VerifyOnly`, the engine only **classifies** the rename residue in the report (`RenameResidualsDetected`), without touching disk.
@@ -95,7 +95,7 @@ The wrappers follow this parameter convention:
 - `-KbMetadataPath` *(optional)* — saves KB metadata in Markdown
 - `-KbWorkspaceRoot` *(optional)* — the KB workspace root; resolves `scripts/gx-object-type-catalog.override.json`
 - `-CatalogOverridePath` / `-DiscoveryReportPath` *(optional)* — a local override and a JSON report when the package has an unmapped GUID
-- During normal materialization, when the local wrapper enables `-KbMetadataPath`, `kb-source-metadata.md` is refreshed surgically in materialization-owned fields only (`updated`, `last_xpz_materialization_run_at`, `source_xpz`, `source_refresh_status`, and the `KMW`/`Source`/`Source/Version` tables), preserving `last_setup_audit_run_at`, `setup_contract_signature_*`, other out-of-scope frontmatter, and extra sections. `-VerifyOnly` skips this metadata write.
+- During normal materialization, when the local wrapper enables `-KbMetadataPath`, `kb-source-metadata.md` is refreshed surgically in materialization-owned fields only (`updated`, `last_xpz_materialization_run_at`, `source_xpz`, `source_refresh_status`, `source_export_format`, and the `KMW`/`Source`/`Source/Version` tables; `source_export_format: xpw` is written only for a `.xpw` source, and a later XML/XPZ sync rewrites an existing field to `xml` without adding it to files that lack it), preserving `last_setup_audit_run_at`, `setup_contract_signature_*`, other out-of-scope frontmatter, and extra sections. `-VerifyOnly` skips this metadata write.
 - When `kb-source-metadata.md` is updated by the sync, it must record `last_xpz_materialization_run_at` as the time of the requested XPZ/XML processing, even when no XML had a material change.
 - If the XPZ comes with an empty, incomplete, or missing `Source`, the wrapper must preserve known stable values and emit a partial-refresh warning; this does not invalidate the object sync.
 - After a successful XPZ/XML materialization into `KbObjectsXml`, the local wrapper must compulsorily trigger regeneration/validation of the derived index through the local `KbIntelligence` wrapper.
@@ -109,7 +109,7 @@ The wrappers follow this parameter convention:
 - `-NoGitSummary` *(switch)* — suppresses the final Git summary
 
 ### Full-check wrapper
-- `-InputPath` *(required)* — path to the `.xpz`, an XML, or a folder
+- `-InputPath` *(required)* — path to the `.xpz`, an XML, or a folder; or a `.xpw` text export or a `.zip` of `.xpw` files
 - `-ReportPath` *(optional)* — saves a JSON report
 - `-KeepReport` *(switch)* — keeps the report even with no error
 - `-ExpectedItems` *(optional)* — passes known workstream focus items to the comparison
@@ -265,7 +265,7 @@ This file is also the expected location of `last_xpz_materialization_run_at` (th
 On the legacy branch the engine (`scripts/GeneXusLegacyExportFileSupport.ps1`) consumes the `scripts/gx-legacy-export-element-registry.json` registry (owner doc `01k-legacy-element-registry.md`):
 
 - `equivalent` → materializes under the modern type's `folderName`, with `type=<real catalog GUID>`
-- `orphan` (`Report`) → materializes under its own `materializedFolderName`, with `type="gxlegacy/<Element>"`; KB Intelligence indexes `Report` as its own type
+- `orphan` (`Report`, `Menu`, `Prompt`, `Formula`) → materializes under its own `materializedFolderName`, with `type="gxlegacy/<Element>"`; KB Intelligence indexes `Report` as its own type and skips `Menu/`, `Prompt/`, and `Formula/`, auditing them in `legacy_orphan_directories_skipped`. `Menu`, `Prompt`, and `Formula` come from GeneXus 7.0 and earlier (`.xpw`); a `Formula` has no `Info` block and is named after the attribute it computes (its own `Name`)
 - **legacy `<Menubar>`** is `equivalent`→`Menubar` (a modern GUID), no longer an orphan. If the corpus still has XML with `type="gxlegacy/Menubar"` under `Menubar/` (materialized before the reclassification), the `KbIntelligence` rebuild **fails** — the folder is no longer skippable as an orphan. Re-sync the legacy package or clean up before the index; details in `01k`.
 - **ungrouped subtypes:** a `<Group>` with a blank `Info/Name` holds the subtypes that belong to no group (GeneXus 8 exports one in each package). It materializes as **one `SubTypeGroup/<subtype>.xml` per `<Subtype>`**, each keeping only its own `<Subtype>` and the blank `Info/Name`, so a later export that carries fewer subtypes never overwrites the others. A blank group with no `<Subtype>`, a subtype without a name, or two groups/ungrouped subtypes with the same name in one package → `throw`
 - each item becomes an `Object`/`Attribute` envelope with `dataSource="gx-legacy-export"`, the original payload preserved in `<GxLegacyPayload>`, and `guid=""` (does not take part in GUID-based rename)
@@ -273,7 +273,20 @@ On the legacy branch the engine (`scripts/GeneXusLegacyExportFileSupport.ps1`) c
 - a missing/invalid `lastUpdate` → a deterministic sentinel `0001-01-01T00:00:00.0000000Z` (conservative: in incremental materialization, sentinel × a real date → `skipped-older-lastUpdate`)
 - **a tag outside the registry** → `throw` with instructions to extend the registry (never materialize partially)
 
-Signals in the result JSON: `LegacyFormatDetected=true` and `MaterializationInterpretation`/`PackageInterpretation`=`legacy-export-adapted`. During normal materialization, when `-KbMetadataPath` is given, the metadata gets `-IsLegacyExport`: `Build` comes from `KMW/MaxGxBuildSaved` (a legacy export carries no `KMW/Build` or `<Source>` block), with a dedicated hint in place of the generic missing-`Source` warning. `-VerifyOnly` skips this metadata write. Reading is encoding-aware (GX8 and GX9 exports are iso-8859-1, read via `XmlDocument.Load`). KB Intelligence inventories legacy objects but does not yet extract relations from them (who-uses and impact return nothing for these formats). See `01k`, `02`, and the **read** workflow.
+Signals in the result JSON: `LegacyFormatDetected=true` and `MaterializationInterpretation`/`PackageInterpretation`=`legacy-export-adapted`. During normal materialization, when `-KbMetadataPath` is given, the metadata gets `-IsLegacyExport`: `Build` comes from `KMW/MaxGxBuildSaved` (a legacy export carries no `KMW/Build` or `<Source>` block), with a dedicated hint in place of the generic missing-`Source` warning. `-VerifyOnly` skips this metadata write. Reading is encoding-aware (GX8 and GX9 exports are iso-8859-1, read via `XmlDocument.Load`). Since extractor 19, KB Intelligence extracts calls and attribute uses from classic objects (see "Classic exports" in `kb-index-reference.md`). See `01k`, `02`, and the **read** workflow.
+
+### `.xpw` text exports (GeneXus 7.0 and earlier)
+
+GeneXus 6 and 7.0 export a KB as `.xpw` text, not XML. The engine (`scripts/GeneXusXpwExportFileSupport.ps1`) translates it in memory into the same classic `<ExportFile><GXObject>` XML, which then goes through the legacy branch above unchanged (registry, envelopes, `dataSource="gx-legacy-export"`, signals). Accepted inputs, for both the sync and `Get-GeneXusXpzObjectInventory.ps1` (`inputKind` `xpw` or `xpw-zip`):
+
+- a `.xpw` file;
+- a `.zip` holding `.xpw` files: every `.xpw` entry is merged into one export, in entry-path order; this covers the 1997 layout that splits objects and attributes into two files (an attributes-only `.xpw` syncs its attributes alone);
+- a `.zip` that mixes `.xpw` and `.xml` entries fails closed; a `.zip` with no `.xpw` entry is handled as before;
+- a folder of `.xpw` files is **not** accepted (the folder form still expects exactly one XML file): zip the files or sync them one by one.
+
+Malformed `.xpw` text (an unclosed block, wrong indentation, an unknown line shape) fails closed naming the file and line; files from two different models or with different `KMW` headers in one zip fail closed naming the files; nothing is written. `Menu`, `Prompt`, and `Formula` blocks sync as non-indexed legacy orphans (see above). KB Intelligence indexes Transaction, Procedure, Report, and Web Panel objects with the classic relations; Work Panel code, `Subroutines`, and `Conditions` are not indexed yet.
+
+With `-KbMetadataPath`, a `.xpw` source writes `source_export_format: xpw`, takes the `KMW` values from the export only (`KMW` 1.x has `MajorVersion`/`MinorVersion` and no `Build`; some files have no `KMW` block at all), never inherits them from a previous modern export, and emits its own hint (`KbMetadataPath: GeneXus .xpw text export detected ...`) in place of the GeneXus 9 one.
 
 ---
 

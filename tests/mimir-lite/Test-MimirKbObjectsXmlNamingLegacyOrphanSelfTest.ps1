@@ -9,6 +9,8 @@
     XML with <Object type="gxlegacy/Report">. Runs the naming audit -AsJson and proves that:
       - the Report directory classifies as NAMING_OK (ActualType = gxlegacy/Report,
         ExpectedCanonicalName = Report from the registry), instead of UNKNOWN_TYPE;
+      - the non-indexed orphans Menu, Prompt, and Formula (GeneXus 7.0 and earlier, .xpw) classify
+        as NAMING_OK under their own folders too;
       - the overall status is NAMING_OK and the exit code is 0.
     The typeToken -> materializedFolderName correspondence comes from the
     gx-legacy-export-element-registry.json registry (dynamic), not inline.
@@ -46,6 +48,15 @@ $reportOrphanXml = @'
 '@
 [System.IO.File]::WriteAllText((Join-Path $reportDir 'rptProof.xml'), $reportOrphanXml, $enc)
 
+# Non-indexed orphans from GeneXus 7.0 and earlier (.xpw): Menu, Prompt, and Formula (named after its attribute).
+$classicOrphans = @(@('Menu', 'MnuMain', '<Info><Name>MnuMain</Name></Info>'), @('Prompt', 'PrmCustomer', '<Info><Name>PrmCustomer</Name></Info>'), @('Formula', 'CustTotal', '<Name>CustTotal</Name>'))
+foreach ($orphan in $classicOrphans) {
+    $orphanDir = Join-Path $kbObjectsPath $orphan[0]
+    [void](New-Item -ItemType Directory -Path $orphanDir -Force)
+    $orphanXml = "<Object type=`"gxlegacy/$($orphan[0])`" name=`"$($orphan[1])`" lastUpdate=`"0001-01-01T00:00:00.0000000Z`" dataSource=`"gx-legacy-export`"><GxLegacyPayload><$($orphan[0])>$($orphan[2])</$($orphan[0])></GxLegacyPayload></Object>"
+    [System.IO.File]::WriteAllText((Join-Path $orphanDir "$($orphan[1]).xml"), $orphanXml, $enc)
+}
+
 $namingScript = Join-Path $scriptDir 'Test-MimirKbObjectsXmlNaming.ps1'
 $output = & $namingScript -KbWorkspaceRoot $kbWorkspaceRoot -AsJson
 Assert-True ($LASTEXITCODE -eq 0) "Test-MimirKbObjectsXmlNaming should exit 0 with the legacy orphan classified; exit $LASTEXITCODE"
@@ -57,6 +68,13 @@ $reportRow = @($result.all | Where-Object { $_.Directory -eq 'Report' })
 Assert-True ($reportRow.Count -eq 1) "there should be 1 row for the Report directory, there were $($reportRow.Count)"
 Assert-True ($reportRow[0].ActualType -eq 'gxlegacy/Report') "Report's ActualType should be gxlegacy/Report, was $($reportRow[0].ActualType)"
 Assert-True ($reportRow[0].NamingStatus -eq 'OK') "Report's NamingStatus should be OK, was $($reportRow[0].NamingStatus)"
+
+foreach ($orphan in $classicOrphans) {
+    $orphanRow = @($result.all | Where-Object { $_.Directory -eq $orphan[0] })
+    Assert-True ($orphanRow.Count -eq 1) "there should be 1 row for the $($orphan[0]) directory, there were $($orphanRow.Count)"
+    Assert-True ($orphanRow[0].ActualType -eq "gxlegacy/$($orphan[0])") "$($orphan[0])'s ActualType should be gxlegacy/$($orphan[0]), was $($orphanRow[0].ActualType)"
+    Assert-True ($orphanRow[0].NamingStatus -eq 'OK') "$($orphan[0])'s NamingStatus should be OK, was $($orphanRow[0].NamingStatus)"
+}
 
 Write-Output 'OK: Test-MimirKbObjectsXmlNamingLegacyOrphanSelfTest.ps1'
 exit 0

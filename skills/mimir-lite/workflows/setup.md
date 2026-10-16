@@ -152,7 +152,7 @@ Treat `kb-source-metadata.md` by field authority, not single file ownership:
 | Field group | Authority |
 |---|---|
 | Stable identity (`Source/kb (GUID)`, `Source/username`, `Source/UNCPath`, `Source/Version/guid`, `Source/Version/name`) | Primary: this workflow's setup/resolver against the local native KB. Secondary: the IDE-exported XPZ only when it is complete and coherent with the local KB. In an XPZ-only workspace: the XPZ `Source` block alone, written by the **sync** workflow. |
-| Materialization (`last_xpz_materialization_run_at`, `source_xpz`, `source_refresh_status`) | The **sync** workflow. |
+| Materialization (`last_xpz_materialization_run_at`, `source_xpz`, `source_refresh_status`, `source_export_format`) | The **sync** workflow. |
 | Setup audit (`last_setup_audit_run_at`, `setup_contract_signature_version`, `setup_contract_signature_hash`) | This workflow, in the allowed canonical states. |
 
 - Treat a `Source/kb (GUID)` mismatch between the XPZ and the locally resolved native KB as an identity conflict. Do not overwrite either identity automatically; surface the mismatch and reconcile only through an explicitly approved identity update.

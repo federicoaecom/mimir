@@ -89,4 +89,18 @@ if ($elementCount -lt 1) {
     throw "Registry has no elements."
 }
 
+# The GeneXus 7.0 and earlier (.xpw) elements Menu, Prompt, and Formula sync as orphans that KB Intelligence does not index.
+foreach ($xpwOrphan in @('Menu', 'Prompt', 'Formula')) {
+    $entry = $registry.elements.PSObject.Properties[$xpwOrphan]
+    if ($null -eq $entry -or [string]$entry.Value.class -ne 'orphan') {
+        throw "Element '$xpwOrphan' should be registered as an orphan."
+    }
+    if ([string]$entry.Value.materializedFolderName -ne $xpwOrphan -or [string]$entry.Value.typeToken -ne "gxlegacy/$xpwOrphan") {
+        throw "Orphan '$xpwOrphan' should materialize under '$xpwOrphan' with typeToken 'gxlegacy/$xpwOrphan'."
+    }
+    if ($null -ne $entry.Value.PSObject.Properties['indexedByKbIntelligence']) {
+        throw "Orphan '$xpwOrphan' should not carry indexedByKbIntelligence (it is not indexed)."
+    }
+}
+
 Write-Output 'GENEXUS_LEGACY_REGISTRY_SCHEMA_SELFTEST_OK'

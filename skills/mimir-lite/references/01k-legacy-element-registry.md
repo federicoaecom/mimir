@@ -4,7 +4,7 @@
 Operational and governance
 
 ## Predominant confidence level
-High for the 11 elements observed in a real GeneXus 9 export (sample `SampleKb7`) and for the 5 elements observed in a public GeneXus 8.0 export (export header `KMW` 2.1, `MaxGxBuildSaved` 1595: `WebPanel`, `Report`, `Theme`, `Group`, `Folder`): classification, mapping, tag, and casing confirmed by direct inspection. Every one of the registry's 13 elements has now been observed in at least one of the two exports; `Theme` was observed only in the GeneXus 8 one (see "Known gaps").
+High for the 11 elements observed in a real GeneXus 9 export (sample `SampleKb7`) and for the 5 elements observed in a public GeneXus 8.0 export (export header `KMW` 2.1, `MaxGxBuildSaved` 1595: `WebPanel`, `Report`, `Theme`, `Group`, `Folder`): classification, mapping, tag, and casing confirmed by direct inspection. Every one of those 13 elements has now been observed in at least one of the two exports; `Theme` was observed only in the GeneXus 8 one (see "Known gaps"). Medium for the 3 orphans `Menu`, `Prompt`, and `Formula`: observed in GeneXus 6 and 7.0 `.xpw` text exports (structure only), and their classic XML tags are what the `.xpw` translator emits, not tags read from a GeneXus 7.5 to 9 XML export (see "Known gaps").
 
 ## Depends on
 `01a-catalog-and-empirical-patterns.md`
@@ -16,7 +16,7 @@ High for the 11 elements observed in a real GeneXus 9 export (sample `SampleKb7`
 
 Document the **representation and governance layer** of GeneXus 9 legacy export elements — without polluting the modern catalog `scripts/gx-object-type-catalog.json`.
 
-A GeneXus 8 or 9 export is an `ExportFile` whose objects appear as `<GXObject><Element>...`, identified by the **element name** (e.g. `<Report>`, `<Menubar>`), **without** the `Object/@type` (type GUID) that the modern GeneXus 18 export carries. Because of that, these elements have no place in the modern catalog, whose key is the type GUID. The **registry** `scripts/gx-legacy-export-element-registry.json` is the executable technical source for this classification; this document is the explanatory, normative reference.
+A GeneXus 8 or 9 export is an `ExportFile` whose objects appear as `<GXObject><Element>...`, identified by the **element name** (e.g. `<Report>`, `<Menubar>`), **without** the `Object/@type` (type GUID) that the modern GeneXus 18 export carries. Because of that, these elements have no place in the modern catalog, whose key is the type GUID. A GeneXus 7.0 and earlier `.xpw` text export is translated into the same `<ExportFile><GXObject><Element>` shape, so its elements go through this same registry. The **registry** `scripts/gx-legacy-export-element-registry.json` is the executable technical source for this classification; this document is the explanatory, normative reference.
 
 > Scope: this document and the registry define **representation and governance** (how each legacy element relates to the modern world). The **export engine** (parsing the GeneXus 9 `ExportFile`, materializing it into `KbObjectsXml`, and integrating it into sync/inventory) **already exists** — in `scripts/GeneXusLegacyExportFileSupport.ps1` and in the legacy branches of `Sync-GeneXusXpzToXml.ps1`/`Get-GeneXusXpzObjectInventory.ps1` — but its **internal behavior** is not described here: this document is the representation/governance reference, not the engine spec.
 
@@ -49,7 +49,7 @@ GUID-based reconciliation (`reconcilableByGuid`) is a **class invariant**, not a
 | `indexedByKbIntelligence` | Optional boolean, default `false`. When `true`, KB Intelligence indexes the orphan as its own type, named after `materializedFolderName` (`Report`), and the queries answer for it. Any other value (absent, `false`, a string) keeps the orphan skipped, and the skip is audited in `legacy_orphan_directories_skipped`. |
 | `successorRelation` | Relation to the successor. The enum covers **only the known corpus**: `absorbed` (the concept was absorbed by the successor) and `none` (no successor; requires `modernSuccessor: null`). New values only with explicit criteria and a real case. |
 
-## Inventory of the 13 elements
+## Inventory of the 16 elements
 
 Peer-validated table of the first 12 elements, **confirmed by a real GeneXus 9 export** (sample `SampleKb7`, KB "SampleKb7": 11 of those 12 observed; `Theme` not observed). `WebPanel` was added, and `Theme` observed, from the public GeneXus 8.0 export. `equivalent` (12):
 
@@ -76,26 +76,47 @@ Note on `WorkPanel` and `WebPanel`: the legacy `WorkPanel` element maps to the m
 
 Note on `Menubar`: the legacy `<Menubar>` element maps to the modern **`Menubar`** type (GUID `28eca899-...`, folder `Menubar`), residual in converted KBs / Win generators; wiki [Menu Bar](https://docs.genexus.com/en/wiki?7610%2CMenu+Bar=) (deprecated since GeneXus 15). Until 2026-08-12 it was classified as `orphan` (`gxlegacy/Menubar`) under the hypothesis of "no modern successor"; evidence from a GeneXus 18 export (KB `SampleKb6`, objects `BbInfo`/`Bbinfo2`) reclassified it to `equivalent`, following the same pattern as `WorkPanel`. Distinct from Native Mobile's `Menu` and from the `K2BMenu` addon.
 
-**Corpus migration (mandatory if the orphan was already materialized):** with the reclassification, `Menubar/` **stops** being an orphan folder `Build-KbIntelligenceIndex.py` skips (only `Report` remains `orphan`, and it is indexed rather than skipped). XMLs still carrying `type="gxlegacy/Menubar"` under `Menubar/` become an unknown GUID/token → the index rebuild **fails** (`SystemExit` / unknown type), it does not silently mask them as an orphan. Before rebuilding: re-sync the legacy package (materializes the real GUID) or manually clean up those files.
+**Corpus migration (mandatory if the orphan was already materialized):** with the reclassification, `Menubar/` **stops** being an orphan folder `Build-KbIntelligenceIndex.py` skips (the skipped orphan folders are now only those of `Menu`, `Prompt`, and `Formula`; `Report` is indexed). XMLs still carrying `type="gxlegacy/Menubar"` under `Menubar/` become an unknown GUID/token → the index rebuild **fails** (`SystemExit` / unknown type), it does not silently mask them as an orphan. Before rebuilding: re-sync the legacy package (materializes the real GUID) or manually clean up those files.
 
-`orphan` (1):
+`orphan` (4):
 
-| GX9 element | `materializedFolderName` | `typeToken` | `modernSuccessor` | `successorRelation` |
-| --- | --- | --- | --- | --- |
-| `Report` | `Report` | `gxlegacy/Report` | `Procedure` | `absorbed` |
+| Legacy element | `materializedFolderName` | `typeToken` | `modernSuccessor` | `successorRelation` | Indexed by KB Intelligence |
+| --- | --- | --- | --- | --- | --- |
+| `Report` | `Report` | `gxlegacy/Report` | `Procedure` | `absorbed` | yes |
+| `Menu` | `Menu` | `gxlegacy/Menu` | `null` | `none` | no (skipped and audited) |
+| `Prompt` | `Prompt` | `gxlegacy/Prompt` | `WorkPanel` | `absorbed` | no (skipped and audited) |
+| `Formula` | `Formula` | `gxlegacy/Formula` | `Attribute` | `absorbed` | no (skipped and audited) |
 
-`Report` carries `indexedByKbIntelligence: true`: the index and its queries name it `Report` (owner decision 2026-10-15), not Procedure.
+`Report` carries `indexedByKbIntelligence: true`: the index and its queries name it `Report` (owner decision 2026-10-15), not Procedure. `Menu`, `Prompt`, and `Formula` carry no flag (owner decision 2026-10-15): they sync, so a `.xpw` that holds them no longer aborts on an unknown tag, but KB Intelligence skips their folders and lists them in `legacy_orphan_directories_skipped`. None of the three names, folders, or tokens collides with a modern catalog type or folder (the catalog has `Menubar`, `K2BMenu`, and `K2BPrompt`, which are distinct names), so each folder is named after its element.
+
+Note on naming: every element is named by `Info/Name`, except `Formula`. A `.xpw` formula is a top-level block `:Formula` with `Name` (the attribute it computes) and `Type` plus a `Source`, with no `Info` block; the engine names it from its direct `Name` child, so `Formula/<attribute>.xml`. Only `Formula` takes that fallback: any other element without `Info/Name` still fails closed, and a `Formula` with a blank `Name` fails closed too.
 
 ### Orphan discontinuation (prose)
 
 - **`Report`**: the classic GeneXus Report object was **absorbed** by the modern Procedure (output generation via a procedure with a print layout). `modernSuccessor` records `Procedure` only as a migration trail — the legacy artifact is still represented by `gxlegacy/Report`, not as a Procedure.
+- **`Menu`**: the classic menu object (`Info` plus a `MenuOptions` list of `OptionCode`, `PgmType`, `PgmName`, `Description`) is a list of options that call programs. It has **no** modern successor in the catalog: `Menubar` is a different object with its own tag, and the Native Mobile `Menu` and the `K2BMenu` addon are unrelated concepts. Hence `none`.
+- **`Prompt`**: the classic prompt object (`Info`, `PromptInfo` with `Name`, `Description`, `Table`, plus `Events` and `Rules`) is a selection list over a table. Later GeneXus versions generate prompts as ordinary panels (Work Panels in a desktop KB) instead of a separate object type, so the concept was **absorbed** by `WorkPanel`. This successor is presumed from GeneXus knowledge, not observed in an export that shows the migration.
+- **`Formula`**: the classic formula block (`Name` of the attribute, `Type`, and its `Source`) defines the formula of one attribute outside the attribute itself. In later versions the formula is a property of the attribute, so the concept was **absorbed** by `Attribute`. Presumed from GeneXus knowledge, like `Prompt`.
+
+## `.xpw` text exports (GeneXus 7.0 and earlier)
+
+`scripts/GeneXusXpwExportFileSupport.ps1` translates a `.xpw` text export (one file, or every `.xpw` entry of a `.zip` merged) in memory into the classic shape this registry governs, so the sync, the inventory, and the index treat it as a classic XML export:
+
+- a block `:Tag` ... `:eTag` becomes `<Tag>` with the same name (the only renamings are the qualified tags and `:Doc`, below), and each top-level block other than `:KMW` becomes one `<GXObject><Tag/></GXObject>`; a qualified tag such as `:Att:Font` becomes `<Att_Font>`; `Key=Value` becomes `<Key>Value</Key>`, and a bare `Key` becomes `<Key>Y</Key>`;
+- `Source`, `Rules`, `Events`, `Conditions`, and `Subroutines` keep their text as CDATA, line for line;
+- the three sibling blocks `:Attribute`, `:AttInfo`, `:Doc` of one attribute become `<Attributes><GXAtt><Attribute/><AttInfo/><AttDoc/></GXAtt></Attributes>`;
+- a top-level `:Formula` written between an attribute's `:AttInfo` and `:Doc` becomes its own `<GXObject><Formula/></GXObject>` (named after the attribute, see "Note on naming"), and the following `:Doc` still joins that attribute;
+- the header `Model=` line becomes `Model/Name`, and a `:KMW` block (`KMW` 1.x: `MajorVersion`, `MinorVersion`, no `Build`) becomes `/ExportFile/KMW`.
+
+A tag the `.xpw` emits that is not in the registry fails closed like any classic tag. The translator's grammar and its fail-closed cases are in the script's own header.
 
 ## Known gaps (do not block representation)
 
-- 11 of the registry's 13 elements were **confirmed by direct inspection of a real GeneXus 9 export** (sample `SampleKb7`, KB "SampleKb7", GeneXus 9.0 export): tag, casing (`Menubar` lowercase after the first letter; `WorkPanel`, `DataView`, `StructureDataType`, `Procedure`, etc.), and structure match the classification. Should tag/casing ever diverge in another GX9 KB, that is a registry correction, not a class or mapping change.
+- 11 of the registry's 16 elements were **confirmed by direct inspection of a real GeneXus 9 export** (sample `SampleKb7`, KB "SampleKb7", GeneXus 9.0 export): tag, casing (`Menubar` lowercase after the first letter; `WorkPanel`, `DataView`, `StructureDataType`, `Procedure`, etc.), and structure match the classification. Should tag/casing ever diverge in another GX9 KB, that is a registry correction, not a class or mapping change.
 - **`Theme` was not observed** in the `SampleKb7` sample (a desktop/Windows-profile KB — 169 `WorkPanel`s, no web pages → no Themes). The GeneXus 8.0 export confirms the tag and casing `<Theme>` (a Theme object with `Info`, `ObjInfo`, `LastUpdate`, `Xml`). For GeneXus 9 the tag stays **presumed** from that GeneXus 8 evidence and from official documentation (the Theme object exists since 8.0 and 9.0 supports it); if a GX9 export ever diverges, the parser fails closed on an unknown tag (a registry fix, not an engine fix).
 - **`WebPanel` was not observed in GeneXus 9** (the GX9 sample is a desktop KB). Its tag comes from the GeneXus 8 export only.
 - **GeneXus 7.5** is assumed to share this format (the 7.5 release notes introduced the XML export), but no 7.5 export has been read.
+- **`Menu`, `Prompt`, and `Formula` come from GeneXus 6 and 7.0 `.xpw` text exports** (a mapping of public samples and one real export, structure only: `Menu` and `Formula` in the samples, `Prompt` in the real export). Their tags in a GeneXus 7.5 to 9 XML export are **presumed**, not observed: the registry keys are the tags the `.xpw` translator emits. If a classic XML export ever carries a different tag for them, the parser fails closed on the unknown tag (a registry fix, not an engine fix).
 
 ## Cross-flow modern↔legacy detection (`dataSource` origin divergence)
 

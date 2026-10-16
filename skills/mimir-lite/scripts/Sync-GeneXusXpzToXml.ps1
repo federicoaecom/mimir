@@ -6,13 +6,16 @@ Extracts and verifies objects exported from a GeneXus XPZ/XML package.
 
 .DESCRIPTION
 Reads a GeneXus package exported from an .xpz file, an .xml file,
-or a folder containing that XML, materializes the exported objects into a
+or a folder containing that XML, or a GeneXus 7.0 and earlier text export (a .xpw file, or a
+.zip of .xpw files, translated in memory into the classic legacy XML), materializes the exported objects into a
 directory tree by type, and can verify whether the package was correctly
 reflected at the destination.
 
 .PARAMETER InputPath
-Path to an .xpz, to the exported package's XML, or to the folder that contains
-that XML.
+Path to an .xpz, to the exported package's XML, to the folder that contains
+that XML, to a .xpw text export, or to a .zip of .xpw files (for example the 1997 layout,
+an objects file and an attributes file, merged into one export). A zip that mixes .xpw and
+.xml entries fails closed; a .zip with no .xpw entry is unsupported, as before.
 
 .PARAMETER DestinationRoot
 Root of the tree of XMLs individualized by type.
@@ -130,6 +133,12 @@ if (-not (Test-Path -LiteralPath $legacyExportSupportScript -PathType Leaf)) {
 }
 . $legacyExportSupportScript
 
+$xpwExportSupportScript = Join-Path $PSScriptRoot 'GeneXusXpwExportFileSupport.ps1'
+if (-not (Test-Path -LiteralPath $xpwExportSupportScript -PathType Leaf)) {
+    throw "Required support script not found: $xpwExportSupportScript"
+}
+. $xpwExportSupportScript
+
 function New-TempDirectory {
     $tempBase = [System.IO.Path]::GetTempPath()
     $tempName = "gx-xpz-" + [System.Guid]::NewGuid().ToString("N")
@@ -151,6 +160,7 @@ function Resolve-PackageXmlPath {
         return @{
             XmlPath = $xmlFiles[0].FullName
             TempPath = $null
+            XpwDocument = $null
         }
     }
 
@@ -158,6 +168,29 @@ function Resolve-PackageXmlPath {
         return @{
             XmlPath = $resolved
             TempPath = $null
+            XpwDocument = $null
+        }
+    }
+
+    # GeneXus 7.0 and earlier: a .xpw text export, or a .zip holding .xpw files (the 1997 layout
+    # splits objects and attributes). Translated in memory into the classic ExportFile XML;
+    # XmlPath then names the input itself (there is no package XML on disk).
+    if (Test-GeneXusXpwInputPath -Path $resolved) {
+        return @{
+            XmlPath = $resolved
+            TempPath = $null
+            XpwDocument = (Read-GeneXusXpwExportFile -Path $resolved)
+        }
+    }
+
+    if ($resolved.ToLowerInvariant().EndsWith(".zip")) {
+        $xpwZip = Read-GeneXusXpwZipExport -Path $resolved
+        if ($null -ne $xpwZip) {
+            return @{
+                XmlPath = $resolved
+                TempPath = $null
+                XpwDocument = $xpwZip.Document
+            }
         }
     }
 
@@ -173,10 +206,11 @@ function Resolve-PackageXmlPath {
         return @{
             XmlPath = $xmlFiles[0].FullName
             TempPath = $tempPath
+            XpwDocument = $null
         }
     }
 
-    throw "Unsupported InputPath '$resolved'. Use a folder, .xml, or .xpz."
+    throw "Unsupported InputPath '$resolved'. Use a folder, .xml, .xpz, .xpw, or a .zip of .xpw files."
 }
 
 function Convert-ExpectedItemsToComparison {
@@ -904,9 +938,17 @@ try {
     # Encoding-aware read: XmlDocument.Load honors the prolog's encoding attribute. Legacy
     # GeneXus 9 export is iso-8859-1; Get-Content -Raw would assume UTF-8 and corrupt
     # Latin-1 accents. Applies equally to modern (UTF-8) and legacy (iso-8859-1).
-    $packageXml = New-Object System.Xml.XmlDocument
-    $packageXml.PreserveWhitespace = $true
-    $packageXml.Load($package.XmlPath)
+    # A .xpw source (GeneXus 7.0 and earlier) arrives already translated (Latin-1 read by the
+    # translator); it always takes the legacy branch below, even with no GXObject (an
+    # attributes-only file), since the translation never produces modern elements.
+    $isXpwSource = ($null -ne $package.XpwDocument)
+    if ($isXpwSource) {
+        $packageXml = $package.XpwDocument
+    } else {
+        $packageXml = New-Object System.Xml.XmlDocument
+        $packageXml.PreserveWhitespace = $true
+        $packageXml.Load($package.XmlPath)
+    }
 
     if ($null -eq $packageXml.DocumentElement -or $packageXml.DocumentElement.LocalName -ne "ExportFile") {
         $foundRoot = if ($null -eq $packageXml.DocumentElement) { '<null>' } else { $packageXml.DocumentElement.LocalName }
@@ -922,8 +964,8 @@ try {
         throw "BLOCK: MIXED export package (legacy <GXObject> and modern <Objects>/<Attributes> elements in the same ExportFile); out of scope for the legacy export engine. Export the formats separately. No metadata was written."
     }
 
-    if (Test-GeneXusLegacyExportFilePackage -XmlDocument $packageXml) {
-        # ===== LEGACY BRANCH (GeneXus 9 export) =====
+    if ($isXpwSource -or (Test-GeneXusLegacyExportFilePackage -XmlDocument $packageXml)) {
+        # ===== LEGACY BRANCH (GeneXus 9 export; GeneXus 7.0 and earlier .xpw, translated) =====
         # Order: resolve catalog -> build/validate items (fail-closed
         # for tag not in registry / >1 child element / collision HERE, before metadata) ->
         # metadata (-IsLegacyExport) -> shared materialization/rename/verification.
@@ -940,7 +982,8 @@ try {
             # METADATA WRITE (legacy): post-catalog/items. Mutually exclusive with the
             # modern branch's write below (after profile classification) — never both
             # in the same run, since the legacy/modern branches are disjoint by profile.
-            $metadataResult = Update-MimirKbSourceMetadataFromSync -XmlDocument $packageXml -SourceXpzPath $InputPath -MetadataPath $KbMetadataPath -IsLegacyExport $true
+            $sourceExportFormat = if ($isXpwSource) { 'xpw' } else { 'xml' }
+            $metadataResult = Update-MimirKbSourceMetadataFromSync -XmlDocument $packageXml -SourceXpzPath $InputPath -MetadataPath $KbMetadataPath -IsLegacyExport $true -SourceExportFormat $sourceExportFormat
             [Console]::Error.WriteLine("KbMetadataPath updated: $KbMetadataPath ($($metadataResult.WriteMode))")
             if ($metadataResult.Warnings.Count -gt 0) {
                 [Console]::Error.WriteLine("WARNING: " + $metadataResult.Warnings[0])
@@ -978,7 +1021,7 @@ try {
         if ($KbMetadataPath -and -not $VerifyOnly) {
             # METADATA WRITE (modern): post-catalog/unknown/Convert/detection.
             # Mutually exclusive with the legacy branch's write above.
-            $metadataResult = Update-MimirKbSourceMetadataFromSync -XmlDocument $packageXml -SourceXpzPath $InputPath -MetadataPath $KbMetadataPath
+            $metadataResult = Update-MimirKbSourceMetadataFromSync -XmlDocument $packageXml -SourceXpzPath $InputPath -MetadataPath $KbMetadataPath -SourceExportFormat 'xml'
             [Console]::Error.WriteLine("KbMetadataPath updated: $KbMetadataPath ($($metadataResult.WriteMode))")
             if ($metadataResult.Warnings.Count -gt 0) {
                 # stderr (not Write-Warning): the warning stream also leaks into the stdout

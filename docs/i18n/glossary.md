@@ -20,6 +20,7 @@ Term mappings used across the documentation. Add a term here before translating 
 | full check / full verification | verificación completa | Comparing a complete KB export against the corpus without rewriting it. |
 | full KB export / full export | exportación completa de la KB / exportación completa | An XPZ exported from the GeneXus IDE with every object of the KB; required for the first sync. |
 | partial export / delta export | exportación parcial / exportación delta | An XPZ with only some objects (usually the recently changed ones); fine for daily updates, never for the first sync. |
+| text export (`.xpw`) | exportación de texto (`.xpw`) | A GeneXus 7.0-and-earlier export written as `.xpw` text (`:Tag` blocks); Mimir Lite translates it into the legacy export format. |
 | legacy export | exportación heredada | A GeneXus 9 `ExportFile` export: objects appear by element name, with no type GUID. |
 | public sample | ejemplo público | A sample KB export published by GeneXus (training courses, wiki); used to test versions. |
 | export header | cabecera de exportación | The `KMW` block of an XPZ (major, minor, build) that identifies the GeneXus generation. |

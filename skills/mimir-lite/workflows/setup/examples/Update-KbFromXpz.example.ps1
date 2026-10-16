@@ -8,8 +8,9 @@ Uses the paths of the KB workspace and delegates extraction/verification to the
 shared engine of this methodology base.
 
 .PARAMETER InputPath
-Path to an .xpz file, to the XML of the exported package, or to the folder that
-contains that XML.
+Path to an .xpz file, to the XML of the exported package, to the folder that
+contains that XML, to a GeneXus 7.0-and-earlier .xpw text export, or to a .zip
+holding .xpw files.
 
 .PARAMETER VerifyOnly
 Runs the check only, without rewriting files in the destination.
