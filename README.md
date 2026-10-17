@@ -11,7 +11,7 @@ Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base
 
 ## Status
 
-Current release: `0.7.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+Current release: `0.8.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
 
 ## Support
 
