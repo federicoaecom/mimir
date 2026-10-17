@@ -17,7 +17,7 @@
       - who-uses, what-uses, and impact-basic answer for a WorkPanel (no QUERY_NOT_SEMANTIC_FOR_TYPE);
       - a who-uses on a Procedure reports complete calls coverage with Work Panels in the index;
       - a who-uses on an Attribute lists WorkPanel as partly extracted (rule reads, event reads, block
-        writes), and an index whose extractor_signature_version is rewritten to 19, or removed, lists
+        writes, condition reads), and an index whose extractor_signature_version is rewritten to 19, or removed, lists
         WorkPanel as not extracted, for calls and for attribute uses.
 #>
 
@@ -281,8 +281,8 @@ Assert-True ($callsCoverage.complete -eq $true) "who-uses Procedure PartStock co
 $attributeCoverage = (Invoke-IndexQuery -Query 'who-uses' -Type 'Attribute' -Name 'PartId').coverage
 $workPanelPartial = @($attributeCoverage.partially_extracted_source_types | Where-Object { $_.type -eq 'WorkPanel' })
 Assert-True ($workPanelPartial.Count -eq 1 -and $workPanelPartial[0].count -eq 4) "who-uses Attribute PartId coverage should list WorkPanel (count 4) as partly extracted; got $($attributeCoverage | ConvertTo-Json -Compress -Depth 4)"
-Assert-True (($workPanelPartial[0].extracted -join ',') -ceq 'rule reads,event reads,block writes') "WorkPanel coverage extracted should be 'rule reads,event reads,block writes'; got '$($workPanelPartial[0].extracted -join ',')'"
-Assert-True (($workPanelPartial[0].missing -join ',') -ceq 'ambiguous writes,conditions,Windows form bindings,Business Component members,code outside a Part') "WorkPanel coverage missing is wrong; got '$($workPanelPartial[0].missing -join ',')'"
+Assert-True (($workPanelPartial[0].extracted -join ',') -ceq 'rule reads,event reads,block writes,condition reads') "WorkPanel coverage extracted should be 'rule reads,event reads,block writes,condition reads'; got '$($workPanelPartial[0].extracted -join ',')'"
+Assert-True (($workPanelPartial[0].missing -join ',') -ceq 'ambiguous writes,Windows form bindings,Business Component members,code outside a Part') "WorkPanel coverage missing is wrong; got '$($workPanelPartial[0].missing -join ',')'"
 Assert-True (@($attributeCoverage.unextracted_source_types | Where-Object { $_.type -eq 'WorkPanel' }).Count -eq 0) "who-uses Attribute PartId coverage should not list WorkPanel as not extracted; got $($attributeCoverage | ConvertTo-Json -Compress -Depth 4)"
 
 # Rule: an index built before extractor 20, or with no extractor version, still reports WorkPanel

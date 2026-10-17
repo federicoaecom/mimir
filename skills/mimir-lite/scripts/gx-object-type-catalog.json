@@ -449,7 +449,7 @@
       "inventoryEligible": true,
       "queryableByKbIntelligence": true,
       "containerType": false,
-      "notes": "Legacy GeneXus Work Panel (deprecated since GeneXus 15); Form Type=Windows. Since extractor 20 the index reads its code like a WebPanel's: calls from a classic one's Rules and Events and from a modern one's effective Source, attribute uses from its Rules and Events; attribute uses in its Conditions and Windows form are not read. Calls to it are read from classic call(W...) and modern <WorkPanel>.Call(...) and call(<WorkPanel>, ...)."
+      "notes": "Legacy GeneXus Work Panel (deprecated since GeneXus 15); Form Type=Windows. Since extractor 20 the index reads its code like a WebPanel's: calls from a classic one's Rules and Events and from a modern one's effective Source, attribute uses from its Rules and Events, and since extractor 21 from its Conditions; attribute uses in its Windows form are not read. Calls to it are read from classic call(W...) and modern <WorkPanel>.Call(...) and call(<WorkPanel>, ...)."
     },
     "WorkWith": {
       "objectTypeGuid": "15cf49b5-fc38-4899-91b5-395d02d79889",

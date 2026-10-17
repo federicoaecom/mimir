@@ -26,6 +26,7 @@
       "class": "orphan",
       "materializedFolderName": "Menu",
       "typeToken": "gxlegacy/Menu",
+      "indexedByKbIntelligence": true,
       "modernSuccessor": null,
       "successorRelation": "none"
     },

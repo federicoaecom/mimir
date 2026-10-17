@@ -46,14 +46,14 @@ import os
 import re
 import sqlite3
 import xml.etree.ElementTree as ElementTree
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "20"
+EXTRACTOR_SIGNATURE_VERSION = "21"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -136,7 +136,7 @@ INDEXED_SOURCE_TYPES = (
 # call names its target with an object-type prefix (call(PAGO) is Procedure AGO).
 LEGACY_EXPORT_DATA_SOURCE_RE = re.compile(r'<Object\b[^>]*\bdataSource="gx-legacy-export"')
 CLASSIC_CODE_BLOCK_RE = re.compile(
-    r"<(?P<tag>Source|Rules|Events)(?:\s[^>]*)?(?<!/)>(?P<body>.*?)</(?P=tag)>",
+    r"<(?P<tag>Source|Rules|Events|Conditions)(?:\s[^>]*)?(?<!/)>(?P<body>.*?)</(?P=tag)>",
     re.IGNORECASE | re.DOTALL,
 )
 # In a classic object only a <Source> inside a <CodeBlock> is code. Other <Source> elements hold HTML
@@ -154,6 +154,27 @@ CLASSIC_CALL_PREFIX_TARGETS = {
     "w": ("WorkPanel", "calls_workpanel"),
 }
 CLASSIC_CALL_VERB_RULES = {"call": "classic_call_command", "udp": "classic_udp_func", "link": "classic_link"}
+# A classic Menu option names its program by type and name (<PgmType>, <PgmName>), not with call(.
+# Observed PgmType values only; another one is not mapped until a sample shows it.
+CLASSIC_MENU_OPTION_RE = re.compile(r"<MenuOptions\b[^>]*>(?P<body>.*?)</MenuOptions>", re.IGNORECASE | re.DOTALL)
+CLASSIC_MENU_PGM_TYPE_RE = re.compile(r"<PgmType>\s*(?P<value>[^<]*?)\s*</PgmType>", re.IGNORECASE)
+CLASSIC_MENU_PGM_NAME_RE = re.compile(r"<PgmName>\s*(?P<value>[^<]*?)\s*</PgmName>", re.IGNORECASE)
+# A classic formula (GeneXus 7.0 and earlier, .xpw) is its own block, synced to the Formula folder
+# and named after the attribute it computes: <Formula><Name>, <Type>, <Source>.
+CLASSIC_FORMULA_FOLDER = "Formula"
+CLASSIC_FORMULA_NAME_RE = re.compile(r"<Formula\b[^>]*>\s*<Name>\s*(?P<name>[^<]*?)\s*</Name>", re.IGNORECASE)
+CLASSIC_FORMULA_SOURCE_RE = re.compile(r"<Source(?:\s[^>]*)?>(?P<body>.*?)</Source>", re.IGNORECASE | re.DOTALL)
+CLASSIC_FORMULA_CALL_RULES = {
+    "call": "classic_formula_call_command",
+    "udp": "classic_formula_udp_func",
+    "link": "classic_formula_link",
+}
+CLASSIC_MENU_OPTION_TARGETS = {
+    "menu": ("Menu", "calls_menu"),
+    "workpanel": ("WorkPanel", "calls_workpanel"),
+    "transaction": ("Transaction", "calls_transaction"),
+    "report": ("Report", "calls_report"),
+}
 FOR_EACH_SOURCE_TYPES = ("Procedure", "WebPanel")
 BC_LOAD_SOURCE_TYPES = ("Procedure", "WebPanel", "DataProvider")
 ACTION_RE = re.compile(r"<action\b(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)
@@ -436,35 +457,38 @@ PROCEDURE_SOURCE_PART_GUID = "528d1c06-a9c2-420d-bd35-21dca83f12ff"
 RULES_PART_GUID = "9b0a32a3-de6d-4be1-a4dd-1b85d3741534"
 EVENTS_PART_GUID = "c44bd5ff-f918-415b-98e6-aca44fed84fa"
 DATA_PROVIDER_SOURCE_PART_GUID = "1d8aeb5a-6e98-45a7-92d2-d8de7384e432"
+CONDITIONS_PART_GUID = "763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9"
 CODE_ATTRIBUTE_PART_NAMES: dict[str, dict[str, str]] = {
     "Procedure": {
         PROCEDURE_SOURCE_PART_GUID: "Procedure Source",
         RULES_PART_GUID: "Rules",
         EVENTS_PART_GUID: "Events",
+        CONDITIONS_PART_GUID: "Conditions",
     },
-    "WebPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
+    "WebPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events", CONDITIONS_PART_GUID: "Conditions"},
     "Transaction": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
-    "WorkPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events"},
+    "WorkPanel": {RULES_PART_GUID: "Rules", EVENTS_PART_GUID: "Events", CONDITIONS_PART_GUID: "Conditions"},
     "DataProvider": {DATA_PROVIDER_SOURCE_PART_GUID: "DataProvider Source", RULES_PART_GUID: "Rules"},
 }
 # Classic code sections (see classic_code_blocks) read for attribute uses, by object type: the
 # role's section name for each tag. Mirrors CODE_ATTRIBUTE_PART_NAMES: a Source is read only
 # where the modern type has a code Source (a classic Report's is its Layout/Block/CodeBlock/Source).
 CLASSIC_CODE_ATTRIBUTE_SECTIONS: dict[str, dict[str, str]] = {
-    "Report": {"source": "Report Source", "rules": "Rules", "events": "Events"},
-    "Procedure": {"source": "Procedure Source", "rules": "Rules", "events": "Events"},
-    "WebPanel": {"rules": "Rules", "events": "Events"},
+    "Report": {"source": "Report Source", "rules": "Rules", "events": "Events", "conditions": "Conditions"},
+    "Procedure": {"source": "Procedure Source", "rules": "Rules", "events": "Events", "conditions": "Conditions"},
+    "WebPanel": {"rules": "Rules", "events": "Events", "conditions": "Conditions"},
     "Transaction": {"rules": "Rules", "events": "Events"},
-    "WorkPanel": {"rules": "Rules", "events": "Events"},
+    "WorkPanel": {"rules": "Rules", "events": "Events", "conditions": "Conditions"},
 }
 # A <Part> element, self-closing or with a body (PART_RE would run a self-closing Part into the next one).
 CODE_PART_RE = re.compile(r"<Part\b(?P<attrs>[^>]*?)(?:/>|>(?P<body>.*?)</Part>)", re.IGNORECASE | re.DOTALL)
 # Code tokens, tried in order: // and /* */ comments, single-line string literals, legacy dotted
-# operators, &variables, numbers, names, a member dot, any other character.
+# operators (.and. .or. .not. .like., so a name after one is not read as a member), &variables,
+# numbers, names, a member dot, any other character.
 CODE_TOKEN_RE = re.compile(
     r"(?P<comment>//[^\n]*|/\*.*?(?:\*/|\Z))"
     r"|(?P<literal>'[^'\n]*'?|\"[^\"\n]*\"?)"
-    r"|(?P<operator>\.(?:and|or|not)\.)"
+    r"|(?P<operator>\.(?:and|or|not|like)\.)"
     r"|(?P<variable>&[A-Za-z_][A-Za-z0-9_]*)"
     r"|(?P<number>\d[A-Za-z0-9_]*(?:\.\d+)?)"
     r"|(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
@@ -1207,7 +1231,7 @@ def is_legacy_export_object(xml_text: str) -> bool:
 
 
 def classic_code_blocks(xml_text: str) -> Iterable[tuple[str, SourceBlock]]:
-    """(lowercase tag, block) of every <Rules> and <Events> body of a classic object, and of every
+    """(lowercase tag, block) of every <Rules>, <Events>, and <Conditions> body of a classic object, and of every
     <Source> inside a <CodeBlock>, CDATA-unwrapped, with the line its text starts on. A <Source>
     outside a <CodeBlock> (HTMLForm, Documentation, a print control in a layout) is not code."""
     code_blocks = [(span.start(), span.end()) for span in CLASSIC_CODE_BLOCK_SPAN_RE.finditer(xml_text)]
@@ -1278,6 +1302,177 @@ def append_classic_call_evidences(
                     snippet=cleaned,
                     extractor_rule=CLASSIC_CALL_VERB_RULES[match.group("verb").lower()],
                 )
+
+
+def extract_classic_menu_option_evidence(
+    menu_objects: Iterable[ObjectInfo],
+    names_by_type: dict[str, set[str]],
+) -> list[Evidence]:
+    """One call relation per classic Menu option whose PgmType is mapped
+    (CLASSIC_MENU_OPTION_TARGETS) and whose PgmName names an indexed object of that type; the
+    evidence line is the line of the option's <PgmName>. Rule classic_menu_option."""
+    evidences: list[Evidence] = []
+    lookups = {
+        target_type: case_insensitive_lookup(names_by_type.get(target_type, set()), target_type)
+        for target_type, _kind in CLASSIC_MENU_OPTION_TARGETS.values()
+    }
+    for source in menu_objects:
+        xml_text = read_text(source.path)
+        for option in CLASSIC_MENU_OPTION_RE.finditer(xml_text):
+            body = option.group("body")
+            pgm_type = CLASSIC_MENU_PGM_TYPE_RE.search(body)
+            pgm_name = CLASSIC_MENU_PGM_NAME_RE.search(body)
+            if not pgm_type or not pgm_name:
+                continue
+            target = CLASSIC_MENU_OPTION_TARGETS.get(pgm_type.group("value").replace(" ", "").lower())
+            if target is None:
+                continue
+            target_type, relation_kind = target
+            target_name = lookups[target_type].get(pgm_name.group("value").lower())
+            if not target_name:
+                continue
+            add_evidence(
+                evidences,
+                source=source,
+                target_type=target_type,
+                target_name=target_name,
+                relation_kind=relation_kind,
+                line=line_number_at(xml_text, option.start("body") + pgm_name.start()),
+                column=1,
+                snippet=option.group(0).strip(),
+                extractor_rule="classic_menu_option",
+            )
+    return evidences
+
+
+def append_formula_attribute_evidences(
+    evidences: list[Evidence],
+    *,
+    source: ObjectInfo,
+    expression: str,
+    start_line: int,
+    attribute_lookup: dict[str, str],
+    domain_keys: set[str],
+) -> None:
+    """Attribute uses in a formula expression: every attribute it names is a read of the computed
+    attribute (role 'Formula read', one relation per attribute, the first occurrence). The computed
+    attribute itself is not a use of itself."""
+    seen: set[str] = set()
+    lines = expression.split("\n")
+    for raw_name, code_line, _access in code_attribute_names(expression, domain_names=domain_keys, mode=CodeMode.PLAIN_RULES):
+        target_name = attribute_lookup.get(raw_name.lower())
+        if not target_name or target_name.lower() == source.name.lower() or target_name.lower() in seen:
+            continue
+        seen.add(target_name.lower())
+        add_evidence(
+            evidences,
+            source=source,
+            target_type="Attribute",
+            target_name=target_name,
+            relation_kind="code_references_attribute",
+            line=start_line + code_line,
+            column=1,
+            snippet=lines[code_line],
+            extractor_rule="code_attribute_reference",
+            evidence_role="Formula read",
+        )
+
+
+def extract_classic_formula_evidence(
+    source_root: Path,
+    attributes: dict[str, ObjectInfo],
+    procedure_names: set[str],
+    domain_names: set[str],
+) -> list[Evidence]:
+    """Relations of the classic formulas synced to the Formula folder (a skipped legacy orphan,
+    not an indexed type): the source is the indexed Attribute the formula is named after, with the
+    Formula file as its evidence file. Calls in its Source with the P prefix give
+    formula_calls_procedure (rules classic_formula_*), like the modern attribute-formula calls; the
+    attributes it names are uses with the role 'Formula read'. A formula whose attribute is not
+    indexed gives nothing."""
+    evidences: list[Evidence] = []
+    folder = source_root / CLASSIC_FORMULA_FOLDER
+    if not folder.is_dir():
+        return evidences
+    attribute_by_key = {name.lower(): obj for name, obj in attributes.items()}
+    attribute_lookup = case_insensitive_lookup(set(attributes), "Attribute")
+    procedure_lookup = case_insensitive_lookup(procedure_names, "Procedure")
+    domain_keys = {name.lower() for name in domain_names}
+    for path in sorted(folder.glob("*.xml")):
+        xml_text = read_text(path)
+        if not is_legacy_export_object(xml_text):
+            continue
+        name_match = CLASSIC_FORMULA_NAME_RE.search(xml_text)
+        source_match = CLASSIC_FORMULA_SOURCE_RE.search(xml_text)
+        if not name_match or not source_match:
+            continue
+        attribute = attribute_by_key.get(name_match.group("name").lower())
+        if attribute is None:
+            continue
+        source = replace(attribute, path=path, rel_path=path.relative_to(source_root).as_posix())
+        raw_body = source_match.group("body")
+        body_start = source_match.start("body")
+        cdata_prefix = re.match(r"\s*<!\[CDATA\[", raw_body, re.DOTALL)
+        if cdata_prefix:
+            body_start += cdata_prefix.end()
+        expression = unwrap_source_body(raw_body)
+        start_line = line_number_at(xml_text, body_start)
+        for offset, line in enumerate(blank_block_comments(expression).splitlines()):
+            cleaned = active_line(line)
+            for match in CLASSIC_CALL_RE.finditer(cleaned):
+                if match.group("prefix").lower() != "p":
+                    continue
+                target_name = procedure_lookup.get(match.group("name").lower())
+                if not target_name:
+                    continue
+                add_evidence(
+                    evidences,
+                    source=source,
+                    target_type="Procedure",
+                    target_name=target_name,
+                    relation_kind="formula_calls_procedure",
+                    line=start_line + offset,
+                    column=match.start("prefix") + 1,
+                    snippet=cleaned,
+                    extractor_rule=CLASSIC_FORMULA_CALL_RULES[match.group("verb").lower()],
+                    evidence_role="Formula",
+                )
+        append_formula_attribute_evidences(
+            evidences,
+            source=source,
+            expression=expression,
+            start_line=start_line,
+            attribute_lookup=attribute_lookup,
+            domain_keys=domain_keys,
+        )
+    return evidences
+
+
+def extract_attribute_formula_attribute_evidence(
+    attributes: Iterable[ObjectInfo],
+    attribute_names: set[str],
+    domain_names: set[str],
+) -> list[Evidence]:
+    """Attribute uses in the Formula property of a modern Attribute: every attribute the formula
+    names is a read of the attribute that owns the formula (role 'Formula read')."""
+    evidences: list[Evidence] = []
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    domain_keys = {name.lower() for name in domain_names}
+    for source in attributes:
+        xml_text = read_text(source.path)
+        for match in FORMULA_PROPERTY_RE.finditer(xml_text):
+            expression = html.unescape(match.group("value"))
+            if not expression.strip():
+                continue
+            append_formula_attribute_evidences(
+                evidences,
+                source=source,
+                expression=expression,
+                start_line=line_number_at(xml_text, match.start("value")),
+                attribute_lookup=attribute_lookup,
+                domain_keys=domain_keys,
+            )
+    return evidences
 
 
 def extract_evidence(
@@ -2843,6 +3038,9 @@ def extract_code_attribute_evidence(
             code_lines = block.text.split("\n")
             if part_type == RULES_PART_GUID:
                 mode = rules_mode
+            elif part_type == CONDITIONS_PART_GUID:
+                # A condition filters: every attribute in it is read, never written.
+                mode = CodeMode.PLAIN_RULES
             elif part_type == DATA_PROVIDER_SOURCE_PART_GUID and data_provider_mode is not None:
                 mode = data_provider_mode
             else:
@@ -2882,7 +3080,8 @@ def append_classic_attribute_evidences(
     domain_keys: set[str],
 ) -> None:
     """Attribute uses in the code sections of a classic object, read like the matching modern
-    Part: <Rules> in rules_mode, <Source> and <Events> as block code; roles '<section> read' and
+    Part: <Rules> in rules_mode, <Conditions> as plain rules (reads only), <Source> and <Events> as
+    block code; roles '<section> read' and
     '<section> write'. Same rules as extract_code_attribute_evidence: one relation per attribute
     and role, the first occurrence in document order."""
     seen: set[tuple[str, str]] = set()
@@ -2890,7 +3089,12 @@ def append_classic_attribute_evidences(
         section_name = sections.get(tag)
         if section_name is None:
             continue
-        mode = rules_mode if tag == "rules" else CodeMode.BLOCK_CODE
+        if tag == "rules":
+            mode = rules_mode
+        elif tag == "conditions":
+            mode = CodeMode.PLAIN_RULES
+        else:
+            mode = CodeMode.BLOCK_CODE
         code_lines = block.text.split("\n")
         for raw_name, code_line, access in code_attribute_names(block.text, domain_names=domain_keys, mode=mode):
             target_name = attribute_lookup.get(raw_name.lower())
@@ -3729,6 +3933,19 @@ def write_index(
                 ("inventory_validation_status", str(inventory_semantics["status"])),
                 ("inventory_mismatch_count", str(inventory_semantics["mismatch_count"])),
                 ("generated_objects_count", str(sum(1 for obj in objects if obj.is_generated_object))),
+                # Skipped legacy orphan folders whose content no extractor reads (the classic
+                # Formula is read through the attribute it computes), for reverse coverage.
+                (
+                    "legacy_unread_orphan_counts",
+                    json.dumps(
+                        {
+                            str(item["directory"]): int(item["xml_count"])
+                            for item in inventory_semantics["legacy_orphan_directories_skipped"]
+                            if str(item["directory"]) != CLASSIC_FORMULA_FOLDER
+                        },
+                        sort_keys=True,
+                    ),
+                ),
             ],
         )
 
@@ -4182,6 +4399,24 @@ def main() -> int:
             if object_type == "domain"
         },
     )
+    classic_formula_evidences = extract_classic_formula_evidence(
+        source_root,
+        attributes,
+        procedure_names=set(procedures),
+        domain_names=set(domains),
+    )
+    attribute_formula_attribute_evidences = extract_attribute_formula_attribute_evidence(
+        attributes.values(),
+        attribute_names=set(attributes),
+        domain_names=set(domains),
+    )
+    classic_menu_option_evidences = extract_classic_menu_option_evidence(
+        objects_by_type.get("Menu", {}).values(),
+        names_by_type={
+            target_type: set(objects_by_type.get(target_type, {}))
+            for target_type, _kind in CLASSIC_MENU_OPTION_TARGETS.values()
+        },
+    )
     attribute_formula_call_evidences = extract_attribute_formula_call_evidence(
         attributes.values(),
         procedure_names=set(procedures),
@@ -4246,6 +4481,9 @@ def main() -> int:
         *sdt_item_attcustomtype_resolved_sdt_evidences,
         *attribute_idbasedon_domain_evidences,
         *attribute_formula_call_evidences,
+        *classic_menu_option_evidences,
+        *classic_formula_evidences,
+        *attribute_formula_attribute_evidences,
         *transaction_level_attribute_evidences,
         *transaction_level_table_evidences,
         *table_key_attribute_evidences,

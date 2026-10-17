@@ -354,11 +354,14 @@ EndEvent
     $wwsdExtracted = 'layouts,orders,search,break by,filters'
     $wwsdMissing = 'grid conditions,rules,events,captions'
     $wwsdNotePart = 'layouts, orders, search, break by and filters are indexed, grid conditions, rules, events and captions are not'
-    $procedurePart = 'Source reads,rule reads,block writes/ambiguous writes,conditions,layout,Business Component members,code outside a Part'
+    $procedurePart = 'Source reads,rule reads,block writes,condition reads/ambiguous writes,layout,Business Component members,code outside a Part'
+    # An index older than 21 has not read the conditions yet: 'condition reads' leads missing.
+    $procedurePart17 = 'Source reads,rule reads,block writes/condition reads,ambiguous writes,layout,Business Component members,code outside a Part'
     $transactionPart = 'rule reads,rule writes,event reads,block writes/ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
-    $webPanelPart = 'rule reads,event reads,block writes/ambiguous writes,conditions,WebForm bindings,Business Component members,code outside a Part'
+    $webPanelPart = 'rule reads,event reads,block writes,condition reads/ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
+    $webPanelPart17 = 'rule reads,event reads,block writes/condition reads,ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
     $dataProviderPart = 'Source reads,rule reads,Transaction item writes/SDT output items,Business Component members,code outside a Part'
-    $procedureNotePart = 'Source reads, rule reads and block writes are indexed, ambiguous writes, conditions, layout, Business Component members and code outside a Part are not'
+    $procedureNotePart = 'Source reads, rule reads, block writes and condition reads are indexed, ambiguous writes, layout, Business Component members and code outside a Part are not'
     $dataProviderNotePart = 'Source reads, rule reads and Transaction item writes are indexed, SDT output items, Business Component members and code outside a Part are not'
     $codeTypes = @('DataProvider', 'Procedure', 'Transaction', 'WebPanel')
     # Counts are the checked-in fixture's objects (tests/fixtures/sample-kb/): one Procedure
@@ -368,12 +371,13 @@ EndEvent
     $expectedPartialB = "Procedure=1:$procedurePart;Transaction=3:$transactionPart;WebPanel=1:$webPanelPart"
     # Corpus A also holds the one synthetic mobile WorkWith (WorkWithDevicesInvoice); an index of
     # extractor 17 or older predates its attribute uses and lists it as not extracted.
-    $expectedPartialA17 = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
+    $expectedPartialB17 = "Procedure=1:$procedurePart17;Transaction=3:$transactionPart;WebPanel=1:$webPanelPart17"
+    $expectedPartialA17 = "DataProvider=1:$dataProviderPart;$expectedPartialB17;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
     $expectedPartialA = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWith=1:$wwsdExtracted/$wwsdMissing;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
     $attributeCases = @(
-        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Panel', 'Attribute'); Partial = $expectedPartialA },
-        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Panel', 'Attribute'); Partial = $expectedPartialA },
-        [pscustomobject]@{ Corpus = 'B'; Index = $indexB; Name = 'InvoiceTotal'; MustList = @('Attribute'); Partial = $expectedPartialB }
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceTotal'; MustList = @('Panel'); Partial = $expectedPartialA },
+        [pscustomobject]@{ Corpus = 'A'; Index = $indexA; Name = 'InvoiceDate'; MustList = @('Panel'); Partial = $expectedPartialA },
+        [pscustomobject]@{ Corpus = 'B'; Index = $indexB; Name = 'InvoiceTotal'; MustList = @(); Partial = $expectedPartialB }
     )
     foreach ($case in $attributeCases) {
         $label = "who-uses/Attribute:$($case.Name)/$($case.Corpus)"
@@ -522,11 +526,11 @@ EndEvent
     # An older index (or one without the version) reports a type whose parts it predates as not
     # extracted, never as partly extracted.
     $versionCases = @(
-        [pscustomobject]@{ Version = '17'; Partial = $expectedPartialA17; Unextracted = @('WorkWith') },
-        [pscustomobject]@{ Version = '14'; Partial = "WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"; Unextracted = @($codeTypes + 'WorkWith') },
-        [pscustomobject]@{ Version = '13'; Partial = "WorkWithForWeb=1:grids,filters,orders,views/filter conditions,$wwfwMissing"; Unextracted = @($codeTypes + 'WorkWith') },
-        [pscustomobject]@{ Version = '12'; Partial = ''; Unextracted = @($codeTypes + 'WorkWith' + 'WorkWithForWeb') },
-        [pscustomobject]@{ Version = 'absent'; Partial = ''; Unextracted = @($codeTypes + 'WorkWith' + 'WorkWithForWeb') }
+        [pscustomobject]@{ Version = '17'; Partial = $expectedPartialA17; Unextracted = @('WorkWith', 'Attribute') },
+        [pscustomobject]@{ Version = '14'; Partial = "WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"; Unextracted = @($codeTypes + 'WorkWith' + 'Attribute') },
+        [pscustomobject]@{ Version = '13'; Partial = "WorkWithForWeb=1:grids,filters,orders,views/filter conditions,$wwfwMissing"; Unextracted = @($codeTypes + 'WorkWith' + 'Attribute') },
+        [pscustomobject]@{ Version = '12'; Partial = ''; Unextracted = @($codeTypes + 'WorkWith' + 'WorkWithForWeb' + 'Attribute') },
+        [pscustomobject]@{ Version = 'absent'; Partial = ''; Unextracted = @($codeTypes + 'WorkWith' + 'WorkWithForWeb' + 'Attribute') }
     )
     foreach ($versionCase in $versionCases) {
         $label = "who-uses/Attribute:InvoiceTotal/A@extractor-$($versionCase.Version)"

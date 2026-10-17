@@ -89,7 +89,8 @@ if ($elementCount -lt 1) {
     throw "Registry has no elements."
 }
 
-# The GeneXus 7.0 and earlier (.xpw) elements Menu, Prompt, and Formula sync as orphans that KB Intelligence does not index.
+# The GeneXus 7.0 and earlier (.xpw) elements Menu, Prompt, and Formula sync as orphans; KB Intelligence indexes Menu
+# as its own type (indexedByKbIntelligence true) and does not index Prompt or Formula.
 foreach ($xpwOrphan in @('Menu', 'Prompt', 'Formula')) {
     $entry = $registry.elements.PSObject.Properties[$xpwOrphan]
     if ($null -eq $entry -or [string]$entry.Value.class -ne 'orphan') {
@@ -98,7 +99,12 @@ foreach ($xpwOrphan in @('Menu', 'Prompt', 'Formula')) {
     if ([string]$entry.Value.materializedFolderName -ne $xpwOrphan -or [string]$entry.Value.typeToken -ne "gxlegacy/$xpwOrphan") {
         throw "Orphan '$xpwOrphan' should materialize under '$xpwOrphan' with typeToken 'gxlegacy/$xpwOrphan'."
     }
-    if ($null -ne $entry.Value.PSObject.Properties['indexedByKbIntelligence']) {
+    $flag = $entry.Value.PSObject.Properties['indexedByKbIntelligence']
+    if ($xpwOrphan -eq 'Menu') {
+        if ($null -eq $flag -or $flag.Value -ne $true) {
+            throw "Orphan 'Menu' should carry indexedByKbIntelligence true (it is indexed as its own type)."
+        }
+    } elseif ($null -ne $flag) {
         throw "Orphan '$xpwOrphan' should not carry indexedByKbIntelligence (it is not indexed)."
     }
 }

@@ -10,8 +10,8 @@
     and five code objects written by this test, all with their code inside <Part type="...">
     elements as a real export writes them:
 
-    - Procedure CodeUsesProc: Source and Rules Parts, plus a Conditions and a Layout Part that
-      this extractor does not read. The Source holds every tokenizer collision: block and line
+    - Procedure CodeUsesProc: Source and Rules Parts, a Conditions Part (read since extractor 21,
+      role 'Conditions read'), and a Layout Part that this extractor does not read. The Source holds every tokenizer collision: block and line
       comments, string literals ('', "" and !""), &variables and &sdt.members, called objects
       (Name(...), Name.udp(...), the first argument of udp(...) and call(...)), for each heads
       (Movie.Actor, PurchasesInfo), Domain enumeration members (OrderStatus.Approved) and
@@ -29,7 +29,8 @@
     - WebPanel CodeUsesPanel: Rules and Events Parts (Event 'Load', Event Grid1.Load,
       Event Enter, Sub/Do with quoted names, the Refresh and Load commands alone on their line,
       a top-level assignment that stays a read, a for each write, an assignment inside a value
-      loop 'for &x in &coll' that stays a read), plus a Conditions and a WebForm Part (not read).
+      loop 'for &x in &coll' that stays a read), a Conditions Part (read since extractor 21), and a
+      WebForm Part (not read).
     - Transaction CodeUsesTrn: Rules and Events Parts naming one attribute in both (two rows,
       one per role), assignment rules 'Attr = expr [if ...];' (the target is a Rules write, also
       over two lines and as the rule opening the Part), Default, Equal and Serial rules (the
@@ -470,6 +471,9 @@ try {
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'ProcParmAttr'; Role = 'Rules read'; Marker = 'parm(in:ProcParmAttr' },
         # Default in a Procedure's Rules assigns nothing the extractor claims: read only.
         [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'ProcDefaultAttr'; Role = 'Rules read'; Marker = 'default(ProcDefaultAttr, 1)' },
+        # A Conditions Part is read since extractor 21; a condition only reads.
+        [pscustomobject]@{ Source = 'Procedure:CodeUsesProc'; File = 'Procedure/CodeUsesProc.xml'; Attribute = 'ConditionOnlyAttr'; Role = 'Conditions read'; Marker = 'ConditionOnlyAttr > 0' },
+        [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'ConditionOnlyAttr'; Role = 'Conditions read'; Marker = 'ConditionOnlyAttr > 0' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'PanelParmAttr'; Role = 'Rules read'; Marker = 'parm(in:PanelParmAttr)' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'PanelEventAttr'; Role = 'Events read'; Marker = '&Value = PanelEventAttr' },
         [pscustomobject]@{ Source = 'WebPanel:CodeUsesPanel'; File = 'WebPanel/CodeUsesPanel.xml'; Attribute = 'SubBodyAttr'; Role = 'Events read'; Marker = '&Value = SubBodyAttr' },
@@ -545,7 +549,7 @@ try {
         'NestedTable', 'InnerTable', 'OtherTable', 'EventTable', 'CommentTable',
         'Where', 'Like', 'Each', 'Not', 'Duplicate', 'Case', 'Otherwise', 'In', 'Out', 'None', 'Exit',
         'Grid1', 'Load', 'Enter', 'Start', 'SubAttr',
-        'ConditionOnlyAttr', 'LayoutOnlyAttr', 'FormOnlyAttr', 'TrnMemberAttr', 'TrnCallAttr',
+        'LayoutOnlyAttr', 'FormOnlyAttr', 'TrnMemberAttr', 'TrnCallAttr',
         'CodeUsesTrnCollection', 'TrnHeaderAttr', 'RecipeList', 'Recipes', 'SdtItemAttr', 'RecipeTitle'
     )
     $positiveAttributes = @($expectedRows | ForEach-Object { $_.Attribute } | Where-Object { -not (Test-Path -LiteralPath (Join-Path $corpus "Attribute/$_.xml")) } | Sort-Object -Unique)
@@ -617,7 +621,8 @@ try {
     }
 
     # The fixture objects' relations are unchanged by the added objects, and the base index
-    # holds no code row at all.
+    # holds no code row except the formula read of InvoiceTotal (its Formula property names
+    # InvoiceId, read since extractor 21).
     $fixtureKeys = @(Get-ChildItem -LiteralPath $sampleKbRoot -Directory | ForEach-Object {
             $typeName = $_.Name
             Get-ChildItem -LiteralPath $_.FullName -Filter '*.xml' | ForEach-Object { '{0}|{1}' -f $typeName, $_.BaseName }
@@ -632,8 +637,9 @@ try {
         $removed = @($baseLines | Where-Object { $codeLines -notcontains $_ })
         Add-Failure "[fixture relations] should be unchanged; added: $($added -join '; '); removed: $($removed -join '; ')"
     }
-    if (@($baseLines | Where-Object { $_ -match "\|$relationKind\|" }).Count -ne 0) {
-        Add-Failure "[fixture relations] the base fixture must hold no '$relationKind' row"
+    $baseCodeLines = @($baseLines | Where-Object { $_ -match "\|$relationKind\|" })
+    if (($baseCodeLines -join ';') -cne "Attribute|InvoiceTotal|$relationKind|Attribute|InvoiceId") {
+        Add-Failure "[fixture relations] the base fixture must hold only the InvoiceTotal formula read as a '$relationKind' row; got: $($baseCodeLines -join '; ')"
     }
 }
 finally {

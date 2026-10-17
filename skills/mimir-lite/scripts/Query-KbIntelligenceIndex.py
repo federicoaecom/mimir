@@ -94,14 +94,15 @@ class PartialAttributeUseExtraction(NamedTuple):
 # Rules): reads, and writes only where the target is unambiguous ("block writes": a
 # statement-start assignment inside for each or new; "rule writes": a Transaction assignment
 # rule; "Transaction item writes": an item's left side when the DataProvider outputs a
-# Transaction). Not read: other assignment targets (ambiguous writes, reported as reads),
-# Conditions, Procedure Layout and WebForm Parts, the items of an SDT-output DataProvider,
+# Transaction). Since 21 the Conditions Part of a Procedure, WebPanel and WorkPanel, and the
+# <Conditions> of a classic object, are read too ("condition reads": a condition only reads).
+# Not read: other assignment targets (ambiguous writes, reported as reads),
+# Procedure Layout and WebForm Parts, the items of an SDT-output DataProvider,
 # Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>. A classic
 # Report (GeneXus 7.5 to 9 export) emits code_references_attribute since 19 from its
 # Layout/Block/CodeBlock/Source, Rules and Events, read like a Procedure's; its layout print
 # blocks are not read. A Work Panel, classic or modern, emits code_references_attribute since 20
-# from its Rules and Events, read like a WebPanel's; its Conditions and its Windows form are not
-# read. The mobile
+# from its Rules and Events, read like a WebPanel's; its Windows form is not read. The mobile
 # WorkWith emits workwith_references_attribute since 18 from its pattern instance: layout
 # <data attribute>, order, search and break by attributes, and advanced filter attributes; grid
 # conditions, rules, events and captions are not read.
@@ -119,14 +120,16 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
             ExtractedPart("Source reads", 15),
             ExtractedPart("rule reads", 15),
             ExtractedPart("block writes", 15),
+            ExtractedPart("condition reads", 21),
         ),
-        missing=("ambiguous writes", "conditions", "layout", "Business Component members", "code outside a Part"),
+        missing=("ambiguous writes", "layout", "Business Component members", "code outside a Part"),
     ),
     "Report": PartialAttributeUseExtraction(
         extracted=(
             ExtractedPart("Source reads", 19),
             ExtractedPart("rule reads", 19),
             ExtractedPart("block writes", 19),
+            ExtractedPart("condition reads", 21),
         ),
         missing=("ambiguous writes", "layout", "Business Component members"),
     ),
@@ -144,10 +147,10 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
             ExtractedPart("rule reads", 15),
             ExtractedPart("event reads", 15),
             ExtractedPart("block writes", 15),
+            ExtractedPart("condition reads", 21),
         ),
         missing=(
             "ambiguous writes",
-            "conditions",
             "WebForm bindings",
             "Business Component members",
             "code outside a Part",
@@ -158,10 +161,10 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
             ExtractedPart("rule reads", 20),
             ExtractedPart("event reads", 20),
             ExtractedPart("block writes", 20),
+            ExtractedPart("condition reads", 21),
         ),
         missing=(
             "ambiguous writes",
-            "conditions",
             "Windows form bindings",
             "Business Component members",
             "code outside a Part",
@@ -191,11 +194,12 @@ PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExt
 # Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
 # views, layouts, or item types) while the extractor emits no attribute-use relation for any
 # of them. Besides workwith_references_attribute (WorkWithForWeb, WorkWith) and
-# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider, Report, WorkPanel), see
+# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider, Report, WorkPanel, and
+# since 21 Attribute, from its formula: ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE), see
 # PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
 # structural: has_level_attribute (Transaction levels), has_key_attribute and
 # has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
-# rest of the Source scope (INDEXED_SOURCE_TYPES: API, DataSelector), Attribute (formulas), SDT
+# rest of the Source scope (INDEXED_SOURCE_TYPES: API, DataSelector), SDT
 # (items based on an attribute), DataView and Query (attribute lists), the web pattern
 # WorkWithPlusInstance (grid, filter, order and view attributes), and every type of
 # UNEXTRACTED_CALL_SOURCE_TYPES that is not partly extracted for attribute uses (the mobile
@@ -209,7 +213,6 @@ UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
             set(UNEXTRACTED_CALL_SOURCE_TYPES)
             | {
                 "API",
-                "Attribute",
                 "DataSelector",
                 "DataView",
                 "Query",
@@ -220,6 +223,11 @@ UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
         - set(PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES)
     )
 )
+# Types whose attribute uses an extractor version first indexed in full: an index built by an
+# older extractor (extractor_signature_version below the value, or none) reports the type as not
+# extracted for attribute uses. An Attribute's formula (the modern Formula property and the classic
+# Formula block named after it) is read since 21.
+ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE: dict[str, int] = {"Attribute": 21}
 COVERAGE_SCOPE_CALLS = "calls"
 COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
 _CATALOG_TYPES_CACHE: dict[tuple[str | None, str | None, str], dict[str, dict[str, object]]] = {}
@@ -780,6 +788,21 @@ def index_extractor_version(conn: sqlite3.Connection) -> int:
         return 0
 
 
+def legacy_unread_orphan_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """Skipped legacy orphan folders whose content no extractor reads, with their XML counts, as
+    the build recorded them; empty when the index has no (or a malformed) record."""
+    value = metadata_map(conn).get("legacy_unread_orphan_counts")
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(key): int(count) for key, count in parsed.items() if isinstance(count, int)}
+
+
 def partial_extraction_for_version(version: int) -> dict[str, dict[str, tuple[str, ...]]]:
     """Partly extracted attribute-use types as an index of that extractor version holds them.
 
@@ -818,9 +841,16 @@ def reverse_relation_coverage(
     gated_types: tuple[str, ...] = ()
     if target_type is not None and target_type.casefold() == "attribute":
         scope = COVERAGE_SCOPE_ATTRIBUTE_REFERENCES
-        source_types = UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES
+        version = index_extractor_version(conn)
+        source_types = UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES + tuple(
+            sorted(
+                object_type
+                for object_type, since_version in ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE.items()
+                if version < since_version
+            )
+        )
         gated_types = tuple(sorted(PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES))
-        partial_types = partial_extraction_for_version(index_extractor_version(conn))
+        partial_types = partial_extraction_for_version(version)
     else:
         scope = COVERAGE_SCOPE_CALLS
         version = index_extractor_version(conn)
@@ -849,6 +879,15 @@ def reverse_relation_coverage(
         for row in rows
         if str(row["type"]) not in partial_types
     ]
+    # Skipped legacy orphans whose content is not read (a classic Prompt) are not in the objects
+    # table; the build records them in legacy_unread_orphan_counts. They can hold both calls and
+    # attribute uses, so they count in both scopes. An index built before the key lists none.
+    unextracted.extend(
+        {"type": object_type, "count": count}
+        for object_type, count in legacy_unread_orphan_counts(conn).items()
+        if count > 0
+    )
+    unextracted.sort(key=lambda entry: str(entry["type"]))
     partially_extracted = [
         {
             "type": str(row["type"]),
@@ -958,7 +997,7 @@ def who_uses(conn: sqlite3.Connection, object_type: str, object_name: str, limit
             r.relation_id,
             o.type AS source_type,
             o.name AS source_name,
-            o.file_path AS source_file,
+            e.source_file AS source_file,
             r.target_type,
             r.target_name,
             r.relation_kind,
@@ -997,7 +1036,7 @@ def what_uses(conn: sqlite3.Connection, object_type: str, object_name: str, limi
             r.relation_id,
             o.type AS source_type,
             o.name AS source_name,
-            o.file_path AS source_file,
+            e.source_file AS source_file,
             r.target_type,
             r.target_name,
             r.relation_kind,
@@ -1317,7 +1356,7 @@ def css_class_usage(
         SELECT
             o.type AS source_type,
             o.name AS source_name,
-            o.file_path AS source_file,
+            e.source_file AS source_file,
             r.relation_kind,
             e.evidence_role,
             e.line,
@@ -1361,7 +1400,7 @@ def show_evidence(
                 r.relation_id,
                 o.type AS source_type,
                 o.name AS source_name,
-                o.file_path AS source_file,
+                e.source_file AS source_file,
                 r.target_type,
                 r.target_name,
                 r.relation_kind,
@@ -1389,7 +1428,7 @@ def show_evidence(
                 r.relation_id,
                 o.type AS source_type,
                 o.name AS source_name,
-                o.file_path AS source_file,
+                e.source_file AS source_file,
                 r.target_type,
                 r.target_name,
                 r.relation_kind,

@@ -19,8 +19,8 @@
     Scenario D runs the indexer from a copy of the scripts folder whose registry adds two synthetic orphans:
     one without indexedByKbIntelligence and one with the non-boolean value "true". Both folders are skipped
     and audited in legacy_orphan_directories_skipped (only the boolean true indexes an orphan).
-    Scenario E uses the real registry: the non-indexed orphans Menu, Prompt, and Formula (GeneXus 7.0 and
-    earlier, read from .xpw) are skipped and audited while Report stays indexed.
+    Scenario E uses the real registry: the non-indexed orphans Prompt and Formula (GeneXus 7.0 and
+    earlier, read from .xpw) are skipped and audited while Report and Menu stay indexed.
     The orphan folders and tokens come from the gx-legacy-export-element-registry.json registry, not inline.
 #>
 
@@ -220,16 +220,17 @@ foreach ($probe in @('SkipProbe', 'StringFlagProbe')) {
 }
 Assert-True (@($invD.indexed_objects_by_type.PSObject.Properties.Name) -contains 'WebPanel') 'Scenario D: WebPanel should still be indexed'
 
-# --- Scenario E: the registered non-indexed orphans Menu, Prompt, and Formula (GeneXus 7.0 and earlier, .xpw) ---
-# Uses the real registry: their folders are skipped and audited, while Report stays indexed as its own type.
+# --- Scenario E: the registered non-indexed orphans Prompt and Formula (GeneXus 7.0 and earlier, .xpw) ---
+# Uses the real registry: their folders are skipped and audited, while Report and Menu stay indexed as their own types.
 $tempRootE = Join-Path ([System.IO.Path]::GetTempPath()) ('kb-intel-legacy-orphan-classic-{0}' -f ([guid]::NewGuid().ToString('N')))
 $kbWorkspaceRootE = Join-Path $tempRootE 'KbWorkspace'
 $kbObjectsPathE = Join-Path $kbWorkspaceRootE 'KbObjectsXml'
 $kbIntelDirE = Join-Path $kbWorkspaceRootE 'KbIntelligence'
 [void](New-Item -ItemType Directory -Path (Join-Path $kbObjectsPathE 'Report'), $kbIntelDirE -Force)
 [System.IO.File]::WriteAllText((Join-Path $kbObjectsPathE 'Report/rptProof.xml'), $reportOrphanXml, $enc)
-$classicOrphans = @(@('Menu', 'MnuMain', '<Info><Name>MnuMain</Name></Info>'), @('Prompt', 'PrmCustomer', '<Info><Name>PrmCustomer</Name></Info>'), @('Formula', 'CustTotal', '<Name>CustTotal</Name>'))
-foreach ($orphan in $classicOrphans) {
+$classicOrphans = @(@('Prompt', 'PrmCustomer', '<Info><Name>PrmCustomer</Name></Info>'), @('Formula', 'CustTotal', '<Name>CustTotal</Name>'))
+$indexedClassicOrphans = @(, @('Menu', 'MnuMain', '<Info><Name>MnuMain</Name></Info>'))
+foreach ($orphan in @($classicOrphans + $indexedClassicOrphans)) {
     $orphanDir = Join-Path $kbObjectsPathE $orphan[0]
     [void](New-Item -ItemType Directory -Path $orphanDir -Force)
     $orphanXml = "<Object type=`"gxlegacy/$($orphan[0])`" name=`"$($orphan[1])`" lastUpdate=`"0001-01-01T00:00:00.0000000Z`" dataSource=`"gx-legacy-export`"><GxLegacyPayload><$($orphan[0])>$($orphan[2])</$($orphan[0])></GxLegacyPayload></Object>"
@@ -253,7 +254,10 @@ foreach ($orphan in $classicOrphans) {
     Assert-True ($orphanSkip[0].xml_count -eq 1) "Scenario E: $($orphan[0]) should record xml_count=1, recorded $($orphanSkip[0].xml_count)"
     Assert-True (-not ($snapNamesE -contains $orphan[0])) "Scenario E: the skipped $($orphan[0]) folder should NOT enter snapshot_objects_by_directory"
 }
-Assert-True (@(@($invE.legacy_orphan_directories_skipped) | Where-Object { $_.directory -eq 'Report' }).Count -eq 0) 'Scenario E: Report should not be skipped'
+foreach ($indexedType in @('Report', 'Menu')) {
+    Assert-True (@(@($invE.legacy_orphan_directories_skipped) | Where-Object { $_.directory -eq $indexedType }).Count -eq 0) "Scenario E: $indexedType should not be skipped"
+    Assert-True (@($invE.indexed_objects_by_type.PSObject.Properties.Name) -contains $indexedType) "Scenario E: $indexedType should be indexed as its own type"
+}
 Assert-True ($snapNamesE -contains 'Report') 'Scenario E: the Report folder should be in snapshot_objects_by_directory'
 Assert-True (@($invE.indexed_objects_by_type.PSObject.Properties.Name) -contains 'Report') 'Scenario E: Report should still be indexed as its own type'
 

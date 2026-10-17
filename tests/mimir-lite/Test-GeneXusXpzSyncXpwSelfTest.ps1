@@ -11,7 +11,7 @@
       `gxlegacy/*`) and every attribute, with LegacyFormatDetected=true and exit 0; -VerifyOnly on
       the same file then passes;
     - the synced corpus builds a KB index with -FailOnValidationFailure: inventory_semantics OK,
-      Menu/Prompt/Formula in legacy_orphan_directories_skipped, `who-uses Procedure PrcTarget`
+      Prompt/Formula in legacy_orphan_directories_skipped and Menu indexed as its own type, `who-uses Procedure PrcTarget`
       lists the calling Procedure (calls_procedure), and `who-uses Attribute OrdAmount` lists the
       Procedure source reference;
     - a `.zip` with the 1997 split layout (objects file + attributes-only file) syncs both;
@@ -119,9 +119,11 @@ try {
     $inv = (Get-Content -LiteralPath $validationPath -Raw -Encoding UTF8 | ConvertFrom-Json).inventory_semantics
     Assert-True ($inv.status -eq 'OK') "Case1: inventory_semantics.status should be OK, was $($inv.status)"
     $skipped = @(@($inv.legacy_orphan_directories_skipped) | ForEach-Object { $_.directory })
-    foreach ($folder in @('Menu', 'Prompt', 'Formula')) {
+    foreach ($folder in @('Prompt', 'Formula')) {
         Assert-True ($skipped -contains $folder) "Case1: $folder should be in legacy_orphan_directories_skipped; got: $($skipped -join ', ')"
     }
+    Assert-True (-not ($skipped -contains 'Menu')) "Case1: Menu should not be skipped (it is indexed); got: $($skipped -join ', ')"
+    Assert-True (@($inv.indexed_objects_by_type.PSObject.Properties.Name) -contains 'Menu') 'Case1: Menu should be indexed as its own type'
 
     $queryOutput = & $queryScript -IndexPath $sqlitePath -KbWorkspaceRoot $kbWorkspaceRoot -Query 'who-uses' -ObjectType 'Procedure' -ObjectName 'PrcTarget' -Format json 2>$null
     Assert-True ($LASTEXITCODE -eq 0) "Case1: who-uses Procedure PrcTarget should exit 0; got $LASTEXITCODE"

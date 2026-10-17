@@ -231,7 +231,7 @@ Assert-True ($fromWebPanel[0].line -eq (Get-LineNumberOf $webPanelXml '&Msg = Or
 # Rule: a Report's attribute uses are extracted only in part, so the answer is never complete.
 # Whether Report is listed as partly extracted or as not extracted follows the index's
 # extractor_signature_version (partly extracted since 19).
-$expectedReportExtracted = 'Source reads,rule reads,block writes'
+$expectedReportExtracted = 'Source reads,rule reads,block writes,condition reads'
 $expectedReportMissing = 'ambiguous writes,layout,Business Component members'
 $ordIdCoverage = (Invoke-IndexQuery -Query 'who-uses' -Type 'Attribute' -Name 'OrdId').coverage
 Assert-True ($ordIdCoverage.complete -eq $false) "who-uses Attribute OrdId coverage should not be complete with a Report in the index; got $($ordIdCoverage | ConvertTo-Json -Compress -Depth 4)"
@@ -248,7 +248,7 @@ $textOutput = & $queryScript -IndexPath $sqlitePath -KbWorkspaceRoot $kbWorkspac
     -ObjectType 'Attribute' -ObjectName 'OrdId' -Format text 2>$null
 Assert-True ($LASTEXITCODE -eq 0) "who-uses Attribute OrdId (text) should exit 0; got $LASTEXITCODE"
 $coverageLines = @(@($textOutput) | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ -match '^coverage:' })
-$expectedReportNote = 'Report (1): Source reads, rule reads and block writes are indexed, ambiguous writes, layout and Business Component members are not'
+$expectedReportNote = 'Report (1): Source reads, rule reads, block writes and condition reads are indexed, ambiguous writes, layout and Business Component members are not'
 Assert-True ($coverageLines.Count -eq 1 -and $coverageLines[0].Contains($expectedReportNote)) "The text coverage note should contain '$expectedReportNote'; got: $($coverageLines -join ' | ')"
 
 # Rule: an assignment at a statement start inside a For Each of a Report Source is a write.
