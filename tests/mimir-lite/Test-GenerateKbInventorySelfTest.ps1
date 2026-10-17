@@ -10,7 +10,9 @@
     first folder of each relative path) must be the fixture's type folders that hold /Object
     or /Attribute XML, with no path separator in them, and relative paths must not start with
     a separator. Attribute XML (an <Attribute> root) is a record, not a problem file; an XML
-    with any other root is still reported as a problem file.
+    with any other root is still reported as a problem file. The Module column names the user
+    container (type ...0008, catalogued as Folder) an object belongs to, by parentType or
+    moduleGuid; a Category (type ...0006, catalogued as Module) never fills it.
 #>
 
 [CmdletBinding()]
@@ -60,6 +62,35 @@ try {
     [void](New-Item -ItemType Directory -Path $junkDir -Force)
     [System.IO.File]::WriteAllText((Join-Path $junkDir 'NotAnObject.xml'), '<Foo name="NotAnObject" />', [System.Text.UTF8Encoding]::new($false))
     $expectedProblemPath = Join-Path 'Junk' 'NotAnObject.xml'
+
+    # Containers for the Module column. A user container has type ...0008; a Category (the
+    # IDE's name for type ...0006: Main Programs, GAM, ToBeDefined) never fills the column.
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    $folderTypeGuid = '00000000-0000-0000-0000-000000000008'
+    $categoryTypeGuid = '00000000-0000-0000-0000-000000000006'
+    $procedureTypeGuid = '84a12160-f59b-4ad7-a683-ea4481ac23e9'
+    $salesModuleGuid = 'aaaaaaaa-0000-4000-8000-000000000001'
+    $containerFiles = @(
+        @{ Dir = 'Folder'; Name = 'SalesModule'; Xml = ('<Object parentGuid="00000000-0000-0000-0000-000000000000" moduleGuid="00000000-0000-0000-0000-000000000000" guid="{0}" name="SalesModule" type="{1}"><Properties><Property><Name>Name</Name><Value>SalesModule</Value></Property></Properties></Object>' -f $salesModuleGuid, $folderTypeGuid) }
+        @{ Dir = 'Module'; Name = 'Main Programs'; Xml = ('<Object parentGuid="00000000-0000-0000-0000-000000000000" moduleGuid="00000000-0000-0000-0000-000000000000" guid="aaaaaaaa-0000-4000-8000-000000000002" name="Main Programs" type="{0}"><Part type="babf62c5-0111-49e9-a1c3-cc004d90900a"><Properties /></Part></Object>' -f $categoryTypeGuid) }
+        @{ Dir = 'Procedure'; Name = 'InFolderProc'; Xml = ('<Object parentGuid="{0}" moduleGuid="{0}" guid="aaaaaaaa-0000-4000-8000-000000000003" name="InFolderProc" type="{1}" parent="SalesModule" parentType="{2}" />' -f $salesModuleGuid, $procedureTypeGuid, $folderTypeGuid) }
+        # A Folder nested in another Folder shows its parent container, not itself.
+        @{ Dir = 'Folder'; Name = 'WebSub'; Xml = ('<Object parentGuid="{0}" moduleGuid="00000000-0000-0000-0000-000000000000" guid="aaaaaaaa-0000-4000-8000-000000000005" name="WebSub" type="{1}" parent="SalesModule" parentType="{1}" />' -f $salesModuleGuid, $folderTypeGuid) }
+        @{ Dir = 'Procedure'; Name = 'ModuleMemberProc'; Xml = ('<Object parentGuid="00000000-0000-0000-0000-000000000000" moduleGuid="{0}" guid="aaaaaaaa-0000-4000-8000-000000000004" name="ModuleMemberProc" type="{1}" />' -f $salesModuleGuid, $procedureTypeGuid) }
+    )
+    foreach ($containerFile in $containerFiles) {
+        $containerDir = Join-Path $sourceRoot $containerFile.Dir
+        [void](New-Item -ItemType Directory -Path $containerDir -Force)
+        [System.IO.File]::WriteAllText((Join-Path $containerDir ($containerFile.Name + '.xml')), $containerFile.Xml, $utf8NoBom)
+    }
+    # ObjectName -> expected Module column of the file list.
+    $expectedModules = [ordered]@{
+        'SalesModule'      = 'SalesModule'
+        'InFolderProc'     = 'SalesModule'
+        'ModuleMemberProc' = 'SalesModule'
+        'WebSub'           = 'SalesModule'
+        'Main Programs'    = ''
+    }
 
     # Object types are the folders holding at least one /Object or /Attribute XML.
     $expectedTypes = @(Get-ChildItem -LiteralPath $sourceRoot -Directory | Where-Object {
@@ -120,6 +151,17 @@ try {
         $invoiceRows = @($fileRows | Where-Object { $_[3] -eq 'Invoice' -and $_[2] -eq 'Transaction' })
         if ($invoiceRows.Count -ne 1 -or $invoiceRows[0][0] -ne $expectedInvoicePath) {
             $failures.Add(("{0}: Transaction Invoice row not found with relative path '{1}'." -f $run.Name, $expectedInvoicePath)) | Out-Null
+        }
+
+        foreach ($objectName in $expectedModules.Keys) {
+            $moduleRows = @($fileRows | Where-Object { $_[3] -eq $objectName })
+            if ($moduleRows.Count -ne 1) {
+                $failures.Add(("{0}: expected one file-list row for '{1}', found {2}." -f $run.Name, $objectName, $moduleRows.Count)) | Out-Null
+                continue
+            }
+            if ($moduleRows[0][5] -ne $expectedModules[$objectName]) {
+                $failures.Add(("{0}: Module column of '{1}' is '{2}'; expected '{3}'." -f $run.Name, $objectName, $moduleRows[0][5], $expectedModules[$objectName])) | Out-Null
+            }
         }
     }
 

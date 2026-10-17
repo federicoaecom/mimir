@@ -57,7 +57,12 @@ function Test-IsPlatformModuleInventoryItem {
     }
 
     # A real GeneXus 18 export brings SDK/platform as PackagedModule (GUID c88fffcd-...).
-    # Module (GUID 00000000-...-000006) is a user KB container.
+    # Module (GUID 00000000-...-000006) is the container the IDE shows as Category (Main
+    # Programs, GAM, ToBeDefined, user categories); an installed module such as GAM also
+    # brings a Category of its name. This function only selects the two type names; the
+    # caller Get-SystemObjectsPresent keeps an item only when its name is listed in the
+    # platform catalog (gx-platform-objects.json: kind packagedModule = Module or
+    # PackagedModule in the XML), so a user category is never reported as a platform object.
     return $Item.typeName -eq 'Module' -or $Item.typeName -eq 'PackagedModule'
 }
 

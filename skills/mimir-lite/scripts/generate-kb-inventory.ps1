@@ -122,7 +122,11 @@ if (-not (Test-Path -LiteralPath $outputDir)) {
 
 $resolvedSourceRoot = (Resolve-Path -LiteralPath $SourceRoot).ProviderPath
 $allFiles = Get-ChildItem -LiteralPath $resolvedSourceRoot -Recurse -File | Sort-Object FullName
-$moduleFolderName = "Module"
+# The Module column names the user container an object belongs to: type ...0008 (catalog
+# "Folder"; the IDE shows it under "Module/Folder"), by parentType or moduleGuid, matched by
+# type GUID rather than corpus folder, because folder names vary across KBs. Type ...0006
+# (catalog key and folder "Module") is what the IDE shows as Category (Main Programs, GAM,
+# ToBeDefined, user categories): it is not a container of objects and never fills this column.
 $moduleTypeGuid = "00000000-0000-0000-0000-000000000008"
 
 $records = New-Object System.Collections.Generic.List[object]
@@ -192,7 +196,7 @@ foreach ($file in $allFiles) {
 
         $records.Add($record) | Out-Null
 
-        if ($folderType -eq $moduleFolderName -and $objectGuid -and $objectName) {
+        if ($objectTypeGuid -eq $moduleTypeGuid -and $objectGuid -and $objectName) {
             $moduleDefinitions[$objectGuid] = $objectName
         }
 
@@ -216,10 +220,12 @@ foreach ($file in $allFiles) {
 $recordsWithModule = foreach ($record in $records) {
     $moduleName = ""
 
-    if ($record.FolderType -eq $moduleFolderName) {
-        $moduleName = $record.ObjectName
-    } elseif ($record.ParentTypeGuid -eq $moduleTypeGuid -and $record.Parent) {
+    # The parent container wins, so a Folder nested in another Folder shows its parent; a
+    # top-level Folder names itself.
+    if ($record.ParentTypeGuid -eq $moduleTypeGuid -and $record.Parent) {
         $moduleName = $record.Parent
+    } elseif ($record.ObjectTypeGuid -eq $moduleTypeGuid) {
+        $moduleName = $record.ObjectName
     } elseif ($record.ModuleGuid -and $moduleDefinitions.ContainsKey($record.ModuleGuid)) {
         $moduleName = $moduleDefinitions[$record.ModuleGuid]
     }

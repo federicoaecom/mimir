@@ -197,6 +197,8 @@ Separate direct observation from preliminary heuristic reading.
 
 Note: the upstream pt-BR original had this heading and the next one swapped (labeled "Folder" for GUID `...0006` and "Module/Folder" for GUID `...0008`); the catalog (`scripts/gx-object-type-catalog.json`) identifies `...0006` as `Module` and `...0008` as `Folder` — fixed here, content unchanged.
 
+`...0006` is the container the IDE shows as **Category** (Main Programs, GAM, ToBeDefined, user categories), catalogued under the key and folder `Module`; `...0008` (`Folder`, below) is a different type.
+
 - Direct evidence: `Object/@type` = `00000000-0000-0000-0000-000000000006` in 7 objects.
 - Direct evidence: average Part count per object: 1.
 - Strong inference: the apparently-mandatory/optional/rare/empty classifications depend on the recurrence observed in this KB.

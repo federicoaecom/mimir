@@ -1502,6 +1502,7 @@ when &sdtExemploFiltros.ComDocumentoExemplo = DomainExemploSimNao.Nao;
 - Structural evidence: this exported specimen illustrates simple organizational folders with no extra metadata.
 - Direct evidence: later validation against the real corpus confirmed that this minimal shape is consistent with real `Folder` examples.
 - Strong inference: the divergence observed in the battery, where the IDE displayed the object as `Category`, does not invalidate this template; for now it should be read as an IDE semantic-recognition/naming difference.
+- Later finding: this specimen's `Object/@type` is `...0006`, and `...0006` is the container the IDE shows as **Category** (Main Programs, GAM, ToBeDefined, user categories), catalogued under the key and folder `Module`; the `Category` display is that type's IDE name, not a label of `Folder` (`...0008`).
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>

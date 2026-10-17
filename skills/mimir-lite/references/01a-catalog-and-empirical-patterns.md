@@ -131,7 +131,7 @@ These are not programmable object types. They are the KB's own organizational in
 
 | Container | GUID in `Object/@type` | Description | Suggested dir. |
 | --- | --- | --- | --- |
-| System folder | `00000000-0000-0000-0000-000000000006` | Internal GeneXus folders (Main Programs, ToBeDefined); **never** a valid `parentType` for exportable objects; `queryableByKbIntelligence=false` | `Module/` |
+| Category (catalog key `Module`) | `00000000-0000-0000-0000-000000000006` | The container the IDE shows as **Category** (Main Programs, GAM, ToBeDefined, user categories), catalogued under the key and folder `Module`; **never** a valid `parentType` for exportable objects; `queryableByKbIntelligence=false` | `Module/` |
 | User folder/module | `00000000-0000-0000-0000-000000000008` | User-created container; the IDE shows it as "Module/Folder" in the Properties panel; `queryableByKbIntelligence=false` | `Folder/` |
 | Installed module | `c88fffcd-b6f8-0000-8fec-00b5497e2117` | Installed GeneXus modules (GAM, package modules); cube icon in the IDE; `queryableByKbIntelligence=false` | `PackagedModule/` |
 | RootModule | `afa47377-41d5-4ae8-9755-6f53150aa361` | Virtual root of the KB; **generates no XML file** in the corpus; appears only as `parentGuid`/`moduleGuid`; `queryableByKbIntelligence=false` | *(no folder)* |
@@ -258,8 +258,9 @@ Separate more precisely what is a shape gap, what is a KB semantic dependency, a
 - Direct evidence: real examples in `KbObjectsXml\Module\` (e.g. `Main Programs.xml`, `ToBeDefined.xml`, `GAM.xml`) use `Object/@type="00000000-0000-0000-0000-000000000006"`.
 - Direct evidence: `Module`'s XML shape includes `<Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">` with an empty `<Properties />`, plus extra properties under `<Properties>`: `Name`, `ShowInModelTree`, `Query`, `Properties` (e.g. `main_program=true`), `IsDefault`.
 - Direct evidence: the `moduleGuid` field is `00000000-0000-0000-0000-000000000000` (no parent module — KB root level); `Main Programs` and `ToBeDefined` have both `parentGuid` and `moduleGuid` zeroed.
-- Strong inference: `Module` (`...0006`) groups both internal GeneXus system containers (`Main Programs`, `ToBeDefined`) and installed package modules (`GAM`, `GAM_Frontend-web`) — all living in the corpus's `Module/` directory.
-- Strong inference: `...0006` objects never appear as the `parentType` of a user-exportable object; they are the GeneXus engine's organizational containers, not application logic.
+- Direct evidence (version trials, export headers 3.1 and 4.0): `...0006` holds Categories (`Main Programs`, `GAM`, `ToBeDefined`).
+- Conclusion: `...0006` is the container the IDE shows as **Category** (Main Programs, GAM, ToBeDefined, user categories), catalogued under the key and folder `Module`; the entries in the corpus's `Module/` directory, `GAM` and `GAM_Frontend-web` included, are Categories, not modules.
+- Strong inference: `...0006` objects never appear as the `parentType` of a user-exportable object; they are Categories, not application logic.
 
 ### `PatternSettings`
 

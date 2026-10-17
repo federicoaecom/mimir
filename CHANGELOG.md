@@ -6,6 +6,16 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-17
+
+### Added
+
+- KB Intelligence (extractor 22): classic exports (`dataSource="gx-legacy-export"`) get the structural relations. A classic Table relates to its `<Key>` attributes (`has_key_attribute`, rule `classic_table_key_attribute`) and its `<TblIndex>/<IdxAttri>` members (`has_index_member_attribute`, rule `classic_table_index_member_attribute`). A classic Transaction relates to every attribute of its `<Structure>/<Source>` text (`has_level_attribute`, rule `classic_transaction_level_attribute`; `*` marks a key, `(` opens a sub-level), and each level relates to the one classic Table whose key set equals the level's parent keys plus its own (`has_level_table`, rule `classic_transaction_level_table`); a level that matches no Table, or more than one, gets no table relation. Transactional writability stays `null` for classic levels. In the public 1997 sample all 21 levels match. The extractor version goes from 21 to 22, so existing indexes are rebuilt once. The KB index reference follows, and its coverage section states how classic objects read in the per-type coverage entries.
+
+### Fixed
+
+- The documentary KB inventory (`generate-kb-inventory.ps1`) no longer treats Categories as modules: its Module column paired the `Module/` corpus folder (type `00000000-0000-0000-0000-000000000006`) with the Folder type GUID `...0008`, so a Category such as `Main Programs` named itself as a module while objects whose `moduleGuid` points at a user container got no module. The column now names the user container (type `...0008`) matched by type GUID, through `parentType` or `moduleGuid` (a Folder nested in another Folder shows its parent, a top-level Folder now shows its own name instead of an empty cell), and a Category never fills it. The reference docs and the read workflow now say one thing about `...0006`: it is the container the IDE shows as Category (Main Programs, GAM, ToBeDefined, user categories), catalogued under the key and folder `Module`; the platform-objects comment says the same.
+
 ## [0.8.0] - 2026-10-16
 
 ### Added

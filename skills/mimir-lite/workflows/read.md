@@ -64,7 +64,7 @@ Do NOT use this workflow for:
 - Name every justified block transition in the analysis and handoff, instead of silently widening the scope
 - State the conclusion scope at the smallest functional level supported by evidence, including execution context when that distinction matters
 - For report `Procedure`, use [05b-procedure-and-report-families-and-templates](../references/05b-procedure-and-report-families-and-templates.md) to compare observed structure with empirical family signatures; sanitized examples are historical structural evidence only, never materialization instructions
-- Classify container identity from `parentType` using the GUIDs: `00000000-0000-0000-0000-000000000008` = Module/Folder (user-created container), `c88fffcd-b6f8-0000-8fec-00b5497e2117` = PackagedModule, `afa47377-41d5-4ae8-9755-6f53150aa361` = Root Module (virtual, no XML file in the XML corpus), `00000000-0000-0000-0000-000000000006` = system Folder (Main Programs, ToBeDefined; never a valid parentType of packagable objects); never use the directory name in `KbObjectsXml` as a type indicator — it varies across KBs
+- Classify container identity from `parentType` using the GUIDs: `00000000-0000-0000-0000-000000000008` = Module/Folder (user-created container), `c88fffcd-b6f8-0000-8fec-00b5497e2117` = PackagedModule, `afa47377-41d5-4ae8-9755-6f53150aa361` = Root Module (virtual, no XML file in the XML corpus), `00000000-0000-0000-0000-000000000006` = Category (the container the IDE shows as Category: Main Programs, GAM, ToBeDefined, user categories; catalogued under the key and folder `Module`; never a valid parentType of packagable objects); never use the directory name in `KbObjectsXml` as a type indicator — it varies across KBs
 - Assign risk level using [03-risk-and-decision-by-type](../references/03-risk-and-decision-by-type.md)
 - Identify structural anomalies: unexpected Part types, missing recurring parts, malformed envelope
 - For report `Procedure`, classify anomalies by layer: `Source`, `Rules`, or layout `Part c414ed00-8cc4-4f44-8820-4baf93547173`
@@ -129,7 +129,7 @@ Reference files and when to load them:
    - `00000000-0000-0000-0000-000000000008` → Module/Folder (user-created container)
    - `c88fffcd-b6f8-0000-8fec-00b5497e2117` → PackagedModule
    - `afa47377-41d5-4ae8-9755-6f53150aa361` → Root Module (virtual; no XML file in the XML corpus)
-   - `00000000-0000-0000-0000-000000000006` → system Folder (never a valid parentType of packagable objects)
+   - `00000000-0000-0000-0000-000000000006` → Category (the container the IDE shows as Category: Main Programs, GAM, ToBeDefined, user categories; catalogued under the key and folder `Module`; never a valid parentType of packagable objects)
    - unresolved when parentType is absent or unknown
 7. When the task depends on locating an object in a local GeneXus repository, confirm the object by `type + name` and verify the actual folder where the file exists before proceeding
 8. Before citing a local line as evidence, classify the line role:
@@ -270,7 +270,7 @@ Reference files and when to load them:
 46. If type is `Folder` → classify the primary review block before fine analysis:
    - `Minimal structural shape` for XML envelope, `Object/@type`, minimal structural shape, and baseline serialization
    - `Parent and module context` for `parent`, `parentGuid`, `parentType`, `moduleGuid`, and the folder's structural placement
-   - `IDE semantic reading` for how the IDE/importer interprets the object, including `Category` as a UI label
+   - `IDE semantic reading` for how the IDE/importer interprets the object, and its distinction from `Category` (type `...0006`, catalogued as `Module`)
    - `Identity and naming semantics` for naming ambiguity, displayed naming expectations, and the distinction between XML type and UI label
    - `Identity and container` for `fullyQualifiedName`, `name`, `guid`, and container-level structural identity
 47. For `Folder`, open adjacent blocks only when there is explicit functional dependency with the primary block, name that transition in the analysis, and keep structural shape, parent/module context, IDE reading, and naming semantics separate until evidence supports joining them

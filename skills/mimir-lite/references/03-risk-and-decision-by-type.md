@@ -73,7 +73,7 @@ Gather Part-type obligatoriness heuristics and a relative structural-risk map pe
 - Direct evidence: `Table` is its own top-level family (`857ca50e-7905-0000-0007-c5d9ff2975ec`); `Index` appears embedded inside `Table` in this export trail, not as an independent top-level family.
 - Strong inference: for reading the web pattern, the most informative unit is the combination `Transaction + Table + WorkWithForWeb + PatternSettings`.
 - Direct evidence: `DataView`'s `0/0` in the structural risk map reflects the absence of counts in the original snapshot (the type was added later, not sampled with the rest), not zero `parent`/`pattern` dependency — do not read it as evidence of low risk.
-- Direct evidence: `Folder` is a structurally valid XML type; `Category` is only the label the IDE/importer displays — the two are not rival envelope types.
+- Direct evidence: `Folder` (`...0008`) is a structurally valid XML type. `Category` is not a label of `Folder`: `...0006` is the container the IDE shows as **Category** (Main Programs, GAM, ToBeDefined, user categories), catalogued under the key and folder `Module`.
 - Direct evidence: the `Attribute` top-level shape is proven; residual risk sits in semantic properties such as `ControlItemDescription` and `idBasedOn`, which reference real attributes by name.
 - Direct evidence: in Panel SD, a mismatched pair — only the `layout id` changed relative to a real IDE export — can leave a lingering `Layout com identificador incorreto` warning; a coherent `level id` + `layout id` pair taken from a real IDE-exported Panel SD does not show it. Read the pair as coupled, not independent.
 

@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "21"
+EXTRACTOR_SIGNATURE_VERSION = "22"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -362,6 +362,20 @@ INDEX_MEMBER_RE = re.compile(
     r"<Member\b(?P<attrs>[^>]*)>(?P<name>.*?)</Member>",
     re.IGNORECASE | re.DOTALL,
 )
+# Classic (gx-legacy-export) Table: one <Key>Name</Key> per key attribute, and one
+# <IdxAttri><Name>Name</Name></IdxAttri> per index member inside each <TblIndex>.
+CLASSIC_TABLE_KEY_RE = re.compile(r"<Key>(?P<name>[^<]*)</Key>", re.IGNORECASE)
+CLASSIC_TABLE_INDEX_MEMBER_RE = re.compile(
+    r"<IdxAttri>\s*<Name>(?P<name>[^<]*)</Name>",
+    re.IGNORECASE,
+)
+# Classic Transaction: its structure is free text in <Structure><Source>, one attribute per line,
+# '*' after a key attribute, '(' opening a sub-level and ')' closing it.
+CLASSIC_STRUCTURE_SOURCE_RE = re.compile(
+    r"<Structure>\s*<Source>(?:<!\[CDATA\[(?P<cdata>.*?)\]\]>|(?P<plain>[^<]*))</Source>",
+    re.IGNORECASE | re.DOTALL,
+)
+CLASSIC_STRUCTURE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SDT_ITEM_RE = re.compile(r"<Item\b(?P<attrs>[^>]*)>(?P<body>.*?)</Item>", re.IGNORECASE | re.DOTALL)
 WORKWITH_TRANSACTION_RE = re.compile(r"<transaction\b[^>]*\btransaction=\"(?P<value>[^\"]+)\"", re.IGNORECASE)
 WORKWITH_WEBPANEL_LINK_RE = re.compile(r"<link\b[^>]*\bwebpanel=\"(?P<name>[^\"]+)\"", re.IGNORECASE)
@@ -3548,6 +3562,183 @@ def extract_table_index_member_attribute_evidence(
     return evidences
 
 
+def classic_table_key_names(xml_text: str) -> frozenset[str]:
+    """Lowercase names of the <Key> entries of a classic Table (empty when it has none)."""
+    names = (html.unescape(match.group("name")).strip().lower() for match in CLASSIC_TABLE_KEY_RE.finditer(xml_text))
+    return frozenset(name for name in names if name)
+
+
+def extract_classic_table_structure_evidence(
+    source_objects: Iterable[ObjectInfo],
+    attribute_names: set[str],
+) -> list[Evidence]:
+    """has_key_attribute and has_index_member_attribute of classic Tables (root
+    dataSource="gx-legacy-export"): each <Key> entry, and each <IdxAttri><Name> of a <TblIndex>
+    (one relation per attribute, like the modern index members), naming an indexed Attribute."""
+    evidences: list[Evidence] = []
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    for source in source_objects:
+        xml_text = read_text(source.path)
+        if not is_legacy_export_object(xml_text):
+            continue
+        for match in CLASSIC_TABLE_KEY_RE.finditer(xml_text):
+            target_name = attribute_lookup.get(html.unescape(match.group("name")).strip().lower())
+            if not target_name:
+                continue
+            add_evidence(
+                evidences,
+                source=source,
+                target_type="Attribute",
+                target_name=target_name,
+                relation_kind="has_key_attribute",
+                line=line_number_at(xml_text, match.start()),
+                column=1,
+                snippet=match.group(0),
+                extractor_rule="classic_table_key_attribute",
+                evidence_role="Key Item",
+            )
+        seen: set[str] = set()
+        for match in CLASSIC_TABLE_INDEX_MEMBER_RE.finditer(xml_text):
+            target_name = attribute_lookup.get(html.unescape(match.group("name")).strip().lower())
+            if not target_name or target_name.lower() in seen:
+                continue
+            seen.add(target_name.lower())
+            add_evidence(
+                evidences,
+                source=source,
+                target_type="Attribute",
+                target_name=target_name,
+                relation_kind="has_index_member_attribute",
+                line=line_number_at(xml_text, match.start()),
+                column=1,
+                snippet=match.group(0),
+                extractor_rule="classic_table_index_member_attribute",
+                evidence_role="Index Member",
+            )
+    return evidences
+
+
+@dataclass
+class ClassicStructureLevel:
+    """One level of a classic Transaction structure: the line that opens it, its parent level
+    (index into the level list, None for the root), its own key names (lowercase), and its
+    attributes as (name, line, line text)."""
+
+    line: int
+    snippet: str
+    parent: int | None
+    keys: set[str]
+    attributes: list[tuple[str, int, str]]
+
+
+def classic_transaction_levels(xml_text: str) -> list[ClassicStructureLevel]:
+    """Levels of a classic Transaction's <Structure><Source> text, root first, in text order.
+    One attribute per line; '*' after the name marks a key; each leading '(' opens a sub-level
+    of the current level and each trailing ')' closes one. A line whose name is not a plain
+    identifier is skipped (its parentheses still count)."""
+    match = CLASSIC_STRUCTURE_SOURCE_RE.search(xml_text)
+    if not match:
+        return []
+    group = "cdata" if match.group("cdata") is not None else "plain"
+    body = match.group(group)
+    if group == "plain":
+        body = html.unescape(body)
+    first_line = line_number_at(xml_text, match.start(group))
+    levels: list[ClassicStructureLevel] = []
+    stack: list[int] = []
+    for offset, raw_line in enumerate(body.split("\n")):
+        text = raw_line.strip()
+        if not text:
+            continue
+        line = first_line + offset
+        opens = len(text) - len(text.lstrip("("))
+        text = text.lstrip("(")
+        closed = text.rstrip(")")
+        closes = len(text) - len(closed)
+        text = closed.strip()
+        if not stack:
+            levels.append(ClassicStructureLevel(line, raw_line, None, set(), []))
+            stack.append(len(levels) - 1)
+        for _ in range(opens):
+            levels.append(ClassicStructureLevel(line, raw_line, stack[-1], set(), []))
+            stack.append(len(levels) - 1)
+        is_key = text.endswith("*")
+        name = text.rstrip("*").strip()
+        if CLASSIC_STRUCTURE_NAME_RE.fullmatch(name):
+            level = levels[stack[-1]]
+            level.attributes.append((name, line, raw_line))
+            if is_key:
+                level.keys.add(name.lower())
+        for _ in range(closes):
+            if len(stack) > 1:
+                stack.pop()
+    return levels
+
+
+def extract_classic_transaction_level_evidence(
+    source_objects: Iterable[ObjectInfo],
+    table_objects: Iterable[ObjectInfo],
+    attribute_names: set[str],
+) -> list[Evidence]:
+    """has_level_attribute and has_level_table of classic Transactions (root
+    dataSource="gx-legacy-export"), from their <Structure><Source> text. A classic level names no
+    table: it relates to the one classic Table whose key set equals the level's combined key set
+    (the keys of its parent levels plus its own). A level with no key of its own, or whose key set
+    matches no classic Table or more than one, gives no has_level_table; its attributes still
+    relate."""
+    evidences: list[Evidence] = []
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    tables_by_key_set: dict[frozenset[str], list[str]] = {}
+    for table in table_objects:
+        table_text = read_text(table.path)
+        if not is_legacy_export_object(table_text):
+            continue
+        key_set = classic_table_key_names(table_text)
+        if key_set:
+            tables_by_key_set.setdefault(key_set, []).append(table.name)
+    for source in source_objects:
+        xml_text = read_text(source.path)
+        if not is_legacy_export_object(xml_text):
+            continue
+        levels = classic_transaction_levels(xml_text)
+        combined_keys: list[frozenset[str]] = []
+        for level in levels:
+            parent_keys = combined_keys[level.parent] if level.parent is not None else frozenset()
+            combined_keys.append(parent_keys | level.keys)
+            for name, line, line_text in level.attributes:
+                target_name = attribute_lookup.get(name.lower())
+                if not target_name:
+                    continue
+                add_evidence(
+                    evidences,
+                    source=source,
+                    target_type="Attribute",
+                    target_name=target_name,
+                    relation_kind="has_level_attribute",
+                    line=line,
+                    column=1,
+                    snippet=line_text,
+                    extractor_rule="classic_transaction_level_attribute",
+                    evidence_role="Level Attribute",
+                )
+            matches = tables_by_key_set.get(combined_keys[-1], []) if level.keys else []
+            if len(matches) != 1:
+                continue
+            add_evidence(
+                evidences,
+                source=source,
+                target_type="Table",
+                target_name=matches[0],
+                relation_kind="has_level_table",
+                line=level.line,
+                column=1,
+                snippet=level.snippet,
+                extractor_rule="classic_transaction_level_table",
+                evidence_role="Level Keys",
+            )
+    return evidences
+
+
 def strip_scss_comments(text: str) -> str:
     """Removes SCSS/GeneXus comments (/* */ and //) while preserving the line count."""
     text = SCSS_BLOCK_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
@@ -4439,6 +4630,15 @@ def main() -> int:
         tables.values(),
         attribute_names=set(attributes),
     )
+    classic_table_structure_evidences = extract_classic_table_structure_evidence(
+        tables.values(),
+        attribute_names=set(attributes),
+    )
+    classic_transaction_level_evidences = extract_classic_transaction_level_evidence(
+        transactions.values(),
+        tables.values(),
+        attribute_names=set(attributes),
+    )
     css_classes = (
         collect_legacy_theme_css_classes(objects_by_type.get("ThemeClass", {}).values())
         + collect_design_system_css_classes(
@@ -4490,6 +4690,8 @@ def main() -> int:
         *table_index_member_attribute_evidences,
         *css_layout_usage_evidences,
         *css_event_usage_evidences,
+        *classic_table_structure_evidences,
+        *classic_transaction_level_evidences,
     ]
     index_build_run_at = datetime.now(timezone.utc).isoformat()
     write_index(

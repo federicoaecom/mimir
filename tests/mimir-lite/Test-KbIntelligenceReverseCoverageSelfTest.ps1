@@ -356,10 +356,10 @@ EndEvent
     $wwsdNotePart = 'layouts, orders, search, break by and filters are indexed, grid conditions, rules, events and captions are not'
     $procedurePart = 'Source reads,rule reads,block writes,condition reads/ambiguous writes,layout,Business Component members,code outside a Part'
     # An index older than 21 has not read the conditions yet: 'condition reads' leads missing.
-    $procedurePart17 = 'Source reads,rule reads,block writes/condition reads,ambiguous writes,layout,Business Component members,code outside a Part'
+    $procedurePartBefore21 = 'Source reads,rule reads,block writes/condition reads,ambiguous writes,layout,Business Component members,code outside a Part'
     $transactionPart = 'rule reads,rule writes,event reads,block writes/ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
     $webPanelPart = 'rule reads,event reads,block writes,condition reads/ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
-    $webPanelPart17 = 'rule reads,event reads,block writes/condition reads,ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
+    $webPanelPartBefore21 = 'rule reads,event reads,block writes/condition reads,ambiguous writes,WebForm bindings,Business Component members,code outside a Part'
     $dataProviderPart = 'Source reads,rule reads,Transaction item writes/SDT output items,Business Component members,code outside a Part'
     $procedureNotePart = 'Source reads, rule reads, block writes and condition reads are indexed, ambiguous writes, layout, Business Component members and code outside a Part are not'
     $dataProviderNotePart = 'Source reads, rule reads and Transaction item writes are indexed, SDT output items, Business Component members and code outside a Part are not'
@@ -371,7 +371,7 @@ EndEvent
     $expectedPartialB = "Procedure=1:$procedurePart;Transaction=3:$transactionPart;WebPanel=1:$webPanelPart"
     # Corpus A also holds the one synthetic mobile WorkWith (WorkWithDevicesInvoice); an index of
     # extractor 17 or older predates its attribute uses and lists it as not extracted.
-    $expectedPartialB17 = "Procedure=1:$procedurePart17;Transaction=3:$transactionPart;WebPanel=1:$webPanelPart17"
+    $expectedPartialB17 = "Procedure=1:$procedurePartBefore21;Transaction=3:$transactionPart;WebPanel=1:$webPanelPartBefore21"
     $expectedPartialA17 = "DataProvider=1:$dataProviderPart;$expectedPartialB17;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
     $expectedPartialA = "DataProvider=1:$dataProviderPart;$expectedPartialB;WorkWith=1:$wwsdExtracted/$wwsdMissing;WorkWithForWeb=1:$wwfwExtracted/$wwfwMissing"
     $attributeCases = @(
