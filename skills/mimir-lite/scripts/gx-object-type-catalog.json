@@ -278,7 +278,7 @@
       "inventoryEligible": true,
       "queryableByKbIntelligence": false,
       "containerType": false,
-      "notes": "GeneXus Panel (Part; current extractor does not generate based_on_domain edges nor other indexed relations — outside IDBASEDON_DOMAIN_SOURCE_TYPES). queryableByKbIntelligence=false."
+      "notes": "GeneXus Panel (Part). Since extractor 23 its Smart Devices pattern instance gives panel_references_attribute relations (layouts, orders, search, break by, filters), listed in who-uses of an Attribute; no calls and no based_on_domain edges (outside IDBASEDON_DOMAIN_SOURCE_TYPES). queryableByKbIntelligence=false: it is not accepted as the queried object."
     },
     "PatternSettings": {
       "objectTypeGuid": "83476c1e-fa72-4229-9930-f51b954fca2d",

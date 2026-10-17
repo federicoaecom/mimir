@@ -562,7 +562,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $metaVersion = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute(""SELECT value FROM metadata WHERE key='extractor_signature_version'"").fetchone()[0])" $sqlitePath
-Assert-True ($metaVersion -eq '22') "expected extractor_signature_version 22; got $metaVersion"
+Assert-True ($metaVersion -eq '24') "expected extractor_signature_version 24; got $metaVersion"
 
 $rows = Get-BasedOnDomainRows -SqlitePath $sqlitePath
 

@@ -6,6 +6,13 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-17
+
+### Added
+
+- KB Intelligence (extractor 24): a classic `for each` (GeneXus 9 and earlier exports) relates to its inferred base table (`navigates_inferred_table`, rule `classic_for_each_base_table`, confidence `inferred`), so `who-uses` and `impact-basic` of a classic `Table` see the code that navigates it. The attributes of the block (clauses, body, and the print blocks it prints) choose the one table whose extended table holds them all and no other candidate is part of; classic Tables get their attributes from the Transaction levels matched to them, and subtype groups count. Ambiguous or unmatched blocks, grid loops, and blocks inside a `new` give no relation. On 100 blocks of 12 public classic samples it gave 83 answers, all correct when checked by hand. The extractor version goes from 23 to 24, so existing indexes are rebuilt once.
+- KB Intelligence (extractor 23): a Smart Devices `Panel` gives the attribute uses its pattern instance names (`panel_references_attribute`, rule `sd_panel_attribute_reference`): layout `<data attribute>`, orders, search, break by, and advanced filters, read by the same extractor as a mobile `WorkWith` (the two carry the same `<Data Pattern="15cf49b5-...">` instance, checked in an X Evolution 2 and a GeneXus 16 public sample). Roles read `Panel layout attribute`, `Panel order attribute`, and so on. `who-uses` of an `Attribute` lists them, and its coverage moves `Panel` from the types whose attribute uses are not extracted to the partly extracted ones (grid conditions, rules, events, and captions are not read). `Panel` stays not queryable as the queried object. The extractor version goes from 22 to 23, so existing indexes are rebuilt once.
+
 ## [0.9.0] - 2026-10-17
 
 ### Added

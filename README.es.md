@@ -11,7 +11,7 @@ Mimir Lite es una skill de agente que lee y entiende una Base de Conocimiento (K
 
 ## Estado
 
-Versión actual: `0.9.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
+Versión actual: `0.10.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
 
 ## Soporte
 

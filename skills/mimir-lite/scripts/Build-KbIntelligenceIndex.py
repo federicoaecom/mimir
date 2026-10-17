@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "22"
+EXTRACTOR_SIGNATURE_VERSION = "24"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -376,6 +376,22 @@ CLASSIC_STRUCTURE_SOURCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 CLASSIC_STRUCTURE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Classic layout (Report, Procedure): <Block> elements in print order, each holding a <CodeBlock>
+# (code) or a <PrintBlock> followed by its controls. A print control is <Id>N</Id> then its <Name>;
+# a negative Id is a variable (it matches the object's <Variable><Id>), so its name has no '&'.
+CLASSIC_LAYOUT_RE = re.compile(r"<Layout\b[^>]*(?<!/)>.*?</Layout>", re.IGNORECASE | re.DOTALL)
+CLASSIC_LAYOUT_BLOCK_RE = re.compile(r"<Block\b[^>]*(?<!/)>.*?</Block>", re.IGNORECASE | re.DOTALL)
+CLASSIC_PRINT_BLOCK_RE = re.compile(r"<PrintBlock\b", re.IGNORECASE)
+CLASSIC_PRINT_CONTROL_RE = re.compile(r"<Id>\s*(?P<id>-?\d+)\s*</Id>\s*<Name>(?P<name>[^<]*)</Name>", re.IGNORECASE)
+# Classic SubTypeGroup: one <Subtype><Name>sub</Name><Supertype>sup</Supertype></Subtype> per pair.
+CLASSIC_SUBTYPE_RE = re.compile(
+    r"<Subtype>\s*<Name>(?P<sub>[^<]*)</Name>\s*<Supertype>(?P<sup>[^<]*)</Supertype>", re.IGNORECASE
+)
+# A classic `for each` statement; `for each line` and `for each selected line` are grid loops.
+CLASSIC_FOR_EACH_RE = re.compile(r"for\s+each\b(?P<grid>\s+(?:selected\s+)?line\b)?(?P<rest>.*)", re.IGNORECASE)
+CLASSIC_FOR_EACH_CLAUSE_RE = re.compile(r"(?P<clause>order|where|defined\s+by|using)\b(?P<rest>.*)", re.IGNORECASE)
+CLASSIC_IDENTIFIER_RE = re.compile(r"(?<![&\w.!])(?P<name>[A-Za-z_]\w*)")
+CLASSIC_STRING_LITERAL_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 SDT_ITEM_RE = re.compile(r"<Item\b(?P<attrs>[^>]*)>(?P<body>.*?)</Item>", re.IGNORECASE | re.DOTALL)
 WORKWITH_TRANSACTION_RE = re.compile(r"<transaction\b[^>]*\btransaction=\"(?P<value>[^\"]+)\"", re.IGNORECASE)
 WORKWITH_WEBPANEL_LINK_RE = re.compile(r"<link\b[^>]*\bwebpanel=\"(?P<name>[^\"]+)\"", re.IGNORECASE)
@@ -421,13 +437,16 @@ WORKWITH_SD_BLOCK_ATTRIBUTE_RE = re.compile(r"<attribute\b[^>]*?\battribute=\"(?
 WORKWITH_SD_FILTER_ATTRIBUTE_RE = re.compile(
     r"<filterAttribute\b[^>]*?\battribute=\"(?P<value>[^\"]+)\"", re.IGNORECASE
 )
-WORKWITH_SD_LAYOUT_ROLE = "WorkWith layout attribute"
-WORKWITH_SD_BLOCK_ROLES = {
-    "orders": "WorkWith order attribute",
-    "search": "WorkWith search attribute",
-    "breakby": "WorkWith break by attribute",
+# Evidence roles are "<source role prefix> <part> attribute": "WorkWith layout attribute" for a
+# mobile WorkWith, "Panel layout attribute" for a Smart Devices Panel, which carries the same
+# pattern instance.
+WORKWITH_SD_LAYOUT_ROLE_PART = "layout"
+WORKWITH_SD_BLOCK_ROLE_PARTS = {
+    "orders": "order",
+    "search": "search",
+    "breakby": "break by",
 }
-WORKWITH_SD_FILTER_ROLE = "WorkWith filter attribute"
+WORKWITH_SD_FILTER_ROLE_PART = "filter"
 # <filter> elements (selection and Grid tab): only the <condition> elements inside one are read.
 # The opening tag is quote-aware, so a quoted '>' or '/>' in its attributes does not end it. The
 # body ends at the first </filter>: the pattern instance never nests a <filter> in another (a
@@ -1009,6 +1028,7 @@ def add_evidence(
     snippet: str,
     extractor_rule: str,
     evidence_role: str = "effective Source",
+    confidence: str = "direct",
 ) -> None:
     evidences.append(
         Evidence(
@@ -1023,7 +1043,7 @@ def add_evidence(
             snippet=compact_snippet(snippet),
             evidence_role=evidence_role,
             extractor_rule=extractor_rule,
-            confidence="direct",
+            confidence=confidence,
         )
     )
 
@@ -2648,10 +2668,18 @@ def extract_workwith_for_web_attribute_evidence(
 
 
 def extract_workwith_sd_attribute_evidence(
-    workwith_objects: Iterable[ObjectInfo],
+    source_objects: Iterable[ObjectInfo],
     attribute_names: set[str],
+    relation_kind: str = "workwith_references_attribute",
+    extractor_rule: str = "workwith_sd_attribute_reference",
+    role_prefix: str = "WorkWith",
 ) -> list[Evidence]:
-    """Attribute references from the mobile WorkWith pattern instance, one per source, target and role.
+    """Attribute references from the mobile WorkWith pattern instance (also carried by a Smart
+    Devices Panel), one per source, target and role.
+
+    A Smart Devices Panel carries the same pattern instance (Data Pattern 15cf49b5-..., a
+    <level><detail> with a layout and a <gridData>); its caller passes the Panel relation kind,
+    rule and role prefix.
 
     Reads, inside the pattern instance Data only: <data attribute="Name"> in the list and detail
     layouts (a value starting with '&' after unescaping is a variable and is skipped), the
@@ -2665,7 +2693,7 @@ def extract_workwith_sd_attribute_evidence(
     evidences: list[Evidence] = []
     seen: set[tuple[str, str, str, str]] = set()
     attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
-    for source in workwith_objects:
+    for source in source_objects:
         xml_text = read_text(source.path)
         for data_match in WORKWITH_SD_INSTANCE_DATA_RE.finditer(xml_text):
             body = data_match.group("body")
@@ -2673,18 +2701,22 @@ def extract_workwith_sd_attribute_evidence(
             # (offset in body, raw value, snippet, evidence role)
             candidates: list[tuple[int, str, str, str]] = []
             for match in WORKWITH_SD_LAYOUT_DATA_RE.finditer(body):
-                candidates.append((match.start(), match.group("value"), match.group(0), WORKWITH_SD_LAYOUT_ROLE))
+                candidates.append(
+                    (match.start(), match.group("value"), match.group(0), f"{role_prefix} {WORKWITH_SD_LAYOUT_ROLE_PART} attribute")
+                )
             for block_match in WORKWITH_SD_ATTRIBUTE_BLOCK_RE.finditer(body):
                 if block_match.group("body") is None:
                     continue
-                role = WORKWITH_SD_BLOCK_ROLES[block_match.group("tag").lower()]
+                role = f"{role_prefix} {WORKWITH_SD_BLOCK_ROLE_PARTS[block_match.group('tag').lower()]} attribute"
                 # pos/endpos keep match offsets relative to the whole body.
                 for match in WORKWITH_SD_BLOCK_ATTRIBUTE_RE.finditer(
                     body, block_match.start("body"), block_match.end("body")
                 ):
                     candidates.append((match.start(), match.group("value"), match.group(0), role))
             for match in WORKWITH_SD_FILTER_ATTRIBUTE_RE.finditer(body):
-                candidates.append((match.start(), match.group("value"), match.group(0), WORKWITH_SD_FILTER_ROLE))
+                candidates.append(
+                    (match.start(), match.group("value"), match.group(0), f"{role_prefix} {WORKWITH_SD_FILTER_ROLE_PART} attribute")
+                )
             candidates.sort(key=lambda candidate: candidate[0])
             for offset, raw_value, snippet, role in candidates:
                 value = html.unescape(raw_value).strip()
@@ -2703,11 +2735,11 @@ def extract_workwith_sd_attribute_evidence(
                     source=source,
                     target_type="Attribute",
                     target_name=target_name,
-                    relation_kind="workwith_references_attribute",
+                    relation_kind=relation_kind,
                     line=line_number_at(xml_text, body_offset + offset),
                     column=1,
                     snippet=snippet,
-                    extractor_rule="workwith_sd_attribute_reference",
+                    extractor_rule=extractor_rule,
                     evidence_role=role,
                 )
     return evidences
@@ -3675,6 +3707,39 @@ def classic_transaction_levels(xml_text: str) -> list[ClassicStructureLevel]:
     return levels
 
 
+def classic_tables_by_key_set(table_objects: Iterable[ObjectInfo]) -> dict[frozenset[str], list[str]]:
+    """Names of the classic Tables per key set (lowercase key names); a Table with no key is left out."""
+    tables_by_key_set: dict[frozenset[str], list[str]] = {}
+    for table in table_objects:
+        table_text = read_text(table.path)
+        if not is_legacy_export_object(table_text):
+            continue
+        key_set = classic_table_key_names(table_text)
+        if key_set:
+            tables_by_key_set.setdefault(key_set, []).append(table.name)
+    return tables_by_key_set
+
+
+def classic_level_combined_keys(levels: list[ClassicStructureLevel]) -> list[frozenset[str]]:
+    """Per level, its combined key set: the keys of its parent levels plus its own."""
+    combined_keys: list[frozenset[str]] = []
+    for level in levels:
+        parent_keys = combined_keys[level.parent] if level.parent is not None else frozenset()
+        combined_keys.append(parent_keys | level.keys)
+    return combined_keys
+
+
+def classic_level_table(
+    level: ClassicStructureLevel,
+    combined_keys: frozenset[str],
+    tables_by_key_set: dict[frozenset[str], list[str]],
+) -> str | None:
+    """The one classic Table whose key set equals the level's combined key set; None when the
+    level has no key of its own, or when no Table or more than one matches."""
+    matches = tables_by_key_set.get(combined_keys, []) if level.keys else []
+    return matches[0] if len(matches) == 1 else None
+
+
 def extract_classic_transaction_level_evidence(
     source_objects: Iterable[ObjectInfo],
     table_objects: Iterable[ObjectInfo],
@@ -3688,23 +3753,13 @@ def extract_classic_transaction_level_evidence(
     relate."""
     evidences: list[Evidence] = []
     attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
-    tables_by_key_set: dict[frozenset[str], list[str]] = {}
-    for table in table_objects:
-        table_text = read_text(table.path)
-        if not is_legacy_export_object(table_text):
-            continue
-        key_set = classic_table_key_names(table_text)
-        if key_set:
-            tables_by_key_set.setdefault(key_set, []).append(table.name)
+    tables_by_key_set = classic_tables_by_key_set(table_objects)
     for source in source_objects:
         xml_text = read_text(source.path)
         if not is_legacy_export_object(xml_text):
             continue
         levels = classic_transaction_levels(xml_text)
-        combined_keys: list[frozenset[str]] = []
-        for level in levels:
-            parent_keys = combined_keys[level.parent] if level.parent is not None else frozenset()
-            combined_keys.append(parent_keys | level.keys)
+        for level, level_keys in zip(levels, classic_level_combined_keys(levels)):
             for name, line, line_text in level.attributes:
                 target_name = attribute_lookup.get(name.lower())
                 if not target_name:
@@ -3721,20 +3776,273 @@ def extract_classic_transaction_level_evidence(
                     extractor_rule="classic_transaction_level_attribute",
                     evidence_role="Level Attribute",
                 )
-            matches = tables_by_key_set.get(combined_keys[-1], []) if level.keys else []
-            if len(matches) != 1:
+            table_name = classic_level_table(level, level_keys, tables_by_key_set)
+            if table_name is None:
                 continue
             add_evidence(
                 evidences,
                 source=source,
                 target_type="Table",
-                target_name=matches[0],
+                target_name=table_name,
                 relation_kind="has_level_table",
                 line=level.line,
                 column=1,
                 snippet=level.snippet,
                 extractor_rule="classic_transaction_level_table",
                 evidence_role="Level Keys",
+            )
+    return evidences
+
+
+@dataclass
+class ClassicForEachBlock:
+    """A classic `for each` block: its line and line text, whether it is skipped (a grid loop or a
+    block inside a `new`), and the lowercase attribute names it uses."""
+
+    line: int
+    snippet: str
+    skipped: bool
+    attributes: set[str]
+
+
+def classic_program_lines(xml_text: str) -> list[tuple[int, str, list[str] | None]]:
+    """(line, code line, None) for the code of a classic object in reading order, and
+    (line, "", control names) for each print block of its layout. A layout (Report, Procedure) is
+    read as its <Block> elements in order, so a print block sits between the code lines around it;
+    the <Events> follow, and a code <Source> is read on its own only when the object has no layout.
+    A variable print control (negative <Id>) is named with a leading '&'."""
+    lines: list[tuple[int, str, list[str] | None]] = []
+    layout = CLASSIC_LAYOUT_RE.search(xml_text)
+    if layout:
+        for block in CLASSIC_LAYOUT_BLOCK_RE.finditer(xml_text, layout.start(), layout.end()):
+            code_block = CLASSIC_CODE_BLOCK_SPAN_RE.search(xml_text, block.start(), block.end())
+            if code_block:
+                for source_block in source_blocks(xml_text, code_block.start(), code_block.end()):
+                    for offset, code_line in enumerate(blank_block_comments(source_block.text).split("\n")):
+                        lines.append((source_block.start_line + offset, code_line, None))
+            elif CLASSIC_PRINT_BLOCK_RE.search(block.group(0)):
+                controls = [
+                    ("&" if int(match.group("id")) < 0 else "") + match.group("name").strip()
+                    for match in CLASSIC_PRINT_CONTROL_RE.finditer(block.group(0))
+                ]
+                lines.append((line_number_at(xml_text, block.start()), "", controls))
+    for tag, source_block in classic_code_blocks(xml_text):
+        if not (tag == "events" or (tag == "source" and not layout)):
+            continue
+        for offset, code_line in enumerate(blank_block_comments(source_block.text).split("\n")):
+            lines.append((source_block.start_line + offset, code_line, None))
+    return lines
+
+
+def classic_identifiers(text: str, keep_calls: bool = False) -> list[str]:
+    """Identifiers of a code fragment; a name followed by '(' (a function, call or udp) is left out
+    unless keep_calls (an order clause lists attributes, which an old one may wrap in '()')."""
+    names: list[str] = []
+    for match in CLASSIC_IDENTIFIER_RE.finditer(text):
+        if not keep_calls and text[match.end():].lstrip().startswith("("):
+            continue
+        names.append(match.group("name"))
+    return names
+
+
+def classic_for_each_blocks(xml_text: str, attribute_lookup: dict[str, str]) -> list[ClassicForEachBlock]:
+    """The `for each` blocks of a classic object with the attributes each one uses: its `where`,
+    `order` (an old `for each A B` lists order attributes), `defined by` and `using` clauses, its
+    body, and the attribute controls of the print blocks it prints. The attributes of a nested
+    `for each`, a `new` ... `endnew` and a `when none` section are not the block's; variables are not
+    attributes. Grid loops (`for each line`, `for each selected line`) and blocks inside a `new` are
+    marked skipped."""
+    blocks: list[ClassicForEachBlock] = []
+    # Open constructs, innermost last: ("foreach", block), ("for", None), ("new", None), ("whennone", None).
+    stack: list[tuple[str, ClassicForEachBlock | None]] = []
+    clause_open = False
+
+    def current_block() -> ClassicForEachBlock | None:
+        for kind, block in reversed(stack):
+            if kind in ("foreach", "new", "whennone"):
+                return block
+        return None
+
+    def add(names: Iterable[str]) -> None:
+        block = current_block()
+        if block is None:
+            return
+        for name in names:
+            if name.startswith("&"):
+                continue
+            target = attribute_lookup.get(name.lower())
+            if target:
+                block.attributes.add(target.lower())
+
+    def pop_to(kinds: tuple[str, ...]) -> None:
+        while stack:
+            kind, _ = stack.pop()
+            if kind in kinds:
+                return
+
+    for line, code_line, printed in classic_program_lines(xml_text):
+        if printed is not None:
+            add(printed)
+            continue
+        text = CLASSIC_STRING_LITERAL_RE.sub("''", active_line(code_line)).strip()
+        for_each = CLASSIC_FOR_EACH_RE.fullmatch(text)
+        if for_each:
+            inside_new = any(kind == "new" for kind, _ in stack)
+            block = ClassicForEachBlock(line, code_line, bool(for_each.group("grid")) or inside_new, set())
+            blocks.append(block)
+            stack.append(("foreach", block))
+            rest = for_each.group("rest").strip()
+            clause = CLASSIC_FOR_EACH_CLAUSE_RE.fullmatch(rest)
+            if clause:
+                add(classic_identifiers(clause.group("rest"), keep_calls=clause.group("clause").lower() == "order"))
+            else:
+                add(classic_identifiers(rest, keep_calls=True))
+            clause_open = True
+            continue
+        if clause_open:
+            if not text:
+                continue  # a blank or comment-only line keeps the clauses of the block open
+            clause = CLASSIC_FOR_EACH_CLAUSE_RE.fullmatch(text)
+            if clause:
+                add(classic_identifiers(clause.group("rest"), keep_calls=clause.group("clause").lower() == "order"))
+                continue
+            clause_open = False
+        lowered = text.lower()
+        if re.match(r"endfor\b", lowered):
+            pop_to(("foreach", "for"))
+        elif re.match(r"when\s+none\b", lowered):
+            stack.append(("whennone", None))
+        elif re.match(r"for\b", lowered):
+            stack.append(("for", None))
+        elif re.match(r"new\b", lowered):
+            stack.append(("new", None))
+        elif re.match(r"endnew\b", lowered):
+            pop_to(("new",))
+        else:
+            add(classic_identifiers(text))
+    return blocks
+
+
+class ClassicDataModel:
+    """The classic Tables as GeneXus navigation sees them. A Table holds its keys and the
+    attributes of every Transaction level matched to it (the level's own attributes and its parent
+    levels' keys). A SubTypeGroup whose supertypes hold the full key of exactly one Table acts as a
+    table keyed by those subtypes. The extended table of a Table gathers its attributes and,
+    repeatedly, those of every table or group whose full key the gathered attributes hold."""
+
+    def __init__(
+        self,
+        table_objects: Iterable[ObjectInfo],
+        transaction_objects: Iterable[ObjectInfo],
+        subtype_group_objects: Iterable[ObjectInfo],
+    ) -> None:
+        tables_by_key_set = classic_tables_by_key_set(table_objects)
+        self.names: dict[str, str] = {}
+        keys: dict[str, frozenset[str]] = {}
+        for key_set, names in tables_by_key_set.items():
+            for name in names:
+                self.names[name.lower()] = name
+                keys[name.lower()] = key_set
+        attributes: dict[str, set[str]] = {table: set(key_set) for table, key_set in keys.items()}
+        for transaction in transaction_objects:
+            xml_text = read_text(transaction.path)
+            if not is_legacy_export_object(xml_text):
+                continue
+            levels = classic_transaction_levels(xml_text)
+            for level, level_keys in zip(levels, classic_level_combined_keys(levels)):
+                table_name = classic_level_table(level, level_keys, tables_by_key_set)
+                if table_name is not None:
+                    attributes[table_name.lower()] |= level_keys | {name.lower() for name, _, _ in level.attributes}
+        # Nodes reachable through their full key: ("table", name) or ("group", name) -> (key, attributes).
+        self.nodes: dict[tuple[str, str], tuple[frozenset[str], set[str]]] = {
+            ("table", table): (keys[table], attributes[table]) for table in keys
+        }
+        for group in subtype_group_objects:
+            xml_text = read_text(group.path)
+            if not is_legacy_export_object(xml_text):
+                continue
+            supertype_of = {
+                match.group("sub").strip().lower(): match.group("sup").strip().lower()
+                for match in CLASSIC_SUBTYPE_RE.finditer(xml_text)
+            }
+            supertables = [table for table, key_set in keys.items() if key_set <= set(supertype_of.values())]
+            if len(supertables) != 1:
+                continue
+            group_key = frozenset(sub for sub, sup in supertype_of.items() if sup in keys[supertables[0]])
+            self.nodes[("group", group.name.lower())] = (group_key, set(supertype_of))
+        self.extended: dict[str, tuple[set[str], set[str]]] = {table: self._extend(table) for table in keys}
+
+    def _extend(self, table: str) -> tuple[set[str], set[str]]:
+        """(attributes of the extended table, names of the other tables it reaches)."""
+        gathered = set(self.nodes[("table", table)][1])
+        reached: set[tuple[str, str]] = set()
+        changed = True
+        while changed:
+            changed = False
+            for node, (key, node_attributes) in self.nodes.items():
+                if node == ("table", table) or node in reached or not key <= gathered:
+                    continue
+                reached.add(node)
+                gathered |= node_attributes
+                changed = True
+        return gathered, {name for kind, name in reached if kind == "table"}
+
+    def base_table(self, attributes: set[str]) -> str | None:
+        """The base table of a block using these attributes: among the tables whose extended table
+        holds them all, the one no other candidate is part of. None when no table holds them all, or
+        when more than one candidate remains."""
+        if not attributes:
+            return None
+        candidates = [table for table, (gathered, _) in self.extended.items() if attributes <= gathered]
+        minimal = [
+            table
+            for table in candidates
+            if not any(
+                other != table and other in self.extended[table][1] and table not in self.extended[other][1]
+                for other in candidates
+            )
+        ]
+        return self.names[minimal[0]] if len(minimal) == 1 else None
+
+
+def extract_classic_for_each_base_table_evidence(
+    source_objects: Iterable[ObjectInfo],
+    table_objects: Iterable[ObjectInfo],
+    transaction_objects: Iterable[ObjectInfo],
+    subtype_group_objects: Iterable[ObjectInfo],
+    attribute_names: set[str],
+) -> list[Evidence]:
+    """navigates_inferred_table of classic code objects (root dataSource="gx-legacy-export"): each
+    `for each` block relates to its inferred base table (ClassicDataModel.base_table over the
+    attributes classic_for_each_blocks collects), with confidence "inferred". Grid loops, blocks
+    inside a `new`, and blocks whose base table is ambiguous or missing give no relation."""
+    evidences: list[Evidence] = []
+    attribute_lookup = case_insensitive_lookup(attribute_names, "Attribute")
+    model: ClassicDataModel | None = None
+    for source in source_objects:
+        xml_text = read_text(source.path)
+        if not is_legacy_export_object(xml_text):
+            continue
+        if model is None:
+            model = ClassicDataModel(table_objects, transaction_objects, subtype_group_objects)
+        for block in classic_for_each_blocks(xml_text, attribute_lookup):
+            if block.skipped:
+                continue
+            table_name = model.base_table(block.attributes)
+            if table_name is None:
+                continue
+            add_evidence(
+                evidences,
+                source=source,
+                target_type="Table",
+                target_name=table_name,
+                relation_kind="navigates_inferred_table",
+                line=block.line,
+                column=1,
+                snippet=block.snippet,
+                extractor_rule="classic_for_each_base_table",
+                evidence_role="For Each base table",
+                confidence="inferred",
             )
     return evidences
 
@@ -4543,6 +4851,13 @@ def main() -> int:
         objects_by_type.get("WorkWith", {}).values(),
         attribute_names=set(attributes),
     )
+    panel_attribute_evidences = extract_workwith_sd_attribute_evidence(
+        objects_by_type.get("Panel", {}).values(),
+        attribute_names=set(attributes),
+        relation_kind="panel_references_attribute",
+        extractor_rule="sd_panel_attribute_reference",
+        role_prefix="Panel",
+    )
     code_attribute_evidences = extract_code_attribute_evidence(
         [
             obj
@@ -4639,6 +4954,13 @@ def main() -> int:
         tables.values(),
         attribute_names=set(attributes),
     )
+    classic_for_each_base_table_evidences = extract_classic_for_each_base_table_evidence(
+        [obj for obj in objects if obj.object_type in CLASSIC_CODE_ATTRIBUTE_SECTIONS],
+        tables.values(),
+        transactions.values(),
+        objects_by_type.get("SubTypeGroup", {}).values(),
+        attribute_names=set(attributes),
+    )
     css_classes = (
         collect_legacy_theme_css_classes(objects_by_type.get("ThemeClass", {}).values())
         + collect_design_system_css_classes(
@@ -4675,6 +4997,7 @@ def main() -> int:
         *workwith_prompt_evidences,
         *workwith_for_web_attribute_evidences,
         *workwith_sd_attribute_evidences,
+        *panel_attribute_evidences,
         *code_attribute_evidences,
         *custom_type_evidences,
         *resolved_custom_type_evidences,
@@ -4692,6 +5015,7 @@ def main() -> int:
         *css_event_usage_evidences,
         *classic_table_structure_evidences,
         *classic_transaction_level_evidences,
+        *classic_for_each_base_table_evidences,
     ]
     index_build_run_at = datetime.now(timezone.utc).isoformat()
     write_index(
