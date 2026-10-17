@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "24"
+EXTRACTOR_SIGNATURE_VERSION = "25"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -4400,6 +4400,31 @@ def insert_corpus_writability(
     return inserted
 
 
+# Classic types whose code a GeneXus 7.5 to 9 export keeps in Layout/Block/CodeBlock/Source (seen
+# in GeneXus 8 Reports and in the GeneXus 6 and 7.0 .xpw Procedures; no 7.5 to 9 Procedure sample).
+CLASSIC_LAYOUT_CODE_TYPES = ("Procedure", "Report")
+# Text that may mention a <CodeBlock> without being one: CDATA sections and XML comments.
+CLASSIC_NON_ELEMENT_TEXT_RE = re.compile(r"<!\[CDATA\[.*?\]\]>|<!--.*?-->", re.DOTALL)
+CLASSIC_CODE_BLOCK_OPEN_RE = re.compile(r"<CodeBlock\b", re.IGNORECASE)
+
+
+def classic_unread_code_counts(objects: Iterable[ObjectInfo]) -> dict[str, int]:
+    """Per classic layout-code type, the classic objects (root dataSource="gx-legacy-export") with
+    no <CodeBlock> element, whose code is therefore not read: a shape the extractor does not expect.
+    An empty <CodeBlock> is empty code and is not counted; "<CodeBlock" inside a CDATA section or
+    an XML comment is text, not an element, so it does not hide an object."""
+    counts: dict[str, int] = {}
+    for obj in objects:
+        if obj.object_type not in CLASSIC_LAYOUT_CODE_TYPES:
+            continue
+        xml_text = read_text(obj.path)
+        if not is_legacy_export_object(xml_text):
+            continue
+        if not CLASSIC_CODE_BLOCK_OPEN_RE.search(CLASSIC_NON_ELEMENT_TEXT_RE.sub("", xml_text)):
+            counts[obj.object_type] = counts.get(obj.object_type, 0) + 1
+    return counts
+
+
 def write_index(
     output_path: Path,
     source_root: Path,
@@ -4445,6 +4470,9 @@ def write_index(
                         sort_keys=True,
                     ),
                 ),
+                # Classic Procedures and Reports with no <CodeBlock>, whose code is not read, for
+                # reverse coverage.
+                ("legacy_unread_code_counts", json.dumps(classic_unread_code_counts(objects), sort_keys=True)),
             ],
         )
 

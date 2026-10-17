@@ -6,6 +6,19 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- Contributors run every CI check with `tools/Invoke-CiChecks.ps1`, the one list of checks CI also runs, and run it on Linux in a local Docker container with `tools/Invoke-LinuxTestsInDocker.ps1` (image `tools/docker/linux-tests.Dockerfile`: PowerShell 7.4 on Ubuntu 22.04 with Python 3 and git). CI now runs on demand and for each `v*` release tag instead of on every push, to stay within the hosted-runner minutes of the repository's plan; `CONTRIBUTING` explains the local routine.
+- KB Intelligence (extractor 25): reverse answers disclose classic code the index could not read. The build counts the classic `Procedure` and `Report` objects with no `<CodeBlock>` (index metadata `legacy_unread_code_counts`), and `who-uses`, `impact-basic`, and `functional-trace-basic` list them in a new coverage field `unread_classic_code`, mark coverage incomplete, and name them in the `text` note. No GeneXus 7.5 to 9 `Procedure` sample has confirmed where its code is kept (`Layout/Block/CodeBlock/Source`, as in GeneXus 8 Reports, the GeneXus 6 and 7.0 Procedures, and the GeneXus 9.0 help), so a different shape now shows up instead of reading as an unused object. The KB index reference records the evidence. The extractor version goes from 24 to 25, so existing indexes are rebuilt once.
+
+### Fixed
+
+- The skill's confidence rules say a relation the index marks `inferred` is never presented as direct evidence, headings included; the session-folder notice about permission prompts is skipped when the session runs without prompts and is given once per session, counting the **setup** closing message. Seen in end-to-end run 11.
+- `who-uses`, `impact-basic`, and `functional-trace-basic` of a `Table` no longer report complete coverage when the index cannot see how the table is navigated. A new coverage scope `table_navigation` lists in `implicit_navigation_source_types` the indexed types whose objects can navigate a table with no extracted relation (grids and forms of Web Panels, Work Panels, Transactions and the Work With and Panel patterns, and a `for each` or Data Provider group that names no table), marks coverage incomplete, and explains it in the `text` note. Seen in end-to-end run 11.
+- `attribute-info` reports a classic formula (GeneXus 9 and earlier exports, `Formula/<Name>.xml`) as `isFormula: true` with its expression as `formulaExpression` (a vertical formula as its function applied to its source, for example `sum(FacTotLin)`); it read only the modern `Formula` property and reported `false`. Seen in end-to-end run 11.
+- The setup audit no longer leaves a workspace synced from a legacy export (a GeneXus 7.0 or earlier `.xpw`, or GeneXus 7.5 to 9 classic XML) in `methodology_update_pending` forever. Such an export carries no `<Source>` block, so the KB GUID and names the metadata wrapper asks for can never come from a sync; when they are the only gaps (`source_export_format: xpw` or a KMW major version of 1 or 2), the audit reports `metadata wrapper: NOT_APPLICABLE`, which is not a pendency, and the workspace can reach `materialized_and_index_validated`. An invalid value, or the same gaps after a modern export, still block. Seen in end-to-end run 11. This changes the setup contract signature: existing workspaces see a setup-contract change and re-audit once.
+- The **setup** workflow's naming rules describe the `Module/` folder as the container the GeneXus IDE shows as Category (Main Programs, GAM, ToBeDefined, user categories), as the references already did; two reference notes that placed `Main Programs` in `Folder/` or called it a module say the same. This changes the setup contract signature: existing workspaces see a setup-contract change and re-audit once.
+
 ## [0.10.0] - 2026-10-17
 
 ### Added

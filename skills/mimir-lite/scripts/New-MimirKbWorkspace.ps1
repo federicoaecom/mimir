@@ -286,7 +286,7 @@ if ($nativeText) {
     $pending.Add("NativeKbPath: native KB folder not given; record it in AGENTS.md, README.md, and scripts/$resolveWrapper (placeholders <NativeKbPath> and C:\path\to\native-kb).")
 }
 if ($XpzOnly) {
-    $pending.Add("Stable identity: kb-source-metadata.md has empty Source fields; in this XPZ-only workspace the first sync writes them from the Source block of the XPZ; rerun the setup audit after that sync.")
+    $pending.Add("Stable identity: kb-source-metadata.md has empty Source fields; in this XPZ-only workspace the first sync writes them from the Source block of the XPZ (a GeneXus 9 or earlier export has none, and the audit then reports the metadata wrapper as NOT_APPLICABLE); rerun the setup audit after that sync.")
 } else {
     $pending.Add("Stable identity: kb-source-metadata.md has empty Source fields; once the native KB folder is confirmed, run scripts/$resolveWrapper -UpdateMetadata.")
 }

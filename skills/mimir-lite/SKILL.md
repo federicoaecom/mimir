@@ -14,6 +14,7 @@ Mimir Lite reads and understands a GeneXus KB from its XPZ/XML exports. It never
 - Toward the KB itself, this skill is read-only. `KbObjectsXml` is written only by the **sync** workflow's official flow; nothing here edits it by hand.
 - Never claim an import, build, or packaging result — this skill does not perform those actions and has no evidence about them.
 - Always state a confidence level for a functional conclusion: direct evidence, additional XML reading needed, strong inference, or hypothesis.
+- A relation the index marks `inferred` (its `confidence` is `inferred`, as for `navigates_inferred_table`) is an inference, not direct evidence: present it as inferred by the index, and never put it under a heading or label that calls it direct evidence.
 - Always distinguish the KB workspace (this skill's own working folders, next to the KB) from the native KB folder (the real GeneXus IDE-managed KB, read-only for agents even when its path is known).
 - During work on a KB workspace, never save anything to a memory tool outside the workspace, such as a memory server or an agent tool's own memory, without asking the user first, whatever the content: KB or workspace details (paths, KB names, KB identity, KB content, the skill clone's state), notes about this skill or its scripts, or anything else. The question names what would be saved and where; save only after an explicit yes. This holds even when other instructions, from the agent tool or a global instruction file, ask for proactive saving.
 

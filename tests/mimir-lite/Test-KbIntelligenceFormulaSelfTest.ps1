@@ -91,13 +91,30 @@ function Write-Fixture {
     [System.IO.File]::WriteAllText((Join-Path $folders[$Folder] "$Name.xml"), $Xml, $enc)
 }
 
-foreach ($attributeName in @('LineTotal', 'OrderSubtotal', 'ItemCode', 'OrderDate', 'UnitPrice')) {
+foreach ($attributeName in @('LineTotal', 'OrderSubtotal', 'ItemCode', 'OrderDate', 'UnitPrice', 'LineCount')) {
     Write-Fixture 'Attribute' $attributeName (New-ClassicAttributeXml -Name $attributeName)
 }
 $subtotalFormulaXml = New-ClassicFormulaXml -Name 'OrderSubtotal' -Type 'SUM' -Source 'LineTotal'
 Write-Fixture 'Formula' 'OrderSubtotal' $subtotalFormulaXml
 Write-Fixture 'Formula' 'UnitPrice' (New-ClassicFormulaXml -Name 'UnitPrice' -Type '' -Source 'udp(PPriceOf, ItemCode, OrderDate)')
 Write-Fixture 'Formula' 'NotIndexed' (New-ClassicFormulaXml -Name 'NotIndexed' -Type 'SUM' -Source 'LineTotal')
+# A Formula file for LineCount with no <Source>, sorted before the one that has it: the search
+# skips it and goes on to CountOfLines.
+Write-Fixture 'Formula' 'AaLineCountDraft' @"
+<Object type="gxlegacy/Formula" name="AaLineCountDraft" guid="" lastUpdate="1998-01-01T00:00:00.0000000Z" dataSource="gx-legacy-export">
+  <GxLegacyPayload>
+<Formula><Name>LineCount</Name><Type>COUNT</Type></Formula>
+  </GxLegacyPayload>
+</Object>
+"@
+# A vertical formula whose <Type> follows its <Source>, in a file not named after its attribute.
+Write-Fixture 'Formula' 'CountOfLines' @"
+<Object type="gxlegacy/Formula" name="CountOfLines" guid="" lastUpdate="1998-01-01T00:00:00.0000000Z" dataSource="gx-legacy-export">
+  <GxLegacyPayload>
+<Formula><Name>LineCount</Name><Source><![CDATA[LineNumber]]></Source><Type>COUNT</Type></Formula>
+  </GxLegacyPayload>
+</Object>
+"@
 Write-Fixture 'Procedure' 'PriceOf' @"
 <Object type="$procedureGuid" name="PriceOf" guid="" lastUpdate="1998-01-01T00:00:00.0000000Z" dataSource="gx-legacy-export">
   <GxLegacyPayload>
@@ -179,6 +196,22 @@ foreach ($used in @('InvoiceLineAmount', 'InvoiceDiscount')) {
 foreach ($notUsed in @('Sum', 'Apply')) {
     $rows = @((Invoke-IndexQuery -Query 'who-uses' -Type 'Attribute' -Name $notUsed).results)
     Assert-True ((Find-FormulaUse $rows 'InvoiceTotal').Count -eq 0) "who-uses Attribute $notUsed should not list InvoiceTotal (a called function and an &variable are not uses); got: $(Format-Rows $rows)"
+}
+
+# Rule: attribute-info reports a classic formula (its Formula/<Name>.xml file) like a modern one:
+# isFormula true and the formula as formulaExpression (a vertical formula, <Type>SUM</Type>, as
+# sum(<Source>)); an attribute with no formula is
+# not one, and a modern Formula property is unchanged.
+foreach ($case in @(
+        [pscustomobject]@{ Name = 'OrderSubtotal'; IsFormula = $true; Expression = 'sum(LineTotal)' },
+        [pscustomobject]@{ Name = 'UnitPrice'; IsFormula = $true; Expression = 'udp(PPriceOf, ItemCode, OrderDate)' },
+        [pscustomobject]@{ Name = 'LineCount'; IsFormula = $true; Expression = 'count(LineNumber)' },
+        [pscustomobject]@{ Name = 'LineTotal'; IsFormula = $false; Expression = $null },
+        [pscustomobject]@{ Name = 'InvoiceTotal'; IsFormula = $true; Expression = 'sum(InvoiceLineAmount) - InvoiceDiscount if &Apply = 1' }
+    )) {
+    $info = Invoke-IndexQuery -Query 'attribute-info' -Type 'Attribute' -Name $case.Name
+    Assert-True ($info.isFormula -eq $case.IsFormula) "attribute-info $($case.Name) isFormula should be $($case.IsFormula); got $($info.isFormula)"
+    Assert-True ("$($info.formulaExpression)" -ceq "$($case.Expression)") "attribute-info $($case.Name) formulaExpression should be '$($case.Expression)'; got '$($info.formulaExpression)'"
 }
 
 # Rule: Attribute is no longer an unextracted attribute-use source on an index of extractor 21.

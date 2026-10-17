@@ -22,7 +22,7 @@ Gracias por considerar una contribución. Las contribuciones se aceptan bajo la 
 
 ## Ejecutar pruebas y verificaciones
 
-La CI ejecuta las verificaciones de abajo en Windows y en Linux, y se espera que un cambio las pase. Son las únicas verificaciones que debe ejecutar quien contribuye.
+Se espera que un cambio pase las verificaciones de abajo en Windows y en Linux. `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/Invoke-CiChecks.ps1` las ejecuta todas en orden, igual que la CI, y `pwsh -NoProfile -File tools/Invoke-LinuxTestsInDocker.ps1` ejecuta el mismo script en Linux dentro de un contenedor Docker local (Docker Desktop en Windows), sobre el HEAD commiteado. La CI (`.github/workflows/ci.yml`) ejecuta ese script en Windows y en Linux a pedido (Actions > CI > Run workflow) y con cada etiqueta de versión `v*`, no en cada push: los minutos de los runners alojados son limitados en el plan del repositorio, así que las verificaciones diarias se hacen en local. Una corrida disparada por una etiqueta empieza cuando la etiqueta ya está publicada, así que conviene ejecutar la CI a pedido sobre el commit de la versión antes de etiquetarlo. Son las únicas verificaciones que debe ejecutar quien contribuye.
 
 | Comando | Qué hace |
 |---|---|

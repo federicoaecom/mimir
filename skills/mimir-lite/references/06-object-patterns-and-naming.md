@@ -58,7 +58,7 @@ This document records patterns observed in the raw inventory and in the XML extr
 ### `Transaction`, `Domain`, and `Module`
 
 - Direct evidence: prefix-free conceptual names exist, e.g. `TRNExemploA`, `TRNExemploB`, `TRNExemploC`, `TRNExemploD`, `MODExemploA`, `MODExemploB`, `MODExemploC`.
-- Direct evidence: the comparative full export also showed shared containers/modules such as `Main Programs`, `ToBeDefined`, `UI`, `GAM_Frontend`, `GeneXusReporting`.
+- Direct evidence: the comparative full export also showed shared containers such as the Categories `Main Programs` and `ToBeDefined` (type `00000000-0000-0000-0000-000000000006`, folder `Module/`) and `UI`, `GAM_Frontend`, `GeneXusReporting`.
 - Strong inference: in these groups, the dominant pattern is a business or technical concept name, not a prefix.
 
 ## Organization patterns

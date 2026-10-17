@@ -242,6 +242,24 @@ UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
 ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE: dict[str, int] = {"Attribute": 21}
 COVERAGE_SCOPE_CALLS = "calls"
 COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
+COVERAGE_SCOPE_TABLE_NAVIGATION = "table_navigation"
+# Types whose objects can navigate a table with no extracted relation: a grid or form (Web Panel,
+# Work Panel, Transaction, the Work With and Smart Devices Panel patterns) navigates the table of
+# its attributes, and a for each or Data Provider group that names no table navigates the base
+# table GeneXus infers (a modern one is never related; a classic for each is related only when one
+# table fits, see navigates_inferred_table). The index relates a table only to the for each blocks
+# that name it or its prefix, to inferred classic base tables, and to Transaction levels.
+IMPLICIT_TABLE_NAVIGATION_SOURCE_TYPES = (
+    "DataProvider",
+    "Panel",
+    "Procedure",
+    "Report",
+    "Transaction",
+    "WebPanel",
+    "WorkPanel",
+    "WorkWith",
+    "WorkWithForWeb",
+)
 _CATALOG_TYPES_CACHE: dict[tuple[str | None, str | None, str], dict[str, dict[str, object]]] = {}
 
 
@@ -590,6 +608,57 @@ def object_info(conn: sqlite3.Connection, object_type: str, object_name: str) ->
     }
 
 
+# A classic formula (GeneXus 9 and earlier exports) is its own object in the corpus folder Formula,
+# named after the attribute it computes: <Formula><Name>Attr</Name>...<Source>expression</Source>.
+# The builder reads the same file for formula relations; it is not an indexed object.
+CLASSIC_FORMULA_FOLDER = "Formula"
+CLASSIC_FORMULA_NAME_RE = re.compile(r"<Formula\b[^>]*>\s*<Name>(?P<name>[^<]*)</Name>", re.IGNORECASE)
+CLASSIC_FORMULA_END_RE = re.compile(r"</Formula>", re.IGNORECASE)
+CLASSIC_FORMULA_SOURCE_RE = re.compile(r"<Source\b[^>]*>(?P<body>.*?)</Source>", re.IGNORECASE | re.DOTALL)
+# A vertical formula names its function in <Type> (SUM, COUNT, AVERAGE, MAX, MIN, FIND) and its
+# argument in <Source>: <Type>SUM</Type><Source>Attr</Source> is sum(Attr). An empty <Type> is a
+# horizontal formula whose <Source> is the whole expression.
+CLASSIC_FORMULA_TYPE_RE = re.compile(r"<Type>(?P<type>[^<]*)</Type>", re.IGNORECASE)
+CLASSIC_CDATA_RE = re.compile(r"^\s*<!\[CDATA\[(?P<body>.*)\]\]>\s*$", re.DOTALL)
+
+
+def classic_formula_expression(conn: sqlite3.Connection, attribute_name: str) -> str | None:
+    """The classic formula that computes the attribute, or None when the corpus has none:
+    Formula/<Name>.xml first, then any Formula file whose <Name> is the attribute (names compared
+    ignoring case); the first such file with a <Source> wins. A vertical formula is written as its
+    function applied to its <Source> (sum(Attr)), its <Type> read anywhere in the <Formula>
+    element; a horizontal one is its <Source>."""
+    source_root = metadata_map(conn).get("source_root")
+    if not source_root:
+        return None
+    folder = resolve_source_root(conn, source_root) / CLASSIC_FORMULA_FOLDER
+    if not folder.is_dir():
+        return None
+    named = folder / f"{attribute_name}.xml"
+    candidates = [named] + [path for path in sorted(folder.glob("*.xml")) if path != named]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        name_match = CLASSIC_FORMULA_NAME_RE.search(text)
+        if not name_match or html.unescape(name_match.group("name")).strip().lower() != attribute_name.lower():
+            continue
+        end_match = CLASSIC_FORMULA_END_RE.search(text, name_match.end())
+        element_end = end_match.start() if end_match else len(text)
+        source_match = CLASSIC_FORMULA_SOURCE_RE.search(text, name_match.end(), element_end)
+        if not source_match:
+            continue
+        body = source_match.group("body")
+        cdata = CLASSIC_CDATA_RE.match(body)
+        expression = (cdata.group("body") if cdata else html.unescape(body)).strip()
+        # <Type> outside the <Source> text (CDATA could hold the literal "<Type>").
+        outside_source = text[name_match.end():source_match.start()] + text[source_match.end():element_end]
+        type_match = CLASSIC_FORMULA_TYPE_RE.search(outside_source)
+        vertical_function = html.unescape(type_match.group("type")).strip().lower() if type_match else ""
+        return f"{vertical_function}({expression})" if vertical_function else expression
+    return None
+
+
 def attribute_info(conn: sqlite3.Connection, attribute_name: str) -> dict[str, object]:
     obj = fetch_object(conn, "Attribute", attribute_name)
     if obj is None:
@@ -601,6 +670,8 @@ def attribute_info(conn: sqlite3.Connection, attribute_name: str) -> dict[str, o
     xml_text = read_indexed_text(conn, obj["file_path"])
     properties = parse_properties(xml_text)
     formula_expression = properties.get("Formula")
+    if formula_expression is None:
+        formula_expression = classic_formula_expression(conn, str(obj["name"]))
     based_on = properties.get("idBasedOn")
     return {
         "query": "attribute-info",
@@ -800,10 +871,10 @@ def index_extractor_version(conn: sqlite3.Connection) -> int:
         return 0
 
 
-def legacy_unread_orphan_counts(conn: sqlite3.Connection) -> dict[str, int]:
-    """Skipped legacy orphan folders whose content no extractor reads, with their XML counts, as
-    the build recorded them; empty when the index has no (or a malformed) record."""
-    value = metadata_map(conn).get("legacy_unread_orphan_counts")
+def metadata_counts(conn: sqlite3.Connection, key: str) -> dict[str, int]:
+    """A JSON object of name to integer count stored in index metadata under key; empty when the
+    index has no (or a malformed) record. Non-integer values (a JSON true included) are dropped."""
+    value = metadata_map(conn).get(key)
     if not value:
         return {}
     try:
@@ -812,7 +883,23 @@ def legacy_unread_orphan_counts(conn: sqlite3.Connection) -> dict[str, int]:
         return {}
     if not isinstance(parsed, dict):
         return {}
-    return {str(key): int(count) for key, count in parsed.items() if isinstance(count, int)}
+    return {
+        str(name): count
+        for name, count in parsed.items()
+        if isinstance(count, int) and not isinstance(count, bool)
+    }
+
+
+def legacy_unread_orphan_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """Skipped legacy orphan folders whose content no extractor reads, with their XML counts, as
+    the build recorded them."""
+    return metadata_counts(conn, "legacy_unread_orphan_counts")
+
+
+def legacy_unread_code_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """Classic Procedures and Reports with no <CodeBlock>, whose code is not read, per type, as the
+    build recorded them."""
+    return metadata_counts(conn, "legacy_unread_code_counts")
 
 
 def partial_extraction_for_version(version: int) -> dict[str, dict[str, tuple[str, ...]]]:
@@ -864,7 +951,8 @@ def reverse_relation_coverage(
         gated_types = tuple(sorted(PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES))
         partial_types = partial_extraction_for_version(version)
     else:
-        scope = COVERAGE_SCOPE_CALLS
+        is_table = target_type is not None and target_type.casefold() == "table"
+        scope = COVERAGE_SCOPE_TABLE_NAVIGATION if is_table else COVERAGE_SCOPE_CALLS
         version = index_extractor_version(conn)
         source_types = UNEXTRACTED_CALL_SOURCE_TYPES + tuple(
             sorted(
@@ -873,6 +961,10 @@ def reverse_relation_coverage(
                 if version < since_version
             )
         )
+        # A table's coverage lists each type once: a type that can navigate implicitly is reported
+        # there, not also as an unextracted call source.
+        if is_table:
+            source_types = tuple(t for t in source_types if t not in IMPLICIT_TABLE_NAVIGATION_SOURCE_TYPES)
     counted_types = tuple(source_types) + gated_types
     placeholders = ", ".join("?" for _ in counted_types)
     rows = fetch_all(
@@ -910,10 +1002,36 @@ def reverse_relation_coverage(
         for row in rows
         if str(row["type"]) in partial_types
     ]
+    # Classic Procedures and Reports whose code the build found no <CodeBlock> for: their calls and
+    # attribute uses are missing in both scopes. An index built before the key lists none.
+    unread_code = [
+        {"type": object_type, "count": count}
+        for object_type, count in sorted(legacy_unread_code_counts(conn).items())
+        if count > 0
+    ]
+    implicit_navigation: list[dict[str, object]] = []
+    if scope == COVERAGE_SCOPE_TABLE_NAVIGATION:
+        implicit_placeholders = ", ".join("?" for _ in IMPLICIT_TABLE_NAVIGATION_SOURCE_TYPES)
+        implicit_navigation = [
+            {"type": str(row["type"]), "count": int(row["count"])}
+            for row in fetch_all(
+                conn,
+                f"""
+                SELECT type, COUNT(*) AS count
+                FROM objects
+                WHERE type IN ({implicit_placeholders})
+                GROUP BY type
+                ORDER BY type
+                """,
+                IMPLICIT_TABLE_NAVIGATION_SOURCE_TYPES,
+            )
+        ]
     return {
-        "complete": not unextracted and not partially_extracted,
+        "complete": not unextracted and not partially_extracted and not unread_code and not implicit_navigation,
         "unextracted_source_types": unextracted,
         "partially_extracted_source_types": partially_extracted,
+        "unread_classic_code": unread_code,
+        "implicit_navigation_source_types": implicit_navigation,
         "scope": scope,
     }
 
@@ -934,6 +1052,15 @@ def format_coverage_note(result: dict[str, object]) -> str | None:
         for entry in entries
         if isinstance(entry, dict)
     )
+    unread_entries = [entry for entry in coverage.get("unread_classic_code", []) if isinstance(entry, dict)]
+    unread_segment = (
+        "the code of classic "
+        + join_english_list([f"{entry.get('type')} ({entry.get('count')})" for entry in unread_entries])
+        + " was not found in Layout/Block/CodeBlock, where classic exports are expected to keep it, "
+        "so their calls and attribute uses are missing"
+        if unread_entries
+        else None
+    )
     if coverage.get("scope") == COVERAGE_SCOPE_ATTRIBUTE_REFERENCES:
         segments: list[str] = []
         if listed:
@@ -952,15 +1079,38 @@ def format_coverage_note(result: dict[str, object]) -> str | None:
                 for entry in partial_entries
             )
             segments.append(f"attribute uses are partly extracted from {described}")
+        if unread_segment:
+            segments.append(unread_segment)
         segments.append(
             "otherwise only structural relations (Transaction levels, Table keys and indexes) are indexed, "
             "so an empty or short list does not prove the attribute is unused"
         )
         return "coverage: incomplete - " + "; ".join(segments)
-    return (
-        f"coverage: incomplete - calls made from {listed} are not extracted; "
-        "callers of those types can be missing, so an empty or short list does not prove the object is unused"
-    )
+    call_segments: list[str] = []
+    if listed:
+        call_segments.append(f"calls made from {listed} are not extracted")
+    implicit_entries = [
+        entry for entry in coverage.get("implicit_navigation_source_types", []) if isinstance(entry, dict)
+    ]
+    if implicit_entries:
+        implicit_listed = ", ".join(f"{entry.get('type')} ({entry.get('count')})" for entry in implicit_entries)
+        call_segments.append(
+            f"navigation that names no table is not extracted from {implicit_listed}: grids and forms, "
+            "and a for each or Data Provider group without a table name (a classic for each relates to "
+            "its inferred base table only when one table fits); only for each blocks that name the table "
+            "or its prefix, inferred classic base tables and Transaction levels are indexed"
+        )
+    if unread_segment:
+        call_segments.append(unread_segment)
+    if coverage.get("scope") == COVERAGE_SCOPE_TABLE_NAVIGATION:
+        call_segments.append(
+            "navigations from those types can be missing, so an empty or short list does not prove the table is unused"
+        )
+    else:
+        call_segments.append(
+            "callers of those types can be missing, so an empty or short list does not prove the object is unused"
+        )
+    return "coverage: incomplete - " + "; ".join(call_segments)
 
 
 def attach_level_writability(conn: sqlite3.Connection, rows: list[dict[str, object]]) -> None:

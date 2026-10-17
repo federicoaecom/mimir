@@ -258,6 +258,36 @@ try {
     }
 }
 
+# A legacy export carries no <Source> block, so the KB GUID and names can never come from a sync:
+# a GeneXus 7.0 or earlier `.xpw` (source_export_format: xpw) and a GeneXus 7.5 to 9 classic XML
+# export (KMW major version 1 or 2; GeneXus X and later write 3 or more). When the metadata wrapper
+# is pending only because those identity fields are missing, the check does not apply to this
+# workspace: NOT_APPLICABLE, which is not a pendency. An invalid value still is.
+$kmwMajorVersion = $null
+$inKmwSection = $false
+foreach ($line in $metadataLines) {
+    if ($line -match '^\s*#+\s*(?<section>.+?)\s*$') {
+        $inKmwSection = ($Matches['section'] -eq 'KMW')
+        continue
+    }
+    if ($inKmwSection -and $line -match '^\s*\|\s*MajorVersion\s*\|\s*(?<value>\d+)\s*\|') {
+        $kmwMajorVersion = [int]$Matches['value']
+        break
+    }
+}
+$exportFormat = Normalize-Value (Get-MetadataField -Lines $metadataLines -FieldName 'source_export_format')
+$isIdentitylessLegacyExport = ($exportFormat -eq 'xpw') -or ($null -ne $kmwMajorVersion -and $kmwMajorVersion -lt 3)
+# The pending items are the wrapper engine's "PENDING_DATA: <field> missing" lines
+# (Test-MimirKbMetadataWrapper.ps1); keep this match in step with that wording.
+if ($metadataWrapperStatus -eq 'PENDING_DATA' -and $isIdentitylessLegacyExport) {
+    $pendingItems = @([regex]::Matches($metadataWrapperRaw, 'PENDING_DATA:\s*(?<item>[^|\r\n]+)') | ForEach-Object { $_.Groups['item'].Value.Trim() })
+    $onlyMissingIdentity = $pendingItems.Count -gt 0 -and -not @($pendingItems | Where-Object { $_ -notmatch '^(kbGuid|kbName|versionGuid|versionName) missing$' })
+    if ($onlyMissingIdentity) {
+        $metadataWrapperStatus = 'NOT_APPLICABLE'
+        $metadataWrapperRaw = "NOT_APPLICABLE: a legacy export (GeneXus 9 or earlier) carries no KB identity; $($pendingItems -join ', ')"
+    }
+}
+
 $syncStatus = if ($lastMaterialization) { 'OK' } else { 'PENDING' }
 $syncEvidence = if ($lastMaterialization) {
     "last_xpz_materialization_run_at=$lastMaterialization"
@@ -349,7 +379,7 @@ if (Test-Path -LiteralPath $inventoryScriptPath -PathType Leaf) {
 # already reaches here via INVENTORY_CUSTOMIZED (reason=surface_mismatch). Do NOT add the warning
 # labels to this regex (regression guard: Test-MimirWrapperInventorySelfTest.ps1).
 $hasInventoryMethodologyPendencies = $inventoryStatus -match '\b(INVENTORY_GAPS|INVENTORY_CUSTOMIZED)\b'
-$hasMetadataWrapperPendencies = $metadataWrapperStatus -ne 'OK'
+$hasMetadataWrapperPendencies = $metadataWrapperStatus -notin @('OK', 'NOT_APPLICABLE')
 
 $suggestedState = switch ($true) {
     ($powerShellRuntimeStatus -ne 'OK') { 'powershell_runtime_blocked'; break }

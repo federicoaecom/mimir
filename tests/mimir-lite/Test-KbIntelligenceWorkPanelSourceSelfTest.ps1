@@ -116,8 +116,10 @@ EndEvent]]></Events>
 '@
 Write-Fixture 'WorkPanel' 'WkParts' $classicXml
 Write-Fixture 'WorkPanel' 'WkPartDetail' (New-ClassicXml -Type $workPanelGuid -Name 'WkPartDetail' -RootElement 'WorkPanel' -Body '')
-Write-Fixture 'Procedure' 'PartStock' (New-ClassicXml -Type $procedureGuid -Name 'PartStock' -RootElement 'Procedure' -Body '')
-Write-Fixture 'Report' 'RptParts' (New-ClassicXml -Type 'gxlegacy/Report' -Name 'RptParts' -RootElement 'Report' -Body '')
+# A classic Procedure or Report keeps its (here empty) code in Layout/Block/CodeBlock, so the
+# unread classic code counter leaves them out.
+Write-Fixture 'Procedure' 'PartStock' (New-ClassicXml -Type $procedureGuid -Name 'PartStock' -RootElement 'Procedure' -Body '<Layout><Block><CodeBlock></CodeBlock></Block></Layout>')
+Write-Fixture 'Report' 'RptParts' (New-ClassicXml -Type 'gxlegacy/Report' -Name 'RptParts' -RootElement 'Report' -Body '<Layout><Block><CodeBlock></CodeBlock></Block></Layout>')
 
 # Modern Work Panel: Events and Rules Parts, as GeneXus X to 18 export a Windows Work Panel.
 $modernXml = @"

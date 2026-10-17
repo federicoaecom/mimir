@@ -14,6 +14,15 @@
        audit_incomplete in JSON, no throw.
     C. A complete read-side workspace audits clean (materialized_and_index_validated);
        a kb-source-metadata.md field outside the metadata wrapper contract is ignored.
+    D. An XPZ-only workspace synced from a GeneXus 7.0 or earlier `.xpw` export
+       (source_export_format: xpw, KMW 1.x), whose KB GUID and names are missing because a
+       `.xpw` carries no <Source> block: the metadata wrapper reports NOT_APPLICABLE and the
+       workspace audits clean.
+    E. The same for a GeneXus 7.5 to 9 classic XML export (KMW 2.x, no export-format marker).
+    F. A modern export (KMW 4.x) with the same identity fields missing keeps PENDING_DATA and
+       methodology_update_pending: only an export that cannot carry the identity is exempt.
+    G. A legacy export whose KB GUID is present but invalid keeps PENDING_DATA: the exemption
+       covers missing identity fields only.
 #>
 
 Set-StrictMode -Version Latest
@@ -70,7 +79,9 @@ function ConvertTo-PowerShellSingleQuotedLiteral {
 function New-SetupAuditFixture {
   param(
     [string]$Slug,
-    [switch]$IncludeUnknownMetadataField
+    [switch]$IncludeUnknownMetadataField,
+    # complete | xpw-missing | classic-xml-missing | modern-missing | xpw-invalid-guid
+    [string]$Identity = 'complete'
   )
 
   $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mimir-setupaudit-{0}-{1}" -f $Slug, ([guid]::NewGuid().ToString('N')))
@@ -108,6 +119,34 @@ function New-SetupAuditFixture {
     '| name | Demo |'
     '| guid | 22222222-2222-2222-2222-222222222222 |'
   )
+  if ($Identity -ne 'complete') {
+    # The KB GUID and names left empty, as a sync from an export without a <Source> block
+    # leaves them, with the export's KMW block and format marker.
+    $kbGuidCell = if ($Identity -eq 'xpw-invalid-guid') { 'not-a-guid' } else { '' }
+    $major, $marker = switch ($Identity) {
+      'xpw-missing' { '1', 'source_export_format: xpw' }
+      'xpw-invalid-guid' { '1', 'source_export_format: xpw' }
+      'classic-xml-missing' { '2', $null }
+      'modern-missing' { '4', $null }
+    }
+    $metadataLines = @(
+      "last_xpz_materialization_run_at: $timestamp"
+      'source_refresh_status: partial-new'
+    ) + @($marker | Where-Object { $_ }) + @(
+      '## KMW'
+      '| Field | Value |'
+      '|---|---|'
+      "| MajorVersion | $major |"
+      '| MinorVersion | 4 |'
+      '## Source'
+      '| field | value |'
+      "| kb (GUID) | $kbGuidCell |"
+      '## Source/Version'
+      '| field | value |'
+      '| name |  |'
+      '| guid |  |'
+    )
+  }
   if ($IncludeUnknownMetadataField) {
     $metadataLines += @('custom_local_field: keep-me')
   }
@@ -230,6 +269,23 @@ try {
   Assert-JsonDimension $rc.json 'declarative/timestamps' 'OK' 'C declarative timestamp dimension'
   Assert-JsonDimension $rc.json 'wrappers/inventory' 'INVENTORY_OK' 'C wrapper inventory is clean'
   Assert-JsonDimension $rc.json 'suggested_operational_state' $cleanState 'C operational state'
+
+  # --- D to G: identity fields missing from the metadata ---
+  $identityCases = @(
+    [pscustomobject]@{ Label = 'D'; Identity = 'xpw-missing'; Wrapper = 'NOT_APPLICABLE'; State = $cleanState; Evidence = 'carries no KB identity' },
+    [pscustomobject]@{ Label = 'E'; Identity = 'classic-xml-missing'; Wrapper = 'NOT_APPLICABLE'; State = $cleanState; Evidence = 'carries no KB identity' },
+    [pscustomobject]@{ Label = 'F'; Identity = 'modern-missing'; Wrapper = 'PENDING_DATA'; State = 'methodology_update_pending'; Evidence = 'kbGuid missing' },
+    [pscustomobject]@{ Label = 'G'; Identity = 'xpw-invalid-guid'; Wrapper = 'PENDING_DATA'; State = 'methodology_update_pending'; Evidence = 'kbGuid invalid' }
+  )
+  foreach ($case in $identityCases) {
+    $fixture = New-SetupAuditFixture -Slug $case.Identity -Identity $case.Identity
+    $roots.Add($fixture.Root)
+    $result = Invoke-SetupAuditFixture -Fixture $fixture
+    Assert-True ($null -ne $result.json) "$($case.Label): stdout should be parseable JSON; got $($result.stdout)"
+    Assert-JsonDimension $result.json 'metadata wrapper' $case.Wrapper "$($case.Label) ($($case.Identity)) metadata wrapper"
+    Assert-JsonDimension $result.json 'suggested_operational_state' $case.State "$($case.Label) ($($case.Identity)) operational state"
+    Assert-JsonValueContains $result.json 'metadata wrapper.evidence' $case.Evidence "$($case.Label) ($($case.Identity)) evidence"
+  }
 
   'MIMIR_SETUP_AUDIT_CONTRACT_SELFTEST_OK'
 }

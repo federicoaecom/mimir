@@ -321,7 +321,7 @@ Provide empirical observations about attribute presence and contextual relations
 
 - Direct evidence: example cited: sanitized alias in Folder\\SANITIZED-EXAMPLE.xml.
 - Direct evidence: example cited: sanitized alias in Folder\\SANITIZED-EXAMPLE.xml.
-- Direct evidence: example cited: Main Programs in Folder\Main Programs.xml.
+- Direct evidence: example cited: Main Programs in `Module\Main Programs.xml` (a Category, type `00000000-0000-0000-0000-000000000006`, materialized in the `Module/` folder).
 - Direct evidence: example cited: sanitized alias in Folder\\SANITIZED-EXAMPLE.xml.
 
 ## Image

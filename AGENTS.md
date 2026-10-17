@@ -47,7 +47,7 @@ Maintainers may keep private working notes outside the published tree. Published
 
 ## Commands
 
-All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and macOS: 7.4.2 loses a native command's stderr when stdout and stderr are redirected to separate files). CI runs the test suite and the checks listed in `CONTRIBUTING.md` on Windows and Linux (`.github/workflows/ci.yml`); the pre-push mechanical checks are local only.
+All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and macOS: 7.4.2 loses a native command's stderr when stdout and stderr are redirected to separate files). CI (`.github/workflows/ci.yml`) runs `tools/Invoke-CiChecks.ps1` (the test suite and the checks listed in `CONTRIBUTING.md`) on Windows and Linux, on demand and for each `v*` tag only; day to day, run it locally, and on Linux through Docker. The pre-push mechanical checks are local only.
 
 | Command | Purpose |
 |---|---|
@@ -57,6 +57,8 @@ All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and 
 | `pwsh -NoProfile -File tools/Test-PyScriptsParse.ps1` | Python parse check (no bytecode written) |
 | `pwsh -NoProfile -File tools/Test-MarkdownLinks.ps1` | Relative Markdown link / bare-mention check |
 | `pwsh -NoProfile -ExecutionPolicy Bypass -File tools/Invoke-PrePushMechanicalChecks.ps1 -AsJson` | Pre-push mechanical checks (git context, parse, whitespace) |
+| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/Invoke-CiChecks.ps1` | Every CI check in order, as CI runs it |
+| `pwsh -NoProfile -File tools/Invoke-LinuxTestsInDocker.ps1` | The CI checks on Linux in a local Docker container (committed HEAD) |
 
 `-ExecutionPolicy Bypass` is required when a script dot-sources another `.ps1` as a child process on a machine with a restrictive execution policy (see `tests/Invoke-Tests.ps1`'s own doc comment).
 

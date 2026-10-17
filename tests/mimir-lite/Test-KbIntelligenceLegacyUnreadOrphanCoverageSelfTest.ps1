@@ -43,7 +43,7 @@ function New-Kb {
     param([string]$Root, [switch]$WithOrphans)
     $objects = Join-Path $Root 'KbObjectsXml'
     foreach ($folder in @('Procedure', 'Attribute')) { [void](New-Item -ItemType Directory -Path (Join-Path $objects $folder) -Force) }
-    [System.IO.File]::WriteAllText((Join-Path $objects 'Procedure/PrcTarget.xml'), (New-LegacyXml -Type $procedureGuid -Name 'PrcTarget' -Inner '<Procedure><Info><Name>PrcTarget</Name></Info></Procedure>'), $enc)
+    [System.IO.File]::WriteAllText((Join-Path $objects 'Procedure/PrcTarget.xml'), (New-LegacyXml -Type $procedureGuid -Name 'PrcTarget' -Inner '<Procedure><Info><Name>PrcTarget</Name></Info><Layout><Block><CodeBlock></CodeBlock></Block></Layout></Procedure>'), $enc)
     [System.IO.File]::WriteAllText((Join-Path $objects 'Attribute/OrdAmount.xml'), (New-LegacyXml -Type 'gxlegacy/Attribute' -Name 'OrdAmount' -Inner '<GXAtt><Attribute><Id>1</Id><Name>OrdAmount</Name></Attribute></GXAtt>').Replace('<Object type="gxlegacy/Attribute"', '<Attribute').Replace('</Object>', '</Attribute>'), $enc)
     if ($WithOrphans) {
         foreach ($folder in @('Prompt', 'Formula')) { [void](New-Item -ItemType Directory -Path (Join-Path $objects $folder) -Force) }

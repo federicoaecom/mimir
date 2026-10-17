@@ -22,7 +22,9 @@ Thank you for considering a contribution. Contributions are accepted under the p
 
 ## Running tests and checks
 
-CI runs the checks below on Windows and Linux, and a change is expected to pass them. They are the only checks a contributor must run.
+A change is expected to pass the checks below on Windows and Linux. They are the only checks a contributor must run. `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/Invoke-CiChecks.ps1` runs them all in order, exactly as CI does, and `pwsh -NoProfile -File tools/Invoke-LinuxTestsInDocker.ps1` runs the same script on Linux in a local Docker container (Docker Desktop on Windows), on the committed HEAD.
+
+CI (`.github/workflows/ci.yml`) runs that script on Windows and Linux on demand (Actions > CI > Run workflow) and for each `v*` release tag, not on every push: hosted-runner minutes are limited on the repository's plan, so day-to-day checks run locally. A tag-triggered run starts after the tag is published, so run CI on demand on the release commit before tagging it.
 
 | Command | Purpose |
 |---|---|
