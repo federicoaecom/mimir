@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-18
+
+The first stable release.
+
 ### Added
 
 - The skill can be installed for one project instead of generally. The README's agent steps (English and Spanish) and the **install** workflow ask the scope once: general (the default, as before) or one project, usually the KB workspace, whose `.claude/skills` (Claude Code) and `.agents/skills` (Codex, Cursor, OpenCode, Pi, GitHub Copilot, Gemini CLI, Antigravity) then hold the links, with the clone still outside the project. The registration audit takes `-Scope Project -ProjectRoot <project>` and lists in `userScopeAlsoRegistered` any skill also installed generally (Claude Code prefers the general one). The KB workspace `.gitignore` ignores both link folders, and setup step 20a gives the project-relative read rule for a project install. This changes the setup contract signature: existing workspaces see a setup-contract change and re-audit once.
@@ -14,6 +18,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- The **setup** workflow no longer offers the global "KB workspace" trigger when the skill is installed for one project only: the trigger applies to every project, and the others do not have the skill. In an XPZ-only setup with the XPZ at hand, it proposes the KB name from the KB folder the export names, and asks which name to use when the user gave a different one, before the scaffolder writes the wrapper prefix; the sync pre-scan (`Get-GeneXusXpzObjectInventory.ps1`) reports that block in a new field `sourceKb` (`kbGuid`, `uncPath`, `kbFolderName`, `versionName`; null for an export without one). The closing message no longer tells the user to open the agent tool in the KB workspace folder when the session was already opened there. Seen in end-to-end run 12. This changes the setup contract signature: existing workspaces see a setup-contract change and re-audit once.
 - KB Intelligence (extractor 26): a `WorkWithForWeb` filter condition that uses the legacy `.like.` operator (`CustomerName .like. OtherAttribute`) gives the attribute after it; it was read as a member after `.` and dropped, while `.and.`, `.or.`, and `.not.` were already handled. The code extractors already read `.like.`. The extractor version goes from 25 to 26, so existing indexes are rebuilt once.
 - The README's agent steps (English and Spanish) say where to read the README when its page cannot be fetched, as an anonymous fetch of a private repository returns 404: from an existing clone, or with an authenticated `gh api` call, cloning then with `gh repo clone`. Seen in end-to-end run 11.
 - Objects repeated inside one export (a GeneXus 6 export re-emits a style object each time it is referenced) no longer inflate the counts. The pre-scan (`Get-GeneXusXpzObjectInventory.ps1`) keeps `objectCount` and `objectsByType` as entries and adds `distinctObjectCount`, `distinctObjectsByType`, and `duplicatesInExport` (with a warning naming the repeats), and the **sync** workflow quotes the distinct counts in its full-export question. The sync writes each object once and reports its identical copies as `RepeatedInExport` (with `RepeatedInExportNames`) instead of `Unchanged`; a copy that differs is still written last and named in a warning. Seen in end-to-end run 11 (14 Transaction entries for 9 Transactions).

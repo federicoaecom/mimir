@@ -85,6 +85,42 @@ if ($resultXpz.inputKind -ne 'xpz') { throw 'inputKind xpz expected' }
 if ($resultXpz.objectCount -ne 4) { throw 'objectCount xpz expected 4' }
 if (@($resultXpz.systemObjectsPresent).Count -ne 2) { throw 'systemObjectsPresent xpz expected 2' }
 
+# sourceKb reports the export's <Source> block, so setup can propose the KB name before the first
+# sync: the KB folder is the last segment of UNCPath (a trailing separator is ignored). An export
+# with no <Source> block reports null.
+if ($null -ne $result.PSObject.Properties['sourceKb'] -and $null -ne $result.sourceKb) {
+    throw "sourceKb expected null for an export with no <Source> block; got $($result.sourceKb | ConvertTo-Json -Compress)"
+}
+if ($null -eq $result.PSObject.Properties['sourceKb']) { throw 'output field sourceKb expected' }
+$sourceXml = @"
+<ExportFile>
+  <Source kb="33333333-3333-3333-3333-333333333301" username="SampleUser" UNCPath="\\SAMPLEHOST\KBs\SampleKbFolder\">
+    <Version guid="33333333-3333-3333-3333-333333333302" name="SampleKbVersion" />
+  </Source>
+  <Objects>
+    <Object type="$procedureGuid" name="ProcPedida" guid="11111111-1111-1111-1111-111111111102" />
+  </Objects>
+</ExportFile>
+"@
+$sourcePath = Join-Path $tempRoot 'package-source.import_file.xml'
+[System.IO.File]::WriteAllText($sourcePath, $sourceXml, (Get-Utf8NoBomEncoding))
+$resultSource = (& $inventoryScript -InputPath $sourcePath | ConvertFrom-Json)
+$expectedSourceKb = [ordered]@{
+    kbGuid       = '33333333-3333-3333-3333-333333333301'
+    uncPath      = '\\SAMPLEHOST\KBs\SampleKbFolder\'
+    kbFolderName = 'SampleKbFolder'
+    versionName  = 'SampleKbVersion'
+}
+if ($null -eq $resultSource.sourceKb) { throw 'sourceKb expected for an export with a <Source> block; got null' }
+foreach ($field in $expectedSourceKb.Keys) {
+    if ($resultSource.sourceKb.$field -cne $expectedSourceKb[$field]) {
+        throw "sourceKb.$field expected '$($expectedSourceKb[$field])'; got '$($resultSource.sourceKb.$field)'"
+    }
+}
+if ($resultSource.status -ne 'INVENTORY_OK' -or $resultSource.objectCount -ne 1) {
+    throw "a <Source> block must not change the inventory: status $($resultSource.status), objectCount $($resultSource.objectCount)"
+}
+
 $workWithXml = @"
 <ExportFile>
   <Objects>

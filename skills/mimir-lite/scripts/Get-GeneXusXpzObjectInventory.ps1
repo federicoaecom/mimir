@@ -386,6 +386,22 @@ if ($repeatedGroups.Count -gt 0) {
 }
 $systemObjectsPresent = @(Get-SystemObjectsPresent -InventoryItems $inventoryArray -PlatformKindSets $platformKindSets)
 
+# The export's <Source> block (the KB it was exported from), or null when there is none (a .xpw,
+# a GeneXus 9 classic export): setup proposes the KB name from it before the first sync. The KB
+# folder is the last segment of UNCPath.
+$sourceKb = $null
+$sourceNode = $root.SelectSingleNode('./Source')
+if ($null -ne $sourceNode) {
+    $versionNode = $sourceNode.SelectSingleNode('./Version')
+    $uncPath = $sourceNode.GetAttribute('UNCPath')
+    $sourceKb = [ordered]@{
+        kbGuid       = $sourceNode.GetAttribute('kb')
+        uncPath      = $uncPath
+        kbFolderName = @($uncPath -split '[\\/]' | Where-Object { $_ -ne '' } | Select-Object -Last 1) -join ''
+        versionName  = if ($null -ne $versionNode) { $versionNode.GetAttribute('name') } else { '' }
+    }
+}
+
 # Ready-made message (GUID, type name and package from the package's Dependencies block,
 # count, sample names): the sync wrapper surfaces it when the pre-scan blocks.
 $unknownTypesMessage = $null
@@ -418,6 +434,7 @@ $result = [ordered]@{
     innerXmlEntry        = $package.InnerXmlName
     rootElement          = $root.LocalName
     legacyFormatDetected = $legacyFormatDetected
+    sourceKb             = $sourceKb
     totalItemCount       = $inventoryArray.Count
     objectCount          = $objectItems.Count
     attributeCount       = $attributeItems.Count
