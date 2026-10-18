@@ -42,10 +42,25 @@
     skills repository, but whose name is no longer in the root inventory. Links to
     other repositories do not count as orphans of the XPZ repo.
 
+.PARAMETER Scope
+    User (default) audits the user-level skills folders under the profile (~/.claude/skills,
+    ~/.agents/skills, ...). Project audits the project-level folders under -ProjectRoot instead:
+    Claude Code <project>/.claude/skills; Codex and Antigravity <project>/.agents/skills; Cursor
+    <project>/.agents/skills or <project>/.cursor/skills (compatibility: .claude/skills,
+    .codex/skills); OpenCode <project>/.opencode/skills, .agents/skills or .claude/skills. Tool
+    installation is still detected from the profile. In Project scope the result also lists, in
+    userScopeAlsoRegistered, each audited skill that a tool also has at user level: Claude Code
+    prefers a personal skill over a project one, so the project link may be shadowed. That list
+    is a warning, never a gap.
+
+.PARAMETER ProjectRoot
+    The project folder for -Scope Project (required there, refused otherwise); it must exist.
+
 .PARAMETER AdditionalSkillsRoot
     Extra skills directories to audit for tools without built-in support
     (for example ~/.agents/skills, or another tool's own skills directory).
-    Relative paths resolve against the user profile; absolute paths are used as is.
+    A path starting with ~ resolves against the user profile; any other relative path against
+    the user profile (user scope) or the project (project scope); absolute paths are used as is.
 
 .PARAMETER SkipTool
     Tools the user chose not to link, by their tools[].name (for example Cursor,
@@ -77,7 +92,8 @@
          are reported in the output, not through the exit code).
       1  the audit did not run. A BLOCK (unknown -SkipTool, -OnlyTool or
          -SkipSkill name, -OnlyTool combined with -SkipTool, repository root not
-         inferable, no user profile directory) writes its
+         inferable, no user profile directory, -Scope Project without -ProjectRoot,
+         -ProjectRoot without -Scope Project, a -ProjectRoot that does not exist) writes its
          message, starting with "BLOCK:", to stderr; any other terminating
          error (for example a -RepoRoot that does not exist) also exits 1.
          Stdout stays empty in both cases (no JSON, even with -AsJson).
@@ -86,6 +102,11 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot,
+
+    [ValidateSet('User', 'Project')]
+    [string]$Scope = 'User',
+
+    [string]$ProjectRoot,
 
     [ValidateSet('compact', 'expansive')]
     [string]$Strategy = 'compact',
@@ -277,6 +298,23 @@ function Get-EntryInfo {
 $root = Resolve-RepoRoot -Requested $RepoRoot
 $profileRoot = Get-ProfileRoot
 
+# The folder the skills folders are resolved under: the profile (user scope) or the project.
+$isProjectScope = ($Scope -eq 'Project')
+if ($isProjectScope -and [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    throw 'BLOCK: -Scope Project needs -ProjectRoot <project folder>.'
+}
+if (-not $isProjectScope -and -not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    throw 'BLOCK: -ProjectRoot is only valid with -Scope Project.'
+}
+$resolvedProjectRoot = $null
+if ($isProjectScope) {
+    if (-not (Test-Path -LiteralPath $ProjectRoot -PathType Container)) {
+        throw ("BLOCK: -ProjectRoot folder not found: {0}" -f $ProjectRoot)
+    }
+    $resolvedProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
+}
+$skillsBaseRoot = if ($isProjectScope) { $resolvedProjectRoot } else { $profileRoot }
+
 # Inventory: root subfolders that contain SKILL.md
 $inventory = @(
     Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
@@ -289,16 +327,32 @@ foreach ($s in $inventory) { [void]$inventorySet.Add($s) }
 # Directory map per tool (native + compatibility)
 # Cursor: native is required only at ~/.cursor/skills (compact and expansive). .agents/.claude/.codex
 # count as compat — covered_by_compatibility counts as REGISTRATION_GAPS.
-$toolDefs = @(
+$userToolDefs = @(
     [ordered]@{ Name = 'ClaudeCode'; Native = @('.claude\skills'); Compat = @() },
     [ordered]@{ Name = 'Codex'; Native = @('.codex\skills', '.agents\skills'); Compat = @() },
     [ordered]@{ Name = 'Cursor'; Native = @('.cursor\skills'); Compat = @('.agents\skills', '.claude\skills', '.codex\skills') },
     [ordered]@{ Name = 'OpenCode'; Native = @('.config\opencode\skills', '.agents\skills'); Compat = @() },
     [ordered]@{ Name = 'Antigravity'; Native = @('.gemini\config\skills', '.agents\skills'); Compat = @() }
 )
+# Project scope: the project-level folders each tool documents (Claude Code reads only
+# .claude/skills; the others read the shared .agents/skills).
+$projectToolDefs = @(
+    [ordered]@{ Name = 'ClaudeCode'; Native = @('.claude\skills'); Compat = @() },
+    [ordered]@{ Name = 'Codex'; Native = @('.agents\skills'); Compat = @() },
+    [ordered]@{ Name = 'Cursor'; Native = @('.agents\skills', '.cursor\skills'); Compat = @('.claude\skills', '.codex\skills') },
+    [ordered]@{ Name = 'OpenCode'; Native = @('.opencode\skills', '.agents\skills', '.claude\skills'); Compat = @() },
+    [ordered]@{ Name = 'Antigravity'; Native = @('.agents\skills'); Compat = @() }
+)
+$toolDefs = if ($isProjectScope) { $projectToolDefs } else { $userToolDefs }
 # User-declared directories (tools without built-in support): always treated as installed.
+# A ~ path always means the user profile, also in project scope (where other relative paths
+# resolve against the project): resolve it here, so later lookups get an absolute path.
+function Resolve-AdditionalSkillsRoot([string]$Path) {
+    if ($Path -eq '~' -or $Path -match '^~[\\/]') { return Resolve-SkillsDir -ProfileRoot $profileRoot -Path $Path }
+    return $Path
+}
 foreach ($extra in @($AdditionalSkillsRoot | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
-    $toolDefs += [ordered]@{ Name = "Custom:$extra"; Native = @($extra); Compat = @(); Declared = $true }
+    $toolDefs += [ordered]@{ Name = "Custom:$extra"; Native = @(Resolve-AdditionalSkillsRoot $extra); Compat = @(); Declared = $true }
 }
 
 function Split-NameList {
@@ -350,6 +404,7 @@ foreach ($name in (Split-NameList -Values $SkipSkill)) {
 }
 
 $toolsReport = @()
+$userScopeAlsoRegistered = @()
 $sumOk = 0; $sumMissing = 0; $sumBroken = 0; $sumCompat = 0; $sumSkipped = 0
 
 foreach ($def in $toolDefs) {
@@ -363,7 +418,7 @@ foreach ($def in $toolDefs) {
             $status = 'missing'; $linkType = ''; $target = ''
 
             foreach ($rel in $def.Native) {
-                $dir = Resolve-SkillsDir -ProfileRoot $profileRoot -Path $rel
+                $dir = Resolve-SkillsDir -ProfileRoot $skillsBaseRoot -Path $rel
                 $entry = Get-EntryInfo -DirPath $dir -Name $skill
                 if ($entry.present) {
                     if ($entry.targetValid) { $status = 'OK'; $linkType = $entry.linkType; $target = $entry.target; break }
@@ -373,7 +428,7 @@ foreach ($def in $toolDefs) {
 
             if ($status -eq 'missing') {
                 foreach ($rel in $def.Compat) {
-                    $dir = Resolve-SkillsDir -ProfileRoot $profileRoot -Path $rel
+                    $dir = Resolve-SkillsDir -ProfileRoot $skillsBaseRoot -Path $rel
                     $entry = Get-EntryInfo -DirPath $dir -Name $skill
                     if ($entry.present -and $entry.targetValid) {
                         $status = 'covered_by_compatibility'; $linkType = $entry.linkType; $target = $entry.target; break
@@ -396,6 +451,19 @@ foreach ($def in $toolDefs) {
             }
 
             $skillsStatus += [ordered]@{ name = $skill; status = $status; linkType = $linkType; target = $target }
+
+            # Project scope: the same skill registered at user level for this tool (an audited
+            # tool and skill only: one skipped by choice is left out even when its link exists).
+            if ($isProjectScope -and -not $toolSkipped -and -not $skippedSkills.Contains($skill)) {
+                $userDef = @($userToolDefs | Where-Object { $_.Name -eq $def.Name })
+                foreach ($rel in @($userDef | ForEach-Object { $_.Native })) {
+                    $userDir = Resolve-SkillsDir -ProfileRoot $profileRoot -Path $rel
+                    if ((Get-EntryInfo -DirPath $userDir -Name $skill).present) {
+                        $userScopeAlsoRegistered += [ordered]@{ tool = $def.Name; skill = $skill; path = (Join-Path $userDir $skill) }
+                        break
+                    }
+                }
+            }
         }
     }
 
@@ -403,8 +471,8 @@ foreach ($def in $toolDefs) {
         name            = $def.Name
         installed       = $installed
         skippedByChoice = $toolSkipped
-        native          = @($def.Native | ForEach-Object { Resolve-SkillsDir -ProfileRoot $profileRoot -Path $_ })
-        compat          = @($def.Compat | ForEach-Object { Resolve-SkillsDir -ProfileRoot $profileRoot -Path $_ })
+        native          = @($def.Native | ForEach-Object { Resolve-SkillsDir -ProfileRoot $skillsBaseRoot -Path $_ })
+        compat          = @($def.Compat | ForEach-Object { Resolve-SkillsDir -ProfileRoot $skillsBaseRoot -Path $_ })
         skills          = $skillsStatus
     }
 }
@@ -413,10 +481,14 @@ foreach ($def in $toolDefs) {
 $rootNorm = (ConvertTo-LongPath -Path $root).TrimEnd([char[]]@('\', '/')).ToLowerInvariant()
 $allDirs = [System.Collections.Generic.List[string]]::new()
 $seenCanonical = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-$scanDirs = @('.claude\skills', '.codex\skills', '.agents\skills', '.cursor\skills', '.config\opencode\skills', '.gemini\config\skills') +
-    @($AdditionalSkillsRoot | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$scopeScanDirs = if ($isProjectScope) {
+    @('.claude\skills', '.agents\skills', '.cursor\skills', '.codex\skills', '.opencode\skills')
+} else {
+    @('.claude\skills', '.codex\skills', '.agents\skills', '.cursor\skills', '.config\opencode\skills', '.gemini\config\skills')
+}
+$scanDirs = $scopeScanDirs + @($AdditionalSkillsRoot | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Resolve-AdditionalSkillsRoot $_ })
 foreach ($rel in $scanDirs) {
-    $fullDir = Resolve-SkillsDir -ProfileRoot $profileRoot -Path $rel
+    $fullDir = Resolve-SkillsDir -ProfileRoot $skillsBaseRoot -Path $rel
     if (Test-Path -LiteralPath $fullDir -PathType Container) {
         $canonical = (Resolve-Path -LiteralPath $fullDir).Path
         $canonLong = (ConvertTo-LongPath -Path $canonical).TrimEnd([char[]]@('\', '/')).ToLowerInvariant()
@@ -453,6 +525,8 @@ if ($hasGaps) { $overall = 'REGISTRATION_GAPS' } else { $overall = 'REGISTRATION
 $result = [ordered]@{
     overall         = $overall
     repoRoot        = $root
+    scope           = $Scope.ToLowerInvariant()
+    projectRoot     = $resolvedProjectRoot
     strategy        = $Strategy
     skillsInventory = @($inventory)
     skippedByChoice = [ordered]@{
@@ -461,6 +535,7 @@ $result = [ordered]@{
     }
     tools           = $toolsReport
     orphans         = @($orphans)
+    userScopeAlsoRegistered = @($userScopeAlsoRegistered)
     summary         = [ordered]@{
         ok              = $sumOk
         coveredByCompat = $sumCompat
@@ -479,6 +554,7 @@ if ($AsJson) {
 # Human-readable output
 Write-Output ("OVERALL: {0}" -f $overall)
 Write-Output ("Repo: {0}" -f $root)
+if ($isProjectScope) { Write-Output ("Scope: project ({0})" -f $resolvedProjectRoot) }
 Write-Output ("Inventory: {0} skills | Strategy: {1}" -f @($inventory).Count, $Strategy)
 if ($skippedTools.Count -gt 0 -or $skippedSkills.Count -gt 0) {
     Write-Output ("Not linked by the user's choice: tools [{0}] | skills [{1}]" -f ($skippedTools -join ', '), ($skippedSkills -join ', '))
@@ -508,6 +584,11 @@ if (@($orphans).Count -gt 0) {
 }
 else {
     Write-Output 'Orphans: none'
+}
+if (@($userScopeAlsoRegistered).Count -gt 0) {
+    Write-Output ''
+    Write-Output 'Also registered at user level (for Claude Code the personal skill takes precedence over the project one):'
+    foreach ($u in $userScopeAlsoRegistered) { Write-Output ("    [{0}] {1}  ->  {2}" -f $u.tool, $u.skill, $u.path) }
 }
 Write-Output ''
 Write-Output ("Summary: OK={0} compat={1} missing={2} broken={3} skippedByChoice={4} orphans={5}" -f `

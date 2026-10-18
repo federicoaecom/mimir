@@ -21,7 +21,8 @@
     - The selection filter and the Grid tab filter hold <condition value="..."> expressions.
       Attributes they name (LineNumber, InvoiceStatus, the arguments InvoiceDiscount and
       InvoiceAmount of InvoiceCheck(...) and InvoiceRule.udp(...), InvoiceDueDate after the
-      legacy '.and.' operator and before a member call, InvoiceRegion in the Grid tab)
+      legacy '.and.' operator and before a member call, InvoiceLikeTarget after the legacy
+      '.like.' operator and InvoiceLikeUpper after '.LIKE.' written uppercase with no spaces, InvoiceRegion in the Grid tab)
       are extracted with the condition role at the line of their <condition> tag. A // comment
       ends at its line only: InvoiceBalance, on the line after a comment inside a multi-line
       condition value (an encoded &#xA;), is extracted. A <condition> outside any <filter> (the
@@ -110,6 +111,8 @@ $instanceTemplate = @'
           <condition value="InvoiceTotal &gt; 0 // InvoiceNote&#xA;and InvoiceBalance &gt; 0" />
           <condition value="InvoiceDueDate.InvoiceMonth // InvoiceNote&#xA;and InvoiceAfterMember = 1" />
           <condition value="udp( // InvoiceNote&#xA;InvoiceCheck, InvoiceAfterOpener) = 1" />
+          <condition value="CustomerName .like. InvoiceLikeTarget" />
+          <condition value="CustomerName.LIKE.InvoiceLikeUpper" />
         </conditions>
       </filter>
     </selection>
@@ -199,7 +202,7 @@ try {
         'InvoiceAmount', 'InvoiceStatus', 'InvoiceDiscount', 'InvoiceDueDate', 'InvoiceRegion',
         'InvoiceBalance', 'InvoiceCredit', 'InvoiceSearch', 'InvoiceNote', 'InvoiceCheck', 'InvoiceRule', 'InvoiceMonth',
         'InvoiceAfterMember', 'InvoiceAfterOpener', 'InvoiceQuoted', 'InvoiceStray', 'InvoiceNestedInner', 'InvoiceNestedOuter',
-        'Like', 'When', 'Not', 'And', 'Or', 'Null'
+        'Like', 'When', 'Not', 'And', 'Or', 'Null', 'InvoiceLikeTarget', 'InvoiceLikeUpper'
     )
     for ($index = 0; $index -lt $extraAttributes.Count; $index++) {
         $attributeXml = @"
@@ -226,7 +229,7 @@ try {
     # selection condition before the Grid tab names it, so its first occurrence is the condition.
     $expectedTargets = @(
         'CustomerId', 'CustomerName', 'InvoiceAfterMember', 'InvoiceAfterOpener', 'InvoiceAmount', 'InvoiceBalance', 'InvoiceDate',
-        'InvoiceDiscount', 'InvoiceDueDate', 'InvoiceId', 'InvoiceNestedInner', 'InvoiceQuoted', 'InvoiceRegion', 'InvoiceStatus',
+        'InvoiceDiscount', 'InvoiceDueDate', 'InvoiceId', 'InvoiceLikeTarget', 'InvoiceLikeUpper', 'InvoiceNestedInner', 'InvoiceQuoted', 'InvoiceRegion', 'InvoiceStatus',
         'InvoiceTotal', 'LineNumber', 'ProductName', 'Quantity'
     )
     $evidenceMarkers = @{
@@ -240,6 +243,8 @@ try {
         InvoiceDiscount = @('<condition value="CustomerName like', 'WorkWithForWeb condition')
         InvoiceDueDate  = @('<condition value="Quantity &gt; 0 .and.', 'WorkWithForWeb condition')
         InvoiceId       = @('-invoiceid" />', 'WorkWithForWeb attribute')
+        InvoiceLikeTarget = @('<condition value="CustomerName .like.', 'WorkWithForWeb condition')
+        InvoiceLikeUpper = @('<condition value="CustomerName.LIKE.', 'WorkWithForWeb condition')
         InvoiceNestedInner = @('<condition value="InvoiceNestedInner', 'WorkWithForWeb condition')
         InvoiceQuoted   = @('<condition value="InvoiceQuoted', 'WorkWithForWeb condition')
         InvoiceRegion   = @('<condition value="InvoiceRegion =', 'WorkWithForWeb condition')

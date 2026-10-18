@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Iterable
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
-EXTRACTOR_SIGNATURE_VERSION = "25"
+EXTRACTOR_SIGNATURE_VERSION = "26"
 
 # Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
 IDBASEDON_DOMAIN_SOURCE_TYPES = (
@@ -462,12 +462,12 @@ WORKWITH_FOR_WEB_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 # Condition expression tokens, tried in order: // comment (to the end of its line), string
-# literals, legacy dotted operators (.and. .or. .not.), &variables, numbers, names, a member dot,
-# any other character.
+# literals, legacy dotted operators (.and. .or. .not. .like., so a name after one is not read as a
+# member), &variables, numbers, names, a member dot, any other character.
 WORKWITH_CONDITION_TOKEN_RE = re.compile(
     r"(?P<comment>//[^\n]*)"
     r"|(?P<literal>'[^']*(?:'|$)|\"[^\"]*(?:\"|$))"
-    r"|(?P<operator>\.(?:and|or|not)\.)"
+    r"|(?P<operator>\.(?:and|or|not|like)\.)"
     r"|(?P<variable>&[A-Za-z_][A-Za-z0-9_]*)"
     r"|(?P<number>\d[A-Za-z0-9_]*(?:\.\d+)?)"
     r"|(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
@@ -2567,7 +2567,7 @@ def workwith_condition_attribute_names(expression: str) -> list[str]:
     only, so a multi-line value goes on after it), string literals, &variables, members after
     '.', names followed by '(' or an object call method such as '.udp(' (called objects), the
     object named first in udp(...) and call(...), and GeneXus keywords. The legacy
-    .and./.or./.not. operators are not member dots. The caller keeps only names in the
+    .and./.or./.not./.like. operators are not member dots. The caller keeps only names in the
     Attribute inventory.
     """
     names: list[str] = []

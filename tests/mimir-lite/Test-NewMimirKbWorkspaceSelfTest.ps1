@@ -19,7 +19,12 @@
         sync, and an identity wrapper that reports NATIVE_KB_NOT_RECORDED
         (exit 3), with -AsJson also as one JSON object on stdout, without
         touching kb-source-metadata.md; -XpzOnly together with -KbNativePath
-        exits 2.
+        exits 2;
+    (h) the .gitignore ignores the project skill links (.claude/skills/, .agents/skills/), and the
+        scaffolder run through a project skill link (<project>/.claude/skills/mimir-lite, a
+        junction or symbolic link to this repository's skills/mimir-lite) bakes the real checkout
+        root into the wrappers, never the link's parent folder; a checkout reached through a
+        linked ancestor folder keeps that path, since only a skill link is followed.
     No real KB, no external tool; child scripts run in their own pwsh process.
 #>
 param()
@@ -128,7 +133,8 @@ try {
 
         $gitignore = [System.IO.File]::ReadAllText((Join-Path $wsA '.gitignore'))
         foreach ($rule in @('Temp/*', '!Temp/.gitkeep', 'IdeXpzExports/*', '!IdeXpzExports/.gitkeep',
-                'KbIntelligence/kb-intelligence.sqlite', 'KbIntelligence/kb-intelligence-validation.json')) {
+                'KbIntelligence/kb-intelligence.sqlite', 'KbIntelligence/kb-intelligence-validation.json',
+                '.claude/skills/', '.agents/skills/')) {
             Assert-True ($gitignore -match "(?m)^$([regex]::Escape($rule))$") "(a) .gitignore must carry '$rule'"
         }
         Assert-True ($gitignore -notmatch '(?m)^KbObjectsXml') "(a) .gitignore must never ignore KbObjectsXml"
@@ -220,6 +226,46 @@ try {
         # The identity wrapper with its native-KB placeholder still unfilled says so instead of resolving a placeholder path.
         $resolveD = Invoke-ChildScript -Path (Join-Path $wsD 'scripts/Resolve-SampleKbKbIdentity.ps1') -Arguments @()
         Assert-True ($resolveD.ExitCode -eq 3 -and ($resolveD.Output -join ' ') -match 'NATIVE_KB_NOT_RECORDED') "(d) identity wrapper with an unfilled native KB path must report NATIVE_KB_NOT_RECORDED and exit 3; exit=$($resolveD.ExitCode), output=$($resolveD.Output -join ' | ')"
+    }
+
+    # (h) The scaffolder run through a project skill link derives the real checkout root.
+    $projectH = Join-Path $tempRoot 'project-h'
+    $linkDirH = Join-Path $projectH '.claude/skills'
+    [void](New-Item -ItemType Directory -Path $linkDirH -Force)
+    $linkTypeH = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+    $linkH = Join-Path $linkDirH 'mimir-lite'
+    [void](New-Item -ItemType $linkTypeH -Path $linkH -Target (Join-Path $repoRoot 'skills/mimir-lite'))
+    try {
+        $wsH = Join-Path $tempRoot 'ws-h'
+        $runH = Invoke-ChildScript -Path (Join-Path $linkH 'scripts/New-MimirKbWorkspace.ps1') -Arguments @('-WorkspaceRoot', $wsH, '-KbName', 'SampleKb', '-XpzOnly', '-AsJson')
+        Assert-True ($runH.ExitCode -eq 0) "(h) scaffold through a skill link must exit 0; exit=$($runH.ExitCode), output=$($runH.Output -join ' | ')"
+        if ($runH.ExitCode -eq 0) {
+            $realRoot = ([System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\', '/')) -replace '\\', '/'
+            $wrapperText = [System.IO.File]::ReadAllText((Join-Path $wsH 'scripts/Test-SampleKbKbIndexGate.ps1'))
+            Assert-True ($wrapperText.Contains($realRoot)) "(h) the wrappers must point at the real checkout root $realRoot"
+            Assert-True ($wrapperText -notmatch [regex]::Escape(($projectH -replace '\\', '/'))) "(h) the wrappers must not point at the project's link folder $projectH"
+        }
+    } finally {
+        $linkItem = Get-Item -LiteralPath $linkH -Force -ErrorAction SilentlyContinue
+        if ($null -ne $linkItem) { $linkItem.Delete() }
+    }
+
+    # (h) A checkout reached through a linked ancestor folder keeps that path in the wrappers:
+    # only a skill link is followed.
+    $cloneLinkH = Join-Path $tempRoot 'clone-link-h'
+    [void](New-Item -ItemType $linkTypeH -Path $cloneLinkH -Target $repoRoot)
+    try {
+        $wsH2 = Join-Path $tempRoot 'ws-h2'
+        $runH2 = Invoke-ChildScript -Path (Join-Path $cloneLinkH 'skills/mimir-lite/scripts/New-MimirKbWorkspace.ps1') -Arguments @('-WorkspaceRoot', $wsH2, '-KbName', 'SampleKb', '-XpzOnly', '-AsJson')
+        Assert-True ($runH2.ExitCode -eq 0) "(h) scaffold through a linked checkout folder must exit 0; exit=$($runH2.ExitCode), output=$($runH2.Output -join ' | ')"
+        if ($runH2.ExitCode -eq 0) {
+            $linkedRoot = ([System.IO.Path]::GetFullPath($cloneLinkH).TrimEnd('\', '/')) -replace '\\', '/'
+            $wrapperText2 = [System.IO.File]::ReadAllText((Join-Path $wsH2 'scripts/Test-SampleKbKbIndexGate.ps1'))
+            Assert-True ($wrapperText2.Contains($linkedRoot)) "(h) the wrappers must keep the linked checkout path $linkedRoot"
+        }
+    } finally {
+        $linkItem = Get-Item -LiteralPath $cloneLinkH -Force -ErrorAction SilentlyContinue
+        if ($null -ne $linkItem) { $linkItem.Delete() }
     }
 
     # (g) XPZ-only workspace: no native KB folder at all.

@@ -118,8 +118,33 @@ if ($XpzOnly -and -not [string]::IsNullOrWhiteSpace($KbNativePath)) {
     Exit-InvalidInput '-XpzOnly and -KbNativePath cannot be combined: an XPZ-only workspace has no native KB folder'
 }
 
+function Resolve-LinkChain {
+    # The folder a junction or symbolic link points to, following a chain of links; a folder that
+    # is not a link is returned as given.
+    param([string]$Path)
+    $current = [System.IO.Path]::GetFullPath($Path)
+    for ($hop = 0; $hop -lt 32; $hop++) {
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item -or -not $item.LinkType -or @($item.Target).Count -eq 0) { return $current }
+        $target = [string]@($item.Target)[0]
+        if (-not [System.IO.Path]::IsPathRooted($target)) { $target = Join-Path (Split-Path -Parent $current) $target }
+        $current = [System.IO.Path]::GetFullPath($target)
+    }
+    Exit-InvalidInput "the link chain at '$Path' does not end after 32 links; pass -SharedSkillsRoot explicitly"
+}
+
+function Resolve-SkillScriptsDir {
+    # This script's folder with a skill link followed (for example <project>/.claude/skills/mimir-lite),
+    # which would otherwise make <project>/.claude look like the checkout root. Only the skill and
+    # scripts folders are followed, so a checkout reached through a linked ancestor keeps that path.
+    param([string]$Path)
+    $scriptsDir = Resolve-LinkChain -Path $Path
+    $skillDir = Resolve-LinkChain -Path (Split-Path -Parent $scriptsDir)
+    return Join-Path $skillDir (Split-Path -Leaf $scriptsDir)
+}
+
 if ([string]::IsNullOrWhiteSpace($SharedSkillsRoot)) {
-    $SharedSkillsRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    $SharedSkillsRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent (Resolve-SkillScriptsDir -Path $PSScriptRoot)))
 }
 $sharedScriptsDir = Join-Path $SharedSkillsRoot (Join-Path 'skills' (Join-Path 'mimir-lite' 'scripts'))
 $examplesDir = Join-Path $SharedSkillsRoot (Join-Path 'skills' (Join-Path 'mimir-lite' (Join-Path 'workflows' (Join-Path 'setup' 'examples'))))
@@ -255,6 +280,10 @@ $gitignore = @(
     '# Derived, regenerable index (KbObjectsXml is the official corpus and is never ignored)'
     'KbIntelligence/kb-intelligence.sqlite'
     'KbIntelligence/kb-intelligence-validation.json'
+    ''
+    '# Project-scope skill links (each holds an absolute path on this machine)'
+    '.claude/skills/'
+    '.agents/skills/'
 ) -join "`n"
 Add-TextFile -RelativePath '.gitignore' -Content ($gitignore + "`n")
 Add-TextFile -RelativePath 'Temp/.gitkeep' -Content ''
