@@ -358,6 +358,32 @@ if ($legacyFormatDetected) {
 }
 
 $objectsByType = Get-ObjectsByTypeMap -InventoryItems $inventoryArray
+
+# Objects repeated inside the export: the same type and name more than once (a GeneXus 6 export
+# re-emits a style object each time it is referenced). objectCount and objectsByType count
+# entries; distinctObjectCount and distinctObjectsByType count each object once, and
+# duplicatesInExport names the repeats. This key is the object's identity (type, or type GUID when
+# the type is unknown, and name); the sync recognizes a repeat by its target file instead
+# (folder and normalized file name), which is the same object for every catalogued type. An entry
+# with no name is its own object.
+function Get-ObjectTypeLabel($Item) { if ($Item.typeName) { [string]$Item.typeName } else { [string]$Item.typeGuid } }
+$objectGroups = @($objectItems | Group-Object -Property {
+        if ([string]::IsNullOrWhiteSpace($_.name)) { "#entry:$($_.sourceBlock):$($_.index)" }
+        else { ('{0}:{1}' -f (Get-ObjectTypeLabel $_), $_.name).ToLowerInvariant() }
+    })
+$repeatedGroups = @($objectGroups | Where-Object { $_.Count -gt 1 })
+$distinctObjectItems = @($objectGroups | ForEach-Object { $_.Group[0] })
+$distinctObjectsByType = Get-ObjectsByTypeMap -InventoryItems $distinctObjectItems
+$duplicatesInExport = [ordered]@{
+    count = [int](($repeatedGroups | ForEach-Object { $_.Count - 1 } | Measure-Object -Sum).Sum)
+    items = @($repeatedGroups | ForEach-Object {
+            [ordered]@{ type = (Get-ObjectTypeLabel $_.Group[0]); name = [string]$_.Group[0].name; copies = $_.Count }
+        })
+}
+if ($repeatedGroups.Count -gt 0) {
+    $repeatedList = @($repeatedGroups | ForEach-Object { '{0}:{1} x{2}' -f (Get-ObjectTypeLabel $_.Group[0]), $_.Group[0].name, $_.Count }) -join ', '
+    $warnings.Add(("objects repeated inside the export ({0} extra copies): {1}; distinctObjectCount and distinctObjectsByType count each object once" -f $duplicatesInExport.count, $repeatedList)) | Out-Null
+}
 $systemObjectsPresent = @(Get-SystemObjectsPresent -InventoryItems $inventoryArray -PlatformKindSets $platformKindSets)
 
 # Ready-made message (GUID, type name and package from the package's Dependencies block,
@@ -396,6 +422,9 @@ $result = [ordered]@{
     objectCount          = $objectItems.Count
     attributeCount       = $attributeItems.Count
     objectsByType                 = $objectsByType
+    distinctObjectCount           = $distinctObjectItems.Count
+    distinctObjectsByType         = $distinctObjectsByType
+    duplicatesInExport            = $duplicatesInExport
     systemObjectsPresent          = @($systemObjectsPresent)
     unknownTypeCount              = $unknownTypeItems.Count
     unknownTypesDiscovery         = $unknownTypesDiscovery

@@ -1069,9 +1069,50 @@ try {
         [void]$crossFlowKeys.Add("$($c.FolderType)|$($c.NormalizedName)")
     }
 
+    # Objects repeated inside the export (the same folder and file more than once; a GeneXus 6
+    # export re-emits a style object each time it is referenced): an identical copy is written
+    # once and reported as RepeatedInExport, not as Unchanged against its own first copy. Each copy
+    # is compared with the copy of its key written last: one that differs is written in order, so
+    # the last one wins as before (also for original, changed, original), and a warning names it.
+    # Only keys that occur more than once are serialized, and only a hash of the copy written last
+    # is kept, so an export with no repeats costs one grouping pass.
+    $writeItems = [System.Collections.Generic.List[object]]::new()
+    $repeatedInExportItems = [System.Collections.Generic.List[object]]::new()
+    $keyCounts = @{}
+    foreach ($item in $items) {
+        $copyKey = "$($item.FolderType)|$($item.NormalizedName)"
+        $keyCounts[$copyKey] = 1 + $(if ($keyCounts.ContainsKey($copyKey)) { $keyCounts[$copyKey] } else { 0 })
+    }
+    $lastCopyHashByKey = @{}
+    $differingCopies = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        foreach ($item in $items) {
+            $copyKey = "$($item.FolderType)|$($item.NormalizedName)"
+            if ($keyCounts[$copyKey] -gt 1) {
+                $copyHash = [Convert]::ToBase64String($sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes((Convert-NodeToXmlString -Node $item.Node))))
+                if ($lastCopyHashByKey.ContainsKey($copyKey)) {
+                    if ($lastCopyHashByKey[$copyKey] -ceq $copyHash) {
+                        $repeatedInExportItems.Add($item)
+                        continue
+                    }
+                    [void]$differingCopies.Add("$($item.FolderType):$($item.LogicalName)")
+                }
+                $lastCopyHashByKey[$copyKey] = $copyHash
+            }
+            $writeItems.Add($item)
+        }
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    if ($differingCopies.Count -gt 0) {
+        $warnings.Add(("differing copies inside the export; the copy written last wins: {0}" -f (@($differingCopies) -join ', '))) | Out-Null
+    }
+
     $writeResults = @()
     if (-not $VerifyOnly) {
-        foreach ($item in $items) {
+        foreach ($item in $writeItems) {
             $itemCrossFlow = $crossFlowKeys.Contains("$($item.FolderType)|$($item.NormalizedName)")
             $writeResults += Write-ItemToDestination -Item $item -Root $DestinationRoot -CrossFlowCollision $itemCrossFlow
         }
@@ -1149,6 +1190,7 @@ try {
         Updated = $updatedCount
         Unchanged = $unchangedCount
         SkippedOlderLastUpdate = $skippedOlderLastUpdateCount
+        RepeatedInExport = $repeatedInExportItems.Count
         NormalizedFileNames = $normalizedFileNamesCount
         RenamedByGuid = @($renameResults | Where-Object { $_.Action -eq "renamed" -or $_.Action -eq "orphan-removed" }).Count
         RenameResidualsDetected = @($renameResults | Where-Object { $_.Action -eq "detected" }).Count
@@ -1165,6 +1207,7 @@ try {
         UpdatedNames = $updatedNames
         UnchangedNames = $unchangedNames
         SkippedOlderLastUpdateNames = $skippedOlderLastUpdateNames
+        RepeatedInExportNames = @($repeatedInExportItems | ForEach-Object { "$($_.FolderType):$($_.LogicalName)" } | Sort-Object)
         RenamedByGuidItems = $renamedByGuidItems
         ExpectedReturnedNames = $expectedReturnedNames
         ExpectedMissingNames = $expectedMissingNames
@@ -1212,7 +1255,7 @@ try {
     $summary | ConvertTo-Json -Depth 8 -Compress | Write-Output
 
     $humanSummary = $summary |
-        Select-Object -Property * -ExcludeProperty CreatedNames, UpdatedNames, UnchangedNames, SkippedOlderLastUpdateNames, RenamedByGuidItems, ExpectedReturnedNames, ExpectedMissingNames, AdditionalOfficialNames, Warnings |
+        Select-Object -Property * -ExcludeProperty CreatedNames, UpdatedNames, UnchangedNames, SkippedOlderLastUpdateNames, RepeatedInExportNames, RenamedByGuidItems, ExpectedReturnedNames, ExpectedMissingNames, AdditionalOfficialNames, Warnings |
         Format-List | Out-String
     [Console]::Error.WriteLine($humanSummary)
 
