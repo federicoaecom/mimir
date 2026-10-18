@@ -3,6 +3,7 @@
 Mimir Lite is written and maintained by:
 
 - Federico A.
+- Nicolas P.
 - Sebastian Y.
 - Sofia P.
 
