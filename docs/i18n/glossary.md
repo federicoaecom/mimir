@@ -60,6 +60,11 @@ Term mappings used across the documentation. Add a term here before translating 
 
 | English | Spanish | Notes |
 |---|---|---|
+| automatic discovery | descubrimiento automático | Skill discovery by the host, not manual file reading. |
+| end-to-end trial | prueba de extremo a extremo | An observed workflow run; not a registration-only audit. |
+| coverage | cobertura | The scope an extractor or query can substantiate. |
+| sandbox | sandbox | Keep the host execution-boundary name untranslated. |
+| pre-scan | análisis previo | Inventory of an export before materialization. |
 | local wrapper | wrapper local | The workspace-specific `.ps1` script that calls a shared engine; "wrapper" stays untranslated since it is also a script-naming convention. |
 | shared engine | motor compartido | The reusable script/module a local wrapper delegates to. |
 | routine | rutina | A documented operational procedure. |
@@ -83,6 +88,9 @@ Term mappings used across the documentation. Add a term here before translating 
 | symbolic link | enlace simbólico | A symlink: on Windows `New-Item -ItemType SymbolicLink`, which needs Developer Mode or an elevated shell; on Linux and macOS `ln -s`, with no special rights. |
 | junction / directory junction | junction / junction de directorio | A Windows directory junction (`New-Item -ItemType Junction`); kept in English, needs no special rights. |
 | agent session | sesión de agente | One run of an agent tool; tools load skills when a session starts. |
+| agent home | directorio del agente | Pi's user configuration/resource directory, selected by `PI_CODING_AGENT_DIR`; not the KB workspace. |
+| profile | perfil | An agent configuration and resource scope; gentle-shell may use an isolated, linked, or custom agent home. |
+| project trust | confianza en el proyecto | Pi's decision to load project resources; not a sandbox or per-command permission system. |
 | command timeout | tiempo límite del comando | The maximum time an agent tool lets one command run before stopping it. |
 
 ## Review and delegation

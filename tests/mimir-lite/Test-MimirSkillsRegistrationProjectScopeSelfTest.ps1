@@ -79,6 +79,8 @@ $project = New-TempDir
 $originalProfile = $env:USERPROFILE
 $originalHome = $env:HOME
 $originalPath = $env:PATH
+$agentEnvNames = @('GENTLE_SHELL_USER_PI_HOME','PI_CODING_AGENT_DIR','GENTLE_PI_AGENT_HOME','GENTLE_SHELL_HOME')
+$originalAgentEnv = @{}; foreach ($name in $agentEnvNames) { $originalAgentEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process'); [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
 try {
     $env:PATH = ''
     $env:USERPROFILE = $fakeProfile
@@ -173,6 +175,7 @@ finally {
     $env:USERPROFILE = $originalProfile
     $env:HOME = $originalHome
     $env:PATH = $originalPath
+    foreach ($name in $agentEnvNames) { [Environment]::SetEnvironmentVariable($name, $originalAgentEnv[$name], 'Process') }
     foreach ($dir in @($fakeRepo, $fakeProfile, $project)) { Remove-TempTree -Path $dir }
 }
 

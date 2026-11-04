@@ -11,7 +11,7 @@ Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base
 
 ## Status
 
-Current release: `1.0.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+Current release: `1.1.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
 
 ## Support
 
@@ -27,12 +27,47 @@ Runs on Windows 10/11 and Linux, both tested in CI, with PowerShell 7.4+ (7.4.6+
 | Cursor | Audited | `~/.cursor/skills` | Cursor also reads `~/.agents/skills`, but the audit passes only with a link in `~/.cursor/skills` |
 | OpenCode | Audited | `~/.config/opencode/skills` or `~/.agents/skills` | |
 | Antigravity (IDE, CLI) | Audited | `~/.gemini/config/skills` (IDE), `~/.agents/skills` (CLI) | |
-| Pi, GitHub Copilot, Gemini CLI | Expected to work, untested | `~/.agents/skills` | Audit with `-AdditionalSkillsRoot .agents/skills` |
+| Pi | Tested | `~/.agents/skills` or `<agent-home>/skills` | Named `Pi` audit; model-driven Windows runs with project-local links; see below |
+| gentle-shell | Tested | `~/.agents/skills` or `<agent-home>/skills` | Named `GentleShell` audit; model-driven Windows runs with a temporary custom profile; see below |
+| GitHub Copilot, Gemini CLI | Expected to work, untested | `~/.agents/skills` | Audit with `-AdditionalSkillsRoot .agents/skills` |
 | `mimir-delegate` backends | Tested on Windows; Linux in CI with fake CLIs | — | Drives the CLIs listed in [Delegation](#delegation-and-files-written-outside-the-repository); the maintainer runs the real CLIs on Windows; see [Known platform differences](#known-platform-differences) |
 
 The skills folders above are the general (user-level) ones. A project install links into `<project>/.claude/skills` (Claude Code) and `<project>/.agents/skills` (every other tool) instead; see step 3 of [Use it with an AI agent](#use-it-with-an-ai-agent).
 
 **Tested** means the maintainer runs the skill with that tool on Windows. For a platform, **Tested (CI)** means CI runs the full test suite and checks there; **Best effort** means the same code paths, with nothing run there. **Audited** means the **install** workflow ([`install.md`](skills/mimir-lite/workflows/install.md)) checks the tool's registration, but it is not reported as tested. A copy of the skill folder is not supported: it goes stale after `git pull`, and the audit cannot tell a stale copy from a current one; use a symbolic link or a junction.
+
+### Codex
+
+**Observed on Windows with Codex CLI:** two interactive public-sample runs completed project-local skill discovery, XPZ-only setup/sync, freshness gates, indexed queries, and selected XML reading. Kafka materialized 8 objects and indexed 25 relations; MyCinema materialized 90 objects plus 37 attributes and indexed 235 relations. The [dated evidence record](docs/validation/2026-10-24-codex-public-samples.md) distinguishes session-reported results from observer checks and records environment issues and coverage limits.
+
+These runs do not independently validate every Codex integration or platform. Kafka used system temporary extraction; MyCinema used `workspace/Temp` after setting `TEMP`, `TMP`, and `TMPDIR`. Neither run executed GeneXus business objects or established exhaustive extractor coverage. A passing registration audit is not proof of runtime discovery or successful workflows.
+
+### Pi and gentle-shell
+
+The shared `~/.agents/skills` folder is available to both tools, including an isolated gentle-shell profile. To expose Mimir Lite only to one profile, link it into that profile's `<agent-home>/skills` instead; do not create both links unnecessarily. A project install uses `.agents/skills` (Pi also accepts `.pi/skills`) and requires project trust before discovery.
+
+| Session | Default agent home |
+|---|---|
+| Pi | `PI_CODING_AGENT_DIR`, or `~/.pi/agent` when unset |
+| gentle-shell | `~/.gentle-shell/agent` (isolated; `GENTLE_SHELL_HOME` can change it) |
+| gentle-shell `--link` | The user's Pi agent home |
+| gentle-shell `--home <path>` | The selected custom directory |
+
+The launcher can save a different default. In a running gentle-shell session, `PI_CODING_AGENT_DIR` identifies its active home. The auditor distinguishes this from the original Pi home using `GENTLE_SHELL_USER_PI_HOME`; see [installation details](skills/mimir-lite/workflows/install.md#pi-and-gentle-shell) for resolution precedence.
+
+For both tools, after the approved links exist, run:
+
+```text
+pwsh -NoProfile -File "<mimir-lite-root>/skills/mimir-lite/scripts/Test-MimirSkillsRegistration.ps1" -OnlyTool Pi,GentleShell -AsJson
+```
+
+Use only the tools requested. Add `-Scope Project -ProjectRoot "<project>"` for project registration. `-PiAgentHome "<path>"` and `-GentleShellAgentHome "<path>"` explicitly select audit targets without changing launcher settings. Add `-SkipSkill mimir-delegate` only if the user declined that optional skill.
+
+A registration result does not prove active loading or isolation. After granting project trust when applicable, run `/reload` and `/skill:mimir-lite` in the target session. Bare Pi has no Claude-style per-command permission system; extensions may add their own controls. For KB work, external memory still needs separate consent; skill instructions do not control automatic host persistence.
+
+**Tested on Windows:** model-driven runs in both tools completed XPZ-only setup, sync, freshness gates, indexed dependency/attribute queries, and selected XML reads on two public GeneXus samples. Matching inputs produced identical XML corpora across hosts. These runs used temporary profiles and project-local links; `mimir-delegate` was excluded. Separate offline checks covered resource discovery with Pi 1.3.0 and gentle-pi 4.3.0, including denied project trust and reload, plus the synthetic setup/sync/gate/query/read flow.
+
+Host search/delegation failures were recorded separately from Mimir results. The gentle-shell run required a trial-local subagent model selection after the provider rejected its default model. When using native subagents, check their effective provider/model separately from the parent session; this is not a Mimir registration setting. These trials did not execute GeneXus business objects, establish live support on other platforms, or prove exhaustive extractor coverage.
 
 ### GeneXus versions
 
@@ -110,9 +145,9 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
    Without Git, a ZIP download extracted to the same place works, but Windows marks the downloaded scripts as blocked; unblock them with `Get-ChildItem -Recurse "$HOME\mimir-lite" | Unblock-File`.
 
-3. **Link the skill folder into the agent tool's skills folder.** `~/.agents/skills` is read by Codex, Cursor, OpenCode, Pi, GitHub Copilot, Gemini CLI, and the Antigravity CLI; Claude Code (CLI, VS Code extension, desktop) reads `~/.claude/skills`; the Antigravity IDE reads `~/.gemini/config/skills` (see [Support](#support)). Linking into both of the first two is fine. Cursor users also link into `~/.cursor/skills`, or the audit reports a gap. A copy of the skill folder is not supported: it goes stale after `git pull`, and the audit cannot tell a stale copy from a current one; use a symbolic link or a junction.
+3. **Link the skill folder into the agent tool's skills folder.** `~/.agents/skills` is read by Codex, Cursor, OpenCode, Pi, gentle-shell, GitHub Copilot, Gemini CLI, and the Antigravity CLI; Claude Code (CLI, VS Code extension, desktop) reads `~/.claude/skills`; the Antigravity IDE reads `~/.gemini/config/skills` (see [Support](#support)). Linking into both of the first two is fine. Cursor users also link into `~/.cursor/skills`, or the audit reports a gap. A copy of the skill folder is not supported: it goes stale after `git pull`, and the audit cannot tell a stale copy from a current one; use a symbolic link or a junction.
 
-   **Choose the scope first.** Ask once whether to install the skill generally, for every project on this machine (the default: the folders above), or for one project only, usually the KB workspace. For one project, the links go inside that project instead: `<project>/.claude/skills` for Claude Code and `<project>/.agents/skills` for Codex, Cursor, OpenCode, Pi, GitHub Copilot, Gemini CLI, and Antigravity; the clone still stays outside the project (step 2). A tool reads a project's skills only in a session started in that project folder or below it, and Claude Code prefers a skill installed generally over the same skill in a project, so do not install the same skill both ways. In the blocks below, use the project's two folders instead of the ones under `$HOME` (for example `"<project>\.agents\skills", "<project>\.claude\skills"`, or in bash `"<project>/.agents/skills" "<project>/.claude/skills"`). A link holds an absolute path on this machine: a KB workspace's `.gitignore` already ignores both folders; in any other project, offer to add `.claude/skills/` and `.agents/skills/` to its `.gitignore`.
+   **Choose the scope first.** Ask once whether to install the skill generally, for every project on this machine (the default: the folders above), or for one project only, usually the KB workspace. For one project, the links go inside that project instead: `<project>/.claude/skills` for Claude Code and `<project>/.agents/skills` for Codex, Cursor, OpenCode, Pi, gentle-shell, GitHub Copilot, Gemini CLI, and Antigravity; the clone still stays outside the project (step 2). A tool reads a project's skills only in a session started in that project folder or below it, and Claude Code prefers a skill installed generally over the same skill in a project, so do not install the same skill both ways. In the blocks below, use the project's two folders instead of the ones under `$HOME` (for example `"<project>\.agents\skills", "<project>\.claude\skills"`, or in bash `"<project>/.agents/skills" "<project>/.claude/skills"`). A link holds an absolute path on this machine: a KB workspace's `.gitignore` already ignores both folders; in any other project, offer to add `.claude/skills/` and `.agents/skills/` to its `.gitignore`.
 
    Ask before linking. Name each link you would create, as the link path and its target (for example `~/.claude/skills/mimir-lite` pointing to `<mimir-lite-root>/skills/mimir-lite`), and create only the links the user approves. A request to install the skill, or to follow this README, is not consent to create links. Keep in the blocks below only the skills folders the user approved. When the question offers a "no new links" choice, it excludes every other choice: with it, create no link.
 
@@ -141,10 +176,10 @@ Follow these steps in order. The command blocks below are PowerShell 7, except t
 
    `skills/mimir-delegate` is optional: it delegates a task or requests a peer review from another LLM. Offer it as a choice in the linking question, and link it the same way only after a yes. Never decide it for the user, either way.
 
-   After linking, run the install audit once and tell the user its `overall` result (`REGISTRATION_OK` or `REGISTRATION_GAPS`). The **install** workflow ([`install.md`](skills/mimir-lite/workflows/install.md)) explains the result and how to fix a gap, again only after the user approves. Pass `-OnlyTool` with the tools served by the skills folders the user approved, as one comma-separated list: `~/.claude/skills` serves `ClaudeCode`; `~/.agents/skills` serves `Codex`, `OpenCode`, and `Antigravity`; `~/.cursor/skills` serves `Cursor`; `~/.gemini/config/skills` serves `Antigravity`. Every other tool is reported `skipped_by_choice`, which is not a gap. When the user names tools to exclude instead, pass them with `-SkipTool` (for example `-SkipTool Cursor`, or `-SkipTool Codex,OpenCode`); the two cannot be combined. Add `-SkipSkill mimir-delegate` only when the user did not want delegation; never add it when the user asked for delegation, so a missing link still shows as a gap. The audit covers Claude Code, Codex, Cursor, OpenCode, and Antigravity; Pi, GitHub Copilot, and Gemini CLI are audited with `-AdditionalSkillsRoot .agents/skills`, which `-OnlyTool` never skips. For a project install, add `-Scope Project -ProjectRoot "<project>"`: the audit then checks the project's folders instead of the user's, and lists in `userScopeAlsoRegistered` any skill also installed generally. In project scope `<project>/.claude/skills` serves `ClaudeCode` and `OpenCode`, and `<project>/.agents/skills` serves `Codex`, `Cursor`, `OpenCode`, and `Antigravity`, so after linking into both pass `-OnlyTool ClaudeCode,Codex,Cursor,OpenCode,Antigravity`. The command below is for the two folders in the blocks above; replace `<mimir-lite-root>` with the clone's literal absolute path, with forward slashes:
+   After linking, run the install audit once and tell the user its `overall` result (`REGISTRATION_OK` or `REGISTRATION_GAPS`). The **install** workflow ([`install.md`](skills/mimir-lite/workflows/install.md)) explains the result and how to fix a gap, again only after the user approves. Pass `-OnlyTool` with the tools served by the skills folders the user approved, as one comma-separated list: `~/.claude/skills` serves `ClaudeCode`; `~/.agents/skills` serves `Codex`, `OpenCode`, `Antigravity`, `Pi`, and `GentleShell`; `~/.cursor/skills` serves `Cursor`; `~/.gemini/config/skills` serves `Antigravity`. Every other tool is reported `skipped_by_choice`, which is not a gap. When the user names tools to exclude instead, pass them with `-SkipTool` (for example `-SkipTool Cursor`, or `-SkipTool Codex,OpenCode`); the two cannot be combined. Add `-SkipSkill mimir-delegate` only when the user did not want delegation; never add it when the user asked for delegation, so a missing link still shows as a gap. The audit covers Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi, and gentle-shell; GitHub Copilot and Gemini CLI are audited with `-AdditionalSkillsRoot .agents/skills`, which `-OnlyTool` never skips. For a project install, add `-Scope Project -ProjectRoot "<project>"`: the audit then checks the project's folders instead of the user's, and lists in `userScopeAlsoRegistered` any skill also installed generally. In project scope `<project>/.claude/skills` serves `ClaudeCode` and `OpenCode`, and `<project>/.agents/skills` serves `Codex`, `Cursor`, `OpenCode`, `Antigravity`, `Pi`, and `GentleShell`, so after linking into both pass `-OnlyTool ClaudeCode,Codex,Cursor,OpenCode,Antigravity,Pi,GentleShell`. The command below is for the two folders in the blocks above; replace `<mimir-lite-root>` with the clone's literal absolute path, with forward slashes:
 
    ```powershell
-   pwsh -NoProfile -File "<mimir-lite-root>/skills/mimir-lite/scripts/Test-MimirSkillsRegistration.ps1" -OnlyTool ClaudeCode,Codex,OpenCode,Antigravity -AsJson
+   pwsh -NoProfile -File "<mimir-lite-root>/skills/mimir-lite/scripts/Test-MimirSkillsRegistration.ps1" -OnlyTool ClaudeCode,Codex,OpenCode,Antigravity,Pi,GentleShell -AsJson
    ```
 
 4. **Start a new agent session if needed.** Most tools load skills when a session starts, so the current session may not see the new skill yet; some tools load a newly linked skill in the running session. Check whether the skill is available before asking the user to restart. If it is not and restarting is not possible, read `<mimir-lite-root>/skills/mimir-lite/SKILL.md` directly and follow it.
@@ -175,7 +210,7 @@ Windows and Linux are tested in CI; macOS runs the same code paths as Linux, bes
 ## Installation
 
 1. Clone this repository outside any project folder (see [Use it with an AI agent](#use-it-with-an-ai-agent), step 2).
-2. Run the **install** workflow ([`skills/mimir-lite/workflows/install.md`](skills/mimir-lite/workflows/install.md)) to register `skills/mimir-lite/` and, optionally, `skills/mimir-delegate/` as skills in the agent tools installed on your machine (built-in support: Codex, Claude Code, Cursor, OpenCode, Antigravity; any other tool that reads `SKILL.md` from a skills directory can be linked the same way, see the workflow's "Other tools" section). It creates a symlink or junction per tool, detects which tools are actually installed, and changes nothing without explicit confirmation.
+2. Run the **install** workflow ([`skills/mimir-lite/workflows/install.md`](skills/mimir-lite/workflows/install.md)) to register `skills/mimir-lite/` and, optionally, `skills/mimir-delegate/` as skills in the agent tools installed on your machine (built-in support: Codex, Claude Code, Cursor, OpenCode, Antigravity, Pi, gentle-shell; any other tool that reads `SKILL.md` from a skills directory can be linked the same way, see the workflow's "Other tools" section). It creates a symlink or junction per tool, detects which tools are actually installed, and changes nothing without explicit confirmation.
 
 Re-run the install workflow after every `git pull`, since it also detects skill registrations that went stale or orphaned. After an update that changes the setup contract, the first KB task in each existing workspace reports `AUDIT_REQUIRED` once; run the setup audit and approve the timestamp re-stamp.
 
@@ -195,7 +230,7 @@ if (-not (Test-Path "$skills\mimir-lite")) {
 }
 ```
 
-**2. Check the registration.** The audit is read-only and covers Claude Code, Codex, Cursor, OpenCode, and Antigravity; `mimir-lite` should show `OK` (`mimir-delegate` shows `missing` unless you linked it, or `skipped_by_choice` with `-SkipSkill mimir-delegate`, which is not a gap). For another tool, add its skills folder with `-AdditionalSkillsRoot <dir>`; it is reported as `Custom:<dir>`.
+**2. Check the registration.** The audit is read-only and covers Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi, and gentle-shell; `mimir-lite` should show `OK` (`mimir-delegate` shows `missing` unless you linked it, or `skipped_by_choice` with `-SkipSkill mimir-delegate`, which is not a gap). For another tool, add its skills folder with `-AdditionalSkillsRoot <dir>`; it is reported as `Custom:<dir>`.
 
 ```powershell
 $audit = pwsh -NoProfile -File skills/mimir-lite/scripts/Test-MimirSkillsRegistration.ps1 -AsJson | ConvertFrom-Json

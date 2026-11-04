@@ -48,6 +48,7 @@ function Set-FakeProfile {
     param([AllowNull()][string]$Path)
     $env:USERPROFILE = $Path
     $env:HOME = $Path
+    foreach ($name in $script:agentEnvNames) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
 }
 
 function Restore-RealProfile {
@@ -117,6 +118,8 @@ $brokenTarget = Join-Path $fakeProfile 'broken-target'
 $originalProfile = $env:USERPROFILE
 $originalHome = $env:HOME
 $originalPath = $env:PATH
+$agentEnvNames = @('GENTLE_SHELL_USER_PI_HOME','PI_CODING_AGENT_DIR','GENTLE_PI_AGENT_HOME','GENTLE_SHELL_HOME')
+$originalAgentEnv = @{}; foreach ($name in $agentEnvNames) { $originalAgentEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process'); [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
 
 try {
     $env:PATH = ''
@@ -195,6 +198,7 @@ try {
 finally {
     $env:PATH = $originalPath
     Restore-RealProfile
+    foreach ($name in $agentEnvNames) { [Environment]::SetEnvironmentVariable($name, $originalAgentEnv[$name], 'Process') }
     foreach ($p in @($fakeProfile, $fakeRepo)) { Remove-TempTree -Path $p }
 }
 
@@ -343,7 +347,7 @@ try {
     # Default: no parameter -> no custom entries, nothing installed
     $defReport = (& $scriptUnderTest -RepoRoot $addRepo -AsJson | Out-String) | ConvertFrom-Json
     Assert-Equal 'additional: default has no Custom tools' '0' ([string]@($defReport.tools | Where-Object { $_.name -like 'Custom:*' }).Count)
-    Assert-Equal 'additional: default tool count unchanged' '5' ([string]@($defReport.tools).Count)
+    Assert-Equal 'additional: default tool count unchanged' '7' ([string]@($defReport.tools).Count)
     Assert-Equal 'additional: default overall OK (no tools installed)' 'REGISTRATION_OK' ([string]$defReport.overall)
 
     # Custom root with every skill linked -> OK
@@ -386,6 +390,7 @@ finally {
 $homeRepo = New-TempDir
 $homeProfile = New-TempDir
 try {
+    foreach ($name in $agentEnvNames) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
     $env:PATH = ''
     New-FakeSkill -SkillRepoRoot $homeRepo -Name 'skill-only' | Out-Null
     New-Junction -LinkDir (Join-Path $homeProfile '.claude/skills') -Name 'skill-only' -Target (Join-Path $homeRepo 'skill-only')
@@ -537,9 +542,9 @@ try {
     $onlyReport = $null
     try { $onlyReport = ($onlyOut | Out-String) | ConvertFrom-Json } catch { }
     if ($onlyReport) {
-        Assert-Equal 'only: the other built-in tools are declared skipped' 'Codex,Cursor,OpenCode,Antigravity' (@($onlyReport.skippedByChoice.tools) -join ',')
+        Assert-Equal 'only: the other built-in tools are declared skipped' 'Codex,Cursor,OpenCode,Antigravity,Pi,GentleShell' (@($onlyReport.skippedByChoice.tools) -join ',')
         Assert-Equal 'only: ClaudeCode is audited, not skipped' 'False' ([string](@($onlyReport.tools | Where-Object { $_.name -eq 'ClaudeCode' })[0].skippedByChoice))
-        Assert-Equal 'only: every other built-in tool is flagged skipped' 'Antigravity=True,Codex=True,Cursor=True,OpenCode=True' (@($onlyReport.tools | Where-Object { $_.name -ne 'ClaudeCode' } | Sort-Object name | ForEach-Object { '{0}={1}' -f $_.name, $_.skippedByChoice }) -join ',')
+        Assert-Equal 'only: every other built-in tool is flagged skipped' 'Antigravity=True,Codex=True,Cursor=True,GentleShell=True,OpenCode=True,Pi=True' (@($onlyReport.tools | Where-Object { $_.name -ne 'ClaudeCode' } | Sort-Object name | ForEach-Object { '{0}={1}' -f $_.name, $_.skippedByChoice }) -join ',')
         Assert-Equal 'only: ClaudeCode/skill-a still OK' 'OK' (Get-SkillStatus -Report $onlyReport -Tool 'ClaudeCode' -Skill 'skill-a')
         Assert-Equal 'only: -SkipSkill still applies' 'skipped_by_choice' (Get-SkillStatus -Report $onlyReport -Tool 'ClaudeCode' -Skill 'skill-b')
         # The broken Cursor link created above keeps its status, as with -SkipTool.
@@ -555,7 +560,7 @@ try {
     Assert-Equal 'only: -OnlyTool ClaudeCode,Codex exits 0 as a child process' '0' ([string]$onlyListExit)
     $onlyListReport = $null
     try { $onlyListReport = ($onlyListOut | Out-String) | ConvertFrom-Json } catch { }
-    Assert-Equal 'only: a comma list skips the rest' 'Cursor,OpenCode,Antigravity' $(if ($onlyListReport) { @($onlyListReport.skippedByChoice.tools) -join ',' } else { '<no-json>' })
+    Assert-Equal 'only: a comma list skips the rest' 'Cursor,OpenCode,Antigravity,Pi,GentleShell' $(if ($onlyListReport) { @($onlyListReport.skippedByChoice.tools) -join ',' } else { '<no-json>' })
     Assert-Equal 'only: a comma list audits Codex' 'missing' $(if ($onlyListReport) { Get-SkillStatus -Report $onlyListReport -Tool 'Codex' -Skill 'skill-b' } else { '<no-json>' })
     Assert-Equal 'only: a missing link in an unlisted tool is skipped by choice' 'skipped_by_choice' $(if ($onlyListReport) { Get-SkillStatus -Report $onlyListReport -Tool 'Cursor' -Skill 'skill-b' } else { '<no-json>' })
 

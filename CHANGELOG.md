@@ -6,6 +6,18 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-04
+
+### Added
+
+- Named `Pi` and `GentleShell` registration audits, with native and shared skill folders, project scope, and optional `-PiAgentHome` / `-GentleShellAgentHome` audit targets. Home resolution respects active profiles and the Gentle Shell launcher's saved selection without changing settings. The README and install workflow explain trust, reload, and the distinction between registration and runtime discovery; offline resource and synthetic KB checks do not constitute a full model-driven run.
+
+### Changed
+
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
+- Promote Pi and gentle-shell support from Audited to Tested on Windows after model-driven XPZ-only setup/sync/gate/query/XML-reading trials with two public samples in each host. The bilingual README distinguishes live trials from offline audit coverage, retains host/model-routing limitations, and does not claim business-object execution or exhaustive extractor coverage.
+- Setup checks the active Pi/gentle-shell global instruction file, respecting override precedence and per-consumer project-only scope. It keeps separate consent for instruction writes and external memory, does not apply Claude allow rules to bare Pi, and no longer promises that allow rules eliminate permission prompts. This changes the setup contract signature: existing KB workspaces re-audit once; it does not require rebuilding the index.
+
 ## [1.0.0] - 2026-10-18
 
 The first stable release.
@@ -57,6 +69,7 @@ The first stable release.
 
 ### Changed
 
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
 - README: the GeneXus versions table lists GeneXus X and X Evolution 1 as tested with public samples: 21 small public exports (export header 3.1, builds 13780 to 27264 or no build, dated 2007 to 2010) sync, index, and produce relations. The files do not name the product version, so the two are not told apart, and no full agent run was made.
 
 ### Fixed
@@ -73,6 +86,7 @@ The first stable release.
 
 ### Changed
 
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
 - The **setup** workflow is split so each file reads in one call: `setup.md` keeps the entry, the checklist, and the creation flow, and points to five files under `workflows/setup/`: `audit.md` (the fast-path precondition and the post-audit correction plan), `update.md` (the update block, update mode only), `common-steps.md` (steps 9 to 34, every mode), `wrappers.md` (the expected local wrappers), and `constraints.md` (the constraints, read before any write). The text moved verbatim; step numbers are unchanged. The setup contract manifest lists the five files, so the setup contract signature changes and KB workspaces re-audit once.
 
 ### Fixed
@@ -88,6 +102,7 @@ The first stable release.
 
 ### Changed
 
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
 - The KB index gives the `write` role (`Rules write`) to the attributes the Transaction rules `Default` and `Equal` assign (their first argument) and to the two a `Serial` rule assigns (its first and second arguments), when the argument is a bare attribute name and the rule starts the Rules Part or follows `;`, `{`, or `}` (the braces of a platform section such as `[web] { noaccept(Attribute); }`); the rule name matches in any case and may carry a trailing `if`, `on`, or `level` clause. Extractor 16 read them as `Rules read`. A Transaction assignment rule `Attribute = expression;` that follows `{` or `}` is now also a `Rules write`; extractor 16 recognized it only at the start of the Rules Part or after `;`. The value expression of the rule and its condition stay reads, `parm(in:Attribute)` stays a read, and the Rules of a `Procedure`, `WebPanel`, or `DataProvider` are unchanged; a write occurrence still gives no read row of its own. The extractor version goes from 16 to 17, so the index gate reports existing indexes as built by an older extractor until they are rebuilt once. The KB index reference and the backlog follow.
 
 ### Fixed
@@ -117,6 +132,7 @@ The first stable release.
 
 ### Changed
 
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
 - README: the GeneXus versions table records the full agent runs on GeneXus 15, 17, and X Evolution 3 samples; the limits note that an attribute's uses are not indexed (only structural relations); the agent steps and the workflow table mention a workspace set up from the XPZ alone.
 - The README agent steps and the install workflow handle an existing clone: when `<mimir-lite-root>` already exists, the agent inspects it read-only (`status`, current commit, `origin` URL), tells the user, and asks before updating; with a yes it fetches and updates by fast-forward only. When a fast-forward is not possible (unrelated history, local commits, or uncommitted changes), it stops, explains why, and offers a fresh clone into a new approved path; the old clone is never reset, deleted, or overwritten, and is removed or renamed only after an explicit yes and with a clean `git status`. Any clone, fetch, pull, or reset of the skill checkout needs the user's explicit yes first.
 - The existing-clone check in the README agent steps and the install workflow, from a fifth end-to-end run: before the update question, the agent tells the user in one short message whether the clone is clean, its current commit, and whether `origin` is the README's URL; it runs each inspection and update command as a call of its own (no `&&`, `;`, pipes, or `cd`), so each matches a simple permission rule; after updating, it re-reads the workflow files already read in the session (at least `install.md`) before continuing; and when the user declines the update, it takes the commands from that clone's own `README.md` and `install.md`, since an older clone may lack newer options such as `-OnlyTool`. In the linking question, a "no new links" choice excludes every other choice.
@@ -150,6 +166,7 @@ The first stable release.
 
 ### Changed
 
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
 - Reverse-relation answers (`who-uses`, `impact-basic`, `functional-trace-basic`, and the `incoming_relations` count of `object-info`) now carry a `coverage` object: `complete`, and the object types in the index whose calls are not extracted (`Panel`, `SmartDevicesApplication`, `WorkPanel`, `WorkWith`) with their counts. The `text` format adds one `coverage: incomplete` line when coverage is incomplete. Exit codes and the index schema are unchanged; no rebuild is needed.
 - The coverage of reverse-relation answers also counts `OfflineDatabase` (events) and `BusinessProcessDiagram` (GXflow task bindings and conditions): their references to other objects are not extracted either. The rule now covers code or bindings that reference other objects, not only events or a `Source` part, and the find workflow points to the single list in the KB index reference instead of repeating it.
 - The find workflow tells the agent to relay a partial-coverage answer to the user in plain words and never to present it as "no callers".
@@ -188,6 +205,7 @@ The first stable release.
 
 ### Changed
 
+- Record an observed Windows Codex CLI validation with two public samples (setup, sync, freshness gate, indexed queries, selected XML reading) in `docs/validation/`, linked from the README; it states its environment conditions and coverage limits.
 - The KB index schema is now version `5`: `source_root` is stored relative to the index folder, so an index and its corpus can move together, also to another OS. Rebuild existing indexes.
 - Python is found as `python3`, then `python`, then `py -3`, and must be 3.8 or later.
 - Linux and macOS need PowerShell 7.4.6 or later, and the PowerShell runtime gate (`Test-MimirPowerShellRuntime.ps1`) now enforces it: outside Windows it raises a lower `-MinimumVersion`, including the 7.4 that existing workspace wrappers pass. The setup workflow, the workspace templates and the gate's help state 7.4 on Windows and 7.4.6 on Linux and macOS; the setup workflow, the sync wrapper template and the Python prerequisite message state Python 3.8 or later, found as `python3`, `python`, or `py -3`.

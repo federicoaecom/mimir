@@ -11,4 +11,5 @@ Documentación humana de Mimir Lite. El conocimiento orientado al agente que se 
 | `process/` | Flujo de trabajo de quienes mantienen el proyecto, opcional para quien contribuye: [revisión pre-push](process/13-pre-push-review.es.md), [revisión pre-push reforzada](process/14-reinforced-pre-push-review.es.md), [revisión por pares](process/15-peer-review.es.md) (cada una con su original en inglés `.md`) |
 | [`ideas/backlog.md`](ideas/backlog.md) / [`ideas/backlog.es.md`](ideas/backlog.es.md) | Ideas abiertas de lectura y de proceso (inglés / español) |
 | [`ideas/discarded.md`](ideas/discarded.md) / [`ideas/discarded.es.md`](ideas/discarded.es.md) | Ideas descartadas y los motivos para no reintroducirlas (inglés / español) |
+| [Validación de Codex CLI con ejemplos públicos](validation/2026-10-24-codex-public-samples.es.md) | Resultados observados de setup/sync/find en Windows, condiciones de entorno y limitaciones (con original en inglés) |
 | [`i18n/`](i18n/README.md) | Política de traducción y [glosario](i18n/glossary.md) |

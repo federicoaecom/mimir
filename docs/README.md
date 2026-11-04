@@ -11,4 +11,5 @@ Human-facing documentation for Mimir Lite. Agent-facing knowledge used at runtim
 | `process/` | Maintainer workflow, optional for contributors: [pre-push review](process/13-pre-push-review.md), [reinforced pre-push review](process/14-reinforced-pre-push-review.md), [peer review](process/15-peer-review.md) (each with a Spanish `.es.md` copy) |
 | [`ideas/backlog.md`](ideas/backlog.md) / [`ideas/backlog.es.md`](ideas/backlog.es.md) | Open read-side and process ideas (English / Spanish) |
 | [`ideas/discarded.md`](ideas/discarded.md) / [`ideas/discarded.es.md`](ideas/discarded.es.md) | Discarded ideas and the reasons not to reintroduce them (English / Spanish) |
+| [Codex CLI public-sample validation](validation/2026-10-24-codex-public-samples.md) | Observed Windows setup/sync/find results, environment conditions, and limitations (with a Spanish copy) |
 | [`i18n/`](i18n/README.md) | Translation policy and [glossary](i18n/glossary.md) |

@@ -2,13 +2,13 @@
 
 <#
 .SYNOPSIS
-    Deterministic audit of the global registration of the XPZ skills across the
-    installed agent tools.
+    Deterministic audit of the global registration of the Mimir Lite skills across
+    the installed agent tools, including Pi and Gentle Shell.
 
 .DESCRIPTION
     Mechanizes the inventory, install-detection, and classification steps of the
-    install workflow. Does NOT create or remove links: it only audits and
-    classifies. Resolution actions remain the agent's responsibility, after the
+    install workflow for the built-in supported tools, including Pi and GentleShell.
+    Does NOT create or remove links: it only audits and classifies. Resolution actions remain the agent's responsibility, after the
     user's explicit confirmation.
 
     Classification per skill x installed tool:
@@ -28,6 +28,9 @@
         it does not count compatibility with .claude/skills.
       - Cursor: native is mandatory only at ~/.cursor/skills; .agents/.claude/.codex
         are compat, and covered_by_compatibility flags REGISTRATION_GAPS.
+
+    Pi and GentleShell are named consumers; -PiAgentHome and -GentleShellAgentHome
+    select explicit audit targets without changing launcher configuration.
 
     Other tools: -AdditionalSkillsRoot audits any extra skills directory (one
     entry per directory, named "Custom:<path as given>"). Each one is treated as an
@@ -82,6 +85,12 @@
     Skills the user chose not to link in any tool (for example mimir-delegate);
     same rule as -SkipTool. A name outside the skills inventory stops with BLOCK.
 
+.PARAMETER PiAgentHome
+    Explicit Pi agent home to audit; does not change Pi or launcher settings.
+
+.PARAMETER GentleShellAgentHome
+    Explicit Gentle Shell agent home to audit; does not change launcher settings.
+
 .OUTPUTS
     Human-readable text by default; a JSON object with -AsJson. The "overall" and
     "label" fields are meant for agent interpretation.
@@ -118,6 +127,10 @@ param(
     [string[]]$OnlyTool = @(),
 
     [string[]]$SkipSkill = @(),
+
+    [string]$PiAgentHome,
+
+    [string]$GentleShellAgentHome,
 
     [switch]$AsJson
 )
@@ -183,6 +196,15 @@ function Resolve-SkillsDir {
     return Join-ProfilePath -ProfileRoot $ProfileRoot -RelativePath $Path
 }
 
+function Resolve-AgentHomePath {
+    param([string]$Path, [string]$ProfileRoot)
+    if ([string]::IsNullOrEmpty($Path)) { return $null }
+    if ($Path -eq '~') { return $ProfileRoot }
+    if ($Path -match '^~[\\/]') { return Join-Path $ProfileRoot $Path.Substring(2) }
+    if ([System.IO.Path]::IsPathRooted($Path)) { return $Path }
+    return Join-Path (Get-Location).Path $Path
+}
+
 function Test-UsableCliOnPath {
     param([string]$Name)
     $cmds = Get-Command $Name -ErrorAction SilentlyContinue
@@ -231,6 +253,16 @@ function Test-ToolInstalled {
             if (Test-Path -LiteralPath (Join-Path $configDir 'opencode.json') -PathType Leaf) { return $true }
             if (Test-Path -LiteralPath (Join-Path $configDir 'opencode.jsonc') -PathType Leaf) { return $true }
             return $false
+        }
+        'Pi' {
+            return (Test-UsableCliOnPath -Name 'pi') -or
+                (Test-Path -LiteralPath (Join-Path $script:PiAgentHomeResolved 'settings.json') -PathType Leaf)
+        }
+        'GentleShell' {
+            return (Test-UsableCliOnPath -Name 'gentle-shell') -or
+                (Test-Path -LiteralPath (Join-ProfilePath $profileRoot '.gentle-shell\config.json') -PathType Leaf) -or
+                (Test-Path -LiteralPath (Join-Path $script:GentleShellDefaultHome 'settings.json') -PathType Leaf) -or
+                (-not [string]::IsNullOrWhiteSpace($env:GENTLE_PI_AGENT_HOME))
         }
         'Antigravity' {
             if (Test-UsableCliOnPath -Name 'agy') { return $true }
@@ -298,6 +330,44 @@ function Get-EntryInfo {
 $root = Resolve-RepoRoot -Requested $RepoRoot
 $profileRoot = Get-ProfileRoot
 
+$piHomeCandidate = if (-not [string]::IsNullOrWhiteSpace($PiAgentHome)) {
+    $PiAgentHome
+}
+elseif (-not [string]::IsNullOrWhiteSpace($env:GENTLE_SHELL_USER_PI_HOME)) {
+    $env:GENTLE_SHELL_USER_PI_HOME
+}
+elseif (-not [string]::IsNullOrWhiteSpace($env:PI_CODING_AGENT_DIR)) {
+    $env:PI_CODING_AGENT_DIR
+}
+else {
+    Join-ProfilePath $profileRoot '.pi\agent'
+}
+$script:PiAgentHomeResolved = Resolve-AgentHomePath -Path $piHomeCandidate -ProfileRoot $profileRoot
+$script:GentleShellDefaultHome = if (-not [string]::IsNullOrWhiteSpace($env:GENTLE_SHELL_HOME)) { Resolve-AgentHomePath -Path $env:GENTLE_SHELL_HOME -ProfileRoot $profileRoot } else { Join-ProfilePath $profileRoot '.gentle-shell\agent' }
+$gentleHomeCandidate = if (-not [string]::IsNullOrWhiteSpace($GentleShellAgentHome)) { $GentleShellAgentHome } else { $null }
+if ($null -eq $gentleHomeCandidate -and -not [string]::IsNullOrWhiteSpace($env:GENTLE_PI_AGENT_HOME)) { $gentleHomeCandidate = $env:GENTLE_PI_AGENT_HOME }
+if ([string]::IsNullOrWhiteSpace($gentleHomeCandidate)) {
+    $launcherConfigPath = Join-ProfilePath $profileRoot '.gentle-shell\config.json'
+    if (Test-Path -LiteralPath $launcherConfigPath -PathType Leaf) {
+        try {
+            # Preserve JSON object/key identity and array shape, as the launcher does.
+            $launcherConfig = Get-Content -LiteralPath $launcherConfigPath -Raw | ConvertFrom-Json -AsHashtable -NoEnumerate
+            if ($launcherConfig -is [System.Collections.IDictionary] -and $launcherConfig.Contains('home')) {
+                $selection = $launcherConfig['home']
+                if ($selection -is [string] -and $selection.Length -gt 0) {
+                    switch -CaseSensitive ($selection) {
+                        'link' { $gentleHomeCandidate = $script:PiAgentHomeResolved }
+                        'isolated' { $gentleHomeCandidate = $script:GentleShellDefaultHome }
+                        default { $gentleHomeCandidate = $selection }
+                    }
+                }
+            }
+        } catch { }
+    }
+}
+if ([string]::IsNullOrEmpty($gentleHomeCandidate)) { $gentleHomeCandidate = $script:GentleShellDefaultHome }
+$script:GentleShellAgentHomeResolved = Resolve-AgentHomePath -Path $gentleHomeCandidate -ProfileRoot $profileRoot
+
 # The folder the skills folders are resolved under: the profile (user scope) or the project.
 $isProjectScope = ($Scope -eq 'Project')
 if ($isProjectScope -and [string]::IsNullOrWhiteSpace($ProjectRoot)) {
@@ -332,7 +402,9 @@ $userToolDefs = @(
     [ordered]@{ Name = 'Codex'; Native = @('.codex\skills', '.agents\skills'); Compat = @() },
     [ordered]@{ Name = 'Cursor'; Native = @('.cursor\skills'); Compat = @('.agents\skills', '.claude\skills', '.codex\skills') },
     [ordered]@{ Name = 'OpenCode'; Native = @('.config\opencode\skills', '.agents\skills'); Compat = @() },
-    [ordered]@{ Name = 'Antigravity'; Native = @('.gemini\config\skills', '.agents\skills'); Compat = @() }
+    [ordered]@{ Name = 'Antigravity'; Native = @('.gemini\config\skills', '.agents\skills'); Compat = @() },
+    [ordered]@{ Name = 'Pi'; Native = @((Join-Path $script:PiAgentHomeResolved 'skills'), '.agents\skills'); Compat = @(); Explicit = (-not [string]::IsNullOrWhiteSpace($PiAgentHome)) },
+    [ordered]@{ Name = 'GentleShell'; Native = @((Join-Path $script:GentleShellAgentHomeResolved 'skills'), '.agents\skills'); Compat = @(); Explicit = (-not [string]::IsNullOrWhiteSpace($GentleShellAgentHome)) }
 )
 # Project scope: the project-level folders each tool documents (Claude Code reads only
 # .claude/skills; the others read the shared .agents/skills).
@@ -341,8 +413,12 @@ $projectToolDefs = @(
     [ordered]@{ Name = 'Codex'; Native = @('.agents\skills'); Compat = @() },
     [ordered]@{ Name = 'Cursor'; Native = @('.agents\skills', '.cursor\skills'); Compat = @('.claude\skills', '.codex\skills') },
     [ordered]@{ Name = 'OpenCode'; Native = @('.opencode\skills', '.agents\skills', '.claude\skills'); Compat = @() },
-    [ordered]@{ Name = 'Antigravity'; Native = @('.agents\skills'); Compat = @() }
+    [ordered]@{ Name = 'Antigravity'; Native = @('.agents\skills'); Compat = @() },
+    [ordered]@{ Name = 'Pi'; Native = @('.pi\skills', '.agents\skills'); Compat = @(); Explicit = (-not [string]::IsNullOrWhiteSpace($PiAgentHome)) },
+    [ordered]@{ Name = 'GentleShell'; Native = @('.pi\skills', '.agents\skills'); Compat = @(); Explicit = (-not [string]::IsNullOrWhiteSpace($GentleShellAgentHome)) }
 )
+$userToolDefs = @($userToolDefs)
+$projectToolDefs = @($projectToolDefs)
 $toolDefs = if ($isProjectScope) { $projectToolDefs } else { $userToolDefs }
 # User-declared directories (tools without built-in support): always treated as installed.
 # A ~ path always means the user profile, also in project scope (where other relative paths
@@ -408,7 +484,7 @@ $userScopeAlsoRegistered = @()
 $sumOk = 0; $sumMissing = 0; $sumBroken = 0; $sumCompat = 0; $sumSkipped = 0
 
 foreach ($def in $toolDefs) {
-    if ($def.Contains('Declared')) { $installed = $true }
+    if ($def.Contains('Declared') -or ($def.Contains('Explicit') -and $def.Explicit)) { $installed = $true }
     else { $installed = Test-ToolInstalled -Tool $def.Name }
     $toolSkipped = $skippedTools.Contains($def.Name)
     $skillsStatus = @()
@@ -482,9 +558,9 @@ $rootNorm = (ConvertTo-LongPath -Path $root).TrimEnd([char[]]@('\', '/')).ToLowe
 $allDirs = [System.Collections.Generic.List[string]]::new()
 $seenCanonical = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $scopeScanDirs = if ($isProjectScope) {
-    @('.claude\skills', '.agents\skills', '.cursor\skills', '.codex\skills', '.opencode\skills')
+    @('.claude\skills', '.agents\skills', '.cursor\skills', '.codex\skills', '.opencode\skills', '.pi\skills')
 } else {
-    @('.claude\skills', '.codex\skills', '.agents\skills', '.cursor\skills', '.config\opencode\skills', '.gemini\config\skills')
+    @('.claude\skills', '.codex\skills', '.agents\skills', '.cursor\skills', '.config\opencode\skills', '.gemini\config\skills', (Join-Path $script:PiAgentHomeResolved 'skills'), (Join-Path $script:GentleShellAgentHomeResolved 'skills'))
 }
 $scanDirs = $scopeScanDirs + @($AdditionalSkillsRoot | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Resolve-AdditionalSkillsRoot $_ })
 foreach ($rel in $scanDirs) {
