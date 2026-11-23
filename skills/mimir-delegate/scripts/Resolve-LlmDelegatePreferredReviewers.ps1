@@ -136,7 +136,6 @@ function Stop-WithReason {
 }
 
 $script:Note = 'Composition suggestion; NOT authorization. The Resolve-LlmDelegateAuthorization.ps1 gate re-evaluates destination+sensitivity PER REVIEWER on send. availableInManifest is best-effort: the manifest may not enumerate opencode (minimal config).'
-$allowedDispatchBackends = @('opencode', 'codex', 'claude-code', 'copilot', 'gemini', 'antigravity')
 $allowedNativeBackends = @('orchestrator-native')
 $supportedFallbackActivateOn = @('quota', 'timeout', 'error', 'unavailable')
 

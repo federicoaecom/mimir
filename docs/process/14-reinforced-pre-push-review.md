@@ -45,7 +45,7 @@ Current backend inventory from the dispatcher and gate:
 - `gemini`
 - `antigravity`
 
-The backend set is owned by [`skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1`](../../skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1) and checked by [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1). Do not treat this document as the adapter source of truth.
+The backend set is defined by the data-only registry [`skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1`](../../skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1) that the panel dispatcher loads, and checked by [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1). Do not treat this document as the adapter source of truth.
 
 Recommended in-panel reviewer families are examples, not a fixed rule: Codex / OpenAI, Claude Code / Anthropic when the orchestrator is not Anthropic, and additional Copilot, Gemini, Antigravity `public-review`, or native reviewers when available. The principle and the diversity floor in `15` prevail over any example list. Although opencode remains an available backend and its direct adapter remains available, it is not an eligible or recommended in-panel route until an enforceable read-only, no-shell posture exists. Panel assembly must omit it manually; this is policy, not an automatic dispatcher restriction.
 
@@ -69,14 +69,14 @@ Capability and dossier transport are independent axes. A strong tool is not auto
 | Backend / route | Panel role | Outside the panel (adapter) | Dossier transport | Notes |
 |---|---|---|---|---|
 | Codex-delegate | `git-capable` | `git-capable` | N/A | Read-only sandbox in panel use. |
-| Native subagent (`orchestrator-native`) | `git-capable` | N/A typical | N/A | Frequent anchor; not a dispatcher `$AdapterScript` key. |
+| Native subagent (`orchestrator-native`) | `git-capable` | N/A typical | N/A | Frequent anchor; not a backend registry record (the registry rejects `orchestrator-native`). |
 | Claude Code (async / panel) | `semantic-only` | `git-capable` via synchronous `Invoke-ClaudeCode.ps1` with `-Tools default -PermissionMode dontAsk` | `stdin-dossier-capable` | Direct adapter use does not count as a `14` in-panel git-capable reviewer; in-panel git-capable profile remains future work. |
 | opencode | Manually omitted from the in-panel reviewer set; do not dispatch or count it until an enforceable read-only, no-shell posture exists | Direct adapter remains available; without `-Agent` it uses opencode's configured default, which may be agentic. An explicitly named restricted agent is not automatically safe or an enforceable no-shell guarantee. | `stdin-dossier-capable` | The dispatcher still lists opencode and does not enforce the panel-assembly omission; it rejects `invokeArgs.agent`, so a selected in-panel opencode receives no explicit agent. See cwd/worktree and local-secret notes. |
 | Copilot CLI | `semantic-only` | `semantic-only` | `argv-limited` (~30000 chars) | Omit if dossier exceeds the cap. |
 | Gemini CLI | `semantic-only` | `semantic-only` (`ApprovalMode=plan`) | `argv-limited` (~30000 chars) | Omit if dossier exceeds the cap. |
 | Antigravity `public-review` | `semantic-only` | always `semantic-only` | `argv-limited` (~30000 chars) | Never a `git-capable` anchor; creates its own scratch; refuses `-Cd`; accepts only `public` payloads. |
 
-Maintenance rule: this table is a closed per-axis enumeration. The backend parity gate cannot infer a missing new row when every row cites only one backend. When a backend is added to the dispatcher, update this matrix in the same workstream.
+Maintenance rule: this table is a closed per-axis enumeration. The backend parity gate cannot infer a missing new row when every row cites only one backend. When a backend is added to the registry, update this matrix in the same workstream.
 
 ## Omission and degraded labels
 

@@ -32,40 +32,7 @@ function Normalize-Value {
     return $trimmed
 }
 
-function Get-MarkdownTableValue {
-    param(
-        [string[]]$Lines,
-        [string]$SectionName,
-        [string]$FieldName
-    )
-
-    $inSection = $false
-    $sectionPattern = '^\s*##\s+{0}\s*$' -f [regex]::Escape($SectionName)
-
-    foreach ($line in $Lines) {
-        if ([regex]::IsMatch($line, '^\s*##\s+')) {
-            $inSection = [regex]::IsMatch($line, $sectionPattern)
-            continue
-        }
-
-        if (-not $inSection) {
-            continue
-        }
-
-        $cells = @($line -split '\|')
-        if ($cells.Count -lt 4) {
-            continue
-        }
-
-        $name = $cells[1].Trim()
-        $value = $cells[2].Trim()
-        if ($name -ieq $FieldName -and $name -notmatch '^-+$') {
-            return $value
-        }
-    }
-
-    return $null
-}
+. (Join-Path $PSScriptRoot 'MimirMarkdownTableSupport.ps1')
 
 function Set-MarkdownTableValue {
     param(

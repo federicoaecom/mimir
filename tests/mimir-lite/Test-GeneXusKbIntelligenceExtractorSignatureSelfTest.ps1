@@ -44,4 +44,20 @@ if ($versionResult.ok -or $versionResult.reason -ne 'extrator_version_defasada')
     throw 'Stale version should fail with extrator_version_defasada'
 }
 
+$hashResult = Test-GeneXusKbIntelligenceExtractorSignatureFromMetadata -Metadata @{
+    extractor_signature_version = $expected.extractor_signature_version
+    extractor_signature_hash    = ('0' * 64)
+}
+if ($hashResult.ok -or $hashResult.reason -ne 'extrator_hash_defasado') {
+    throw 'Stale hash should fail with extrator_hash_defasado'
+}
+
+# The hash covers every engine module in a fixed order (TestKbIntelligenceCoreSignature.py edits
+# a copy of each and checks that this contract and the Python build agree).
+$modules = @(Get-GeneXusKbIntelligenceExtractorSignatureModules)
+$expectedModules = @('Build-KbIntelligenceIndex.py', 'GeneXusKbIntelligenceCore.py', 'GeneXusObjectTypeCatalogCore.py', 'GeneXusTransactionWritabilityCore.py')
+if (($modules -join ',') -cne ($expectedModules -join ',')) {
+    throw "Signature modules should be $($expectedModules -join ', '); got: $($modules -join ', ')"
+}
+
 Write-Output 'KB_INTELLIGENCE_EXTRACTOR_SIGNATURE_SELFTEST_OK'

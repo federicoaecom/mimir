@@ -7,6 +7,10 @@
     Checks every *.py under skills/, tools/ and tests/ (recursively) using Python
     ast.parse. This is a syntax-only gate and intentionally avoids py_compile so it
     does not write __pycache__/*.pyc.
+    It parses with the Python 3.8 grammar (feature_version=(3, 8)), the product's minimum,
+    so syntax added after 3.8 fails even on a newer interpreter. This is best effort: it does
+    not see standard-library APIs added after 3.8. tools/Invoke-Python38SmokeInDocker.ps1
+    runs the engines on a real 3.8 interpreter for that.
 #>
 
 [CmdletBinding()]
@@ -72,7 +76,8 @@ for raw_path in paths:
     path = pathlib.Path(raw_path)
     try:
         text = path.read_text(encoding="utf-8-sig")
-        ast.parse(text, filename=str(path))
+        # Python 3.8 is the product's minimum: reject syntax added after it.
+        ast.parse(text, filename=str(path), feature_version=(3, 8))
     except SyntaxError as exc:
         findings.append({
             "file": str(path),

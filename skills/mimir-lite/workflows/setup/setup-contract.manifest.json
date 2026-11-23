@@ -19,6 +19,7 @@
     "skills/mimir-lite/scripts/MimirWrapperEngineParamSupport.ps1",
     "skills/mimir-lite/scripts/Test-MimirPowerShellRuntime.ps1",
     "skills/mimir-lite/scripts/Test-MimirKbMetadataWrapper.ps1",
+    "skills/mimir-lite/scripts/MimirMarkdownTableSupport.ps1",
     "skills/mimir-lite/scripts/Test-MimirKbObjectsXmlNaming.ps1"
   ]
 }

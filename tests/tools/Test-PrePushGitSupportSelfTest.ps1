@@ -29,6 +29,25 @@ if ($oneBlank.Count -ne 1 -or $oneBlank[0] -cne '') {
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('prepush-gitsupport-selftest-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $tempRoot)
 try {
+    # Shell aliases emit deterministic synthetic streams without creating Git history.
+    $cases = @(
+        @{ Name = 'stdout'; Alias = "!printf 'alpha\nbeta\n'"; Exit = 0; Lines = @('alpha', 'beta') }
+        @{ Name = 'empty'; Alias = '!exit 0'; Exit = 0; Lines = @() }
+        @{ Name = 'stderr'; Alias = "!printf 'failure\n' >&2; exit 7"; Exit = 7; Lines = @('failure') }
+        @{ Name = 'mixed'; Alias = "!printf 'out\n'; printf 'err\n' >&2; exit 3"; Exit = 3; Lines = @('out', 'err') }
+    )
+    foreach ($case in $cases) {
+        $result = Invoke-RepoGit -RepositoryRoot $tempRoot -Arguments @('-c', "alias.synthetic=$($case.Alias)", 'synthetic')
+        if ($result.ExitCode -ne $case.Exit -or $result.Lines.Count -ne $case.Lines.Count) {
+            throw "Unexpected exit code or line count for $($case.Name)."
+        }
+        # Native stdout/stderr arrival order is not guaranteed across platforms.
+        if ((@($result.Lines | Sort-Object) -join "`n") -cne (@($case.Lines | Sort-Object) -join "`n") -or
+            $result.Text -cne ($result.Lines -join [Environment]::NewLine)) {
+            throw "Unexpected lines or text for $($case.Name)."
+        }
+    }
+
     & git -C $tempRoot init -b main *> $null
     & git -C $tempRoot config user.email selftest@example.test *> $null
     & git -C $tempRoot config user.name 'Self Test' *> $null

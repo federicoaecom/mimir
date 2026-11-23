@@ -10,10 +10,10 @@ function New-TempDir { $p = Join-Path ([IO.Path]::GetTempPath()) ('mimir-pi-' + 
 function Link-Skill([string]$dir,[string]$name,[string]$target) { New-Item -ItemType Directory -Path $dir -Force | Out-Null; $kind = if ($IsWindows) {'Junction'} else {'SymbolicLink'}; New-Item -ItemType $kind -Path (Join-Path $dir $name) -Target $target | Out-Null }
 $variables = 'HOME','USERPROFILE','PATH','GENTLE_SHELL_USER_PI_HOME','PI_CODING_AGENT_DIR','GENTLE_PI_AGENT_HOME','GENTLE_SHELL_HOME'
 $saved = @{}; foreach ($name in $variables) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
-$repo = New-TempDir; $profile = New-TempDir; $pi = New-TempDir; $gentle = New-TempDir; $project = $null
+$repo = New-TempDir; $profileDir = New-TempDir; $pi = New-TempDir; $gentle = New-TempDir; $project = $null
 try {
     foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
-    $env:HOME = $profile; $env:USERPROFILE = $profile; $env:PATH = ''
+    $env:HOME = $profileDir; $env:USERPROFILE = $profileDir; $env:PATH = ''
     New-Item -ItemType Directory -Path (Join-Path $repo 'sample-skill') | Out-Null
     Set-Content -LiteralPath (Join-Path $repo 'sample-skill/SKILL.md') -Value '# sample' -Encoding utf8
     Link-Skill (Join-Path $pi 'skills') 'sample-skill' (Join-Path $repo 'sample-skill')
@@ -31,17 +31,17 @@ try {
     }
     Assert (@($r.tools).Count -eq 7) 'built-in inventory should contain seven tools'
     Assert ((@($r.orphans).Count) -eq 0) 'same-target/native scan should not manufacture orphan entries'
-    $env:PI_CODING_AGENT_DIR = Join-Path $profile 'lower-priority'
+    $env:PI_CODING_AGENT_DIR = Join-Path $profileDir 'lower-priority'
     $priority = (& $scriptUnderTest -RepoRoot $repo -PiAgentHome $pi -GentleShellAgentHome $gentle -AsJson | Out-String) | ConvertFrom-Json
     Assert ((@($priority.tools | Where-Object name -eq 'Pi')[0].native | Select-Object -First 1) -eq (Join-Path $pi 'skills')) 'explicit Pi home has precedence over environment selection'
-    $tildeTarget = Join-Path $profile '.tilde-pi'
+    $tildeTarget = Join-Path $profileDir '.tilde-pi'
     $tilde = (& $scriptUnderTest -RepoRoot $repo -PiAgentHome '~/.tilde-pi' -GentleShellAgentHome $gentle -AsJson | Out-String) | ConvertFrom-Json
     Assert ((@($tilde.tools | Where-Object name -eq 'Pi')[0].native | Select-Object -First 1) -eq (Join-Path $tildeTarget 'skills')) ("leading tilde resolves against selected profile; got {0}" -f (@($tilde.tools | Where-Object name -eq 'Pi')[0].native | Select-Object -First 1))
     $relative = (& $scriptUnderTest -RepoRoot $repo -PiAgentHome 'relative-pi' -GentleShellAgentHome $gentle -AsJson | Out-String) | ConvertFrom-Json
     Assert ((@($relative.tools | Where-Object name -eq 'Pi')[0].native | Select-Object -First 1) -eq (Join-Path (Get-Location).Path 'relative-pi/skills')) 'relative Pi home resolves against current directory'
 
     # A shared folder alone is not product detection; named consumers remain present but uninstalled.
-    $sharedOnly = Join-Path $profile '.agents/skills'
+    $sharedOnly = Join-Path $profileDir '.agents/skills'
     Link-Skill $sharedOnly 'sample-skill' (Join-Path $repo 'sample-skill')
     $shared = (& $scriptUnderTest -RepoRoot $repo -AsJson | Out-String) | ConvertFrom-Json
     Assert (-not (@($shared.tools | Where-Object name -eq 'Pi')[0].installed)) 'shared folder alone must not detect Pi'
@@ -60,7 +60,7 @@ try {
     Assert (@($piDetected.tools | Where-Object name -eq 'Pi')[0].installed) 'PI_CODING_AGENT_DIR settings detect Pi'
 
     # Launcher home selectors: link uses Pi home, isolated remains independent, custom paths resolve from cwd.
-    $configDir = Join-Path $profile '.gentle-shell'
+    $configDir = Join-Path $profileDir '.gentle-shell'
     New-Item -ItemType Directory -Path $configDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $configDir 'config.json') -Value '{"home":"link"}' -Encoding utf8
     $env:PI_CODING_AGENT_DIR = $pi
@@ -68,21 +68,21 @@ try {
     Assert ((@($linked.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $pi 'skills')) 'saved link selector resolves to Pi home'
     Set-Content -LiteralPath (Join-Path $configDir 'config.json') -Value '{"home":"isolated"}' -Encoding utf8
     $isolated = (& $scriptUnderTest -RepoRoot $repo -AsJson | Out-String) | ConvertFrom-Json
-    Assert ((@($isolated.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $profile '.gentle-shell/agent/skills')) 'isolated selector does not reuse Pi home'
+    Assert ((@($isolated.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $profileDir '.gentle-shell/agent/skills')) 'isolated selector does not reuse Pi home'
     Set-Content -LiteralPath (Join-Path $configDir 'config.json') -Value '{"home":"custom-home"}' -Encoding utf8
     $custom = (& $scriptUnderTest -RepoRoot $repo -AsJson | Out-String) | ConvertFrom-Json
     Assert ((@($custom.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path (Get-Location).Path 'custom-home/skills')) 'relative custom launcher home resolves against cwd'
     Set-Content -LiteralPath (Join-Path $configDir 'config.json') -Value '{bad json' -Encoding utf8
     $malformed = (& $scriptUnderTest -RepoRoot $repo -AsJson | Out-String) | ConvertFrom-Json
-    Assert ((@($malformed.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $profile '.gentle-shell/agent/skills')) 'malformed config uses isolated default'
+    Assert ((@($malformed.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $profileDir '.gentle-shell/agent/skills')) 'malformed config uses isolated default'
     Set-Content -LiteralPath (Join-Path $configDir 'config.json') -Value '{"home":42}' -Encoding utf8
     $foreign = (& $scriptUnderTest -RepoRoot $repo -AsJson | Out-String) | ConvertFrom-Json
-    Assert ((@($foreign.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $profile '.gentle-shell/agent/skills')) 'non-string config selector uses isolated default'
+    Assert ((@($foreign.tools | Where-Object name -eq 'GentleShell')[0].native | Select-Object -First 1) -eq (Join-Path $profileDir '.gentle-shell/agent/skills')) 'non-string config selector uses isolated default'
 
     # JSON selectors follow the launcher's case-sensitive object contract, not PowerShell member lookup.
     foreach ($case in @(
-        @{ Json = '{"Home":"link"}'; Home = (Join-Path $profile '.gentle-shell/agent'); Name = 'uppercase key is not home' },
-        @{ Json = '[{"home":"link"}]'; Home = (Join-Path $profile '.gentle-shell/agent'); Name = 'array is not a config object' },
+        @{ Json = '{"Home":"link"}'; Home = (Join-Path $profileDir '.gentle-shell/agent'); Name = 'uppercase key is not home' },
+        @{ Json = '[{"home":"link"}]'; Home = (Join-Path $profileDir '.gentle-shell/agent'); Name = 'array is not a config object' },
         @{ Json = '{"home":"LINK"}'; Home = (Join-Path (Get-Location).Path 'LINK'); Name = 'uppercase LINK is a custom path' },
         @{ Json = '{"home":"ISOLATED"}'; Home = (Join-Path (Get-Location).Path 'ISOLATED'); Name = 'uppercase ISOLATED is a custom path' },
         @{ Json = '{"home":" "}'; Home = (Join-Path (Get-Location).Path ' '); Name = 'nonempty whitespace selector is a custom path' }
@@ -110,18 +110,18 @@ try {
     Assert (@($projectBoth.orphans).Count -eq 0) 'shared project directory is scanned without duplicate orphan records'
     $orphanTarget = Join-Path $repo 'removed-skill'
     New-Item -ItemType Directory -Path $orphanTarget | Out-Null
-    $bothHomes = Join-Path $profile 'both-homes'
+    $bothHomes = Join-Path $profileDir 'both-homes'
     Link-Skill (Join-Path $bothHomes 'skills') 'removed-skill' $orphanTarget
     $dedup = (& $scriptUnderTest -RepoRoot $repo -PiAgentHome $bothHomes -GentleShellAgentHome $bothHomes -AsJson | Out-String) | ConvertFrom-Json
     Assert (@($dedup.orphans | Where-Object name -eq 'removed-skill').Count -eq 1) 'identical Pi and Gentle home orphan scans are deduplicated'
-    $emptyHome = Join-Path $profile 'empty-home'
-    Remove-Item -LiteralPath (Join-Path $profile '.agents/skills/sample-skill') -Force
+    $emptyHome = Join-Path $profileDir 'empty-home'
+    Remove-Item -LiteralPath (Join-Path $profileDir '.agents/skills/sample-skill') -Force
     $missing = (& $scriptUnderTest -RepoRoot $repo -PiAgentHome $emptyHome -OnlyTool Pi -AsJson | Out-String) | ConvertFrom-Json
     Assert ((@($missing.tools | Where-Object name -eq 'Pi')[0].skills | Where-Object name -eq 'sample-skill')[0].status -eq 'missing') 'unregistered skill keeps the existing missing status'
-    Link-Skill (Join-Path $profile '.agents/skills') 'sample-skill' (Join-Path $repo 'sample-skill')
+    Link-Skill (Join-Path $profileDir '.agents/skills') 'sample-skill' (Join-Path $repo 'sample-skill')
     New-Item -ItemType Directory -Path (Join-Path $repo 'broken-skill') | Out-Null
     Set-Content -LiteralPath (Join-Path $repo 'broken-skill/SKILL.md') -Value '# broken target' -Encoding utf8
-    $brokenTarget = Join-Path $profile 'broken-target'
+    $brokenTarget = Join-Path $profileDir 'broken-target'
     New-Item -ItemType Directory -Path $brokenTarget | Out-Null
     Link-Skill (Join-Path $emptyHome 'skills') 'broken-skill' $brokenTarget
     Remove-Item -LiteralPath $brokenTarget -Recurse -Force
@@ -137,7 +137,7 @@ try {
 catch { $failures.Add($_.Exception.Message) }
 finally {
     foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
-    foreach ($path in @($repo,$profile,$pi,$gentle,$project)) { if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { Get-ChildItem -LiteralPath $path -Recurse -Force | Where-Object LinkType | ForEach-Object { $_.Delete() }; Remove-Item -LiteralPath $path -Recurse -Force } }
+    foreach ($path in @($repo,$profileDir,$pi,$gentle,$project)) { if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { Get-ChildItem -LiteralPath $path -Recurse -Force | Where-Object LinkType | ForEach-Object { $_.Delete() }; Remove-Item -LiteralPath $path -Recurse -Force } }
 }
 if ($failures.Count) { $failures | ForEach-Object { Write-Error $_ }; exit 1 }
 'OK: Test-MimirSkillsRegistrationPiSelfTest.ps1'

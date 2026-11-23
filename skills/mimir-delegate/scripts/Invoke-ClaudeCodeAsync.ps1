@@ -273,6 +273,7 @@ function New-AsyncHalfOpenLeaseUnderLock {
 }
 
 function New-AsyncHalfOpenLease {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'TimeoutSeconds', Justification = 'Used inside the scriptblock run under the circuit lock.')]
     param([object]$Context, [int]$TimeoutSeconds)
 
     [System.IO.Directory]::CreateDirectory($Context.stateDir) | Out-Null
@@ -293,6 +294,7 @@ function New-AsyncHalfOpenLease {
 }
 
 function Get-AsyncQuotaCircuitDecision {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'TimeoutSeconds', Justification = 'Used inside the scriptblock run under the circuit lock.')]
     param([object]$Context, [int]$TimeoutSeconds)
 
     [System.IO.Directory]::CreateDirectory($Context.stateDir) | Out-Null

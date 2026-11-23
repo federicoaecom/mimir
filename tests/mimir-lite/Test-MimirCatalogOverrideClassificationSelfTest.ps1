@@ -29,7 +29,8 @@ $pythonArgs = [string[]]$python.PrefixArguments
 $basePath = Get-GeneXusObjectTypeCatalogDefaultBasePath
 $base = Read-GeneXusObjectTypeCatalogFile -Path $basePath
 $workWith = $base.types.WorkWith
-$workWithForWeb = $base.types.WorkWithForWeb
+# Under StrictMode this read fails when the base catalog has no WorkWithForWeb entry.
+$null = $base.types.WorkWithForWeb
 $procedure = $base.types.Procedure
 
 # Without an override.
@@ -164,7 +165,7 @@ foreach ($redundantTypeName in @('WorkWith', 'WorkWithForWeb', 'Folder')) {
 
 # A type missing from the base keeps the documented default flags (queryable, inventory, not a container).
 $newTypeRegisterRoot = New-BareRoot 'register-new-type'
-$newTypeRegisterOut = & pwsh -NoProfile -File (Join-Path $scriptDir 'Register-GeneXusObjectTypeCatalogOverride.ps1') -KbWorkspaceRoot $newTypeRegisterRoot -TypeName 'LocalNewType' -ObjectTypeGuid '33333333-4444-5555-6666-777777777777' -UserApproved -AsJson
+$null = & pwsh -NoProfile -File (Join-Path $scriptDir 'Register-GeneXusObjectTypeCatalogOverride.ps1') -KbWorkspaceRoot $newTypeRegisterRoot -TypeName 'LocalNewType' -ObjectTypeGuid '33333333-4444-5555-6666-777777777777' -UserApproved -AsJson
 Assert-True ($LASTEXITCODE -eq 0) "registering a type missing from the base should exit 0; got $LASTEXITCODE"
 $newTypeOverride = Get-Content -LiteralPath (Join-Path $newTypeRegisterRoot 'scripts/gx-object-type-catalog.override.json') -Raw | ConvertFrom-Json
 $newTypeEntry = $newTypeOverride.types.LocalNewType

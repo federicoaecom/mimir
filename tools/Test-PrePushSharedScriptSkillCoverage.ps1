@@ -59,29 +59,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-function Invoke-RepoGit {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot,
-
-        [Parameter(Mandatory = $true)]
-        [string[]]$Arguments
-    )
-
-    $output = & git -C $RepositoryRoot @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    $lines = @()
-    if ($null -ne $output) {
-        $lines = @($output | ForEach-Object { $_.ToString() })
-    }
-
-    return [pscustomobject]@{
-        ExitCode = $exitCode
-        Lines    = $lines
-        Text     = ($lines -join [Environment]::NewLine)
-    }
-}
+. (Join-Path $PSScriptRoot 'PrePushGitSupport.ps1')
 
 function Normalize-RepoPath {
     param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Path)

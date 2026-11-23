@@ -27,6 +27,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $utf8NoBomEncodingSupportPath = Join-Path ((Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'skills/mimir-lite/scripts')) 'Utf8NoBomEncodingSupport.ps1'
 if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) {
@@ -177,6 +178,7 @@ Write-Fixture 'Procedure' 'ModernAttrProc' $modernXml
 $sqlitePath = Join-Path $kbIntelDir 'kb-intelligence.sqlite'
 $validationPath = Join-Path $kbIntelDir 'kb-intelligence-validation.json'
 
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $buildScript `
     -SourceRoot $kbObjectsPath `
     -OutputPath $sqlitePath `

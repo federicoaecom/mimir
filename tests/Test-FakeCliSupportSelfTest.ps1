@@ -56,6 +56,23 @@ exit 7
     Assert-True ($stdout -contains 'STDIN=[piped input]') 'stdin passes through'
     $stderrText = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { '' }
     Assert-True ($stderrText -match 'FAKE-STDERR') 'stderr passes through'
+
+    # -ProbeOutput: the launcher answers a lone probe argument itself; anything else reaches the body.
+    $probeMarker = Join-Path $tempRoot 'probe-body-ran.txt'
+    $probeLauncher = New-FakeCli -Directory $tempRoot -Name 'probe-tool' -ProbeOutput @{ '--version' = 'probe-tool 1.2.3' } -PwshBody (@'
+Set-Content -LiteralPath '{0}' -Value ($args -join ' ')
+Write-Output 'BODY'
+'@ -f $probeMarker)
+    $probeStdout = @(& $probeLauncher '--version')
+    Assert-True ($LASTEXITCODE -eq 0) "a probe answered by the launcher exits 0 (got $LASTEXITCODE)"
+    Assert-True (($probeStdout -join '|') -eq 'probe-tool 1.2.3') "a probe prints only its configured line (got: $($probeStdout -join ' | '))"
+    Assert-True (-not (Test-Path -LiteralPath $probeMarker)) 'a probe answered by the launcher does not start the body'
+    $probeStdout = @(& $probeLauncher '--version' 'extra')
+    Assert-True ($probeStdout -contains 'BODY') 'a probe argument followed by another argument reaches the body'
+    Assert-True ((Test-Path -LiteralPath $probeMarker) -and ((Get-Content -LiteralPath $probeMarker -Raw).Trim() -eq '--version extra')) 'the body receives both arguments'
+    $rejected = $false
+    try { New-FakeCli -Directory $tempRoot -Name 'bad-probe' -PwshBody 'exit 0' -ProbeOutput @{ '--version' = 'a & b' } | Out-Null } catch { $rejected = $true }
+    Assert-True $rejected 'a probe line with a character the launcher cannot print safely is rejected'
 }
 finally {
     if (Test-Path -LiteralPath $tempRoot) { Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue }

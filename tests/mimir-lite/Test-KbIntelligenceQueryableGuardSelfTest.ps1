@@ -6,6 +6,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $utf8NoBomEncodingSupportPath = Join-Path ((Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'skills/mimir-lite/scripts')) 'Utf8NoBomEncodingSupport.ps1'
 if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) {
@@ -33,6 +34,7 @@ $sdpXml = @'
 '@
 [System.IO.File]::WriteAllText((Join-Path $sdpDir 'SmartDevicesPlus.xml'), $sdpXml, (Get-Utf8NoBomEncoding))
 
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $buildScript -SourceRoot $kbObjectsPath -OutputPath $sqlitePath -KbWorkspaceRoot $tempRoot
 if ($LASTEXITCODE -ne 0) {
     throw "Build-KbIntelligenceIndex failed; exit $LASTEXITCODE"
@@ -94,7 +96,8 @@ foreach ($mobileType in @('Panel', 'WorkWith', 'SmartDevicesApplication')) {
         }
     }
 }
-$webWwJson = & $queryScript `
+# Only the exit code is checked; the output is not.
+$null = & $queryScript `
     -IndexPath $sqlitePath `
     -KbWorkspaceRoot $tempRoot `
     -Query what-uses `
@@ -142,7 +145,8 @@ $overrideJson = @{
 }
 $overrideJson | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $overridePath -Encoding utf8
 
-$allowedJson = & $queryScript `
+# Only the exit code is checked; the output is not.
+$null = & $queryScript `
     -IndexPath $sqlitePath `
     -KbWorkspaceRoot $tempRoot `
     -CatalogOverridePath $overridePath `
@@ -161,6 +165,7 @@ $procXml = @'
 '@
 [System.IO.File]::WriteAllText((Join-Path $procDir 'procSelfTestQueryable.xml'), $procXml, (Get-Utf8NoBomEncoding))
 
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $buildScript -SourceRoot $kbObjectsPath -OutputPath $sqlitePath -KbWorkspaceRoot $tempRoot -CatalogOverridePath $overridePath
 if ($LASTEXITCODE -ne 0) {
     throw "Rebuild with Procedure failed; exit $LASTEXITCODE"

@@ -28,6 +28,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $scriptDir = Join-Path $repoRoot 'skills/mimir-lite/scripts'
@@ -59,6 +60,7 @@ function New-Index([string]$Name, [string[]]$Folders) {
     Get-ChildItem -LiteralPath $sampleKbRoot -Directory | Where-Object { -not $Folders -or $Folders -contains $_.Name } |
         Copy-Item -Destination $corpus -Recurse
     $indexPath = Join-Path $tempRoot "$Name/index.sqlite"
+    Set-TestCorpusStateComplete -CorpusRoot $corpus
     & $buildScript -SourceRoot $corpus -OutputPath $indexPath | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Build-KbIntelligenceIndex failed for $Name; exit $LASTEXITCODE" }
     return $indexPath

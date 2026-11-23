@@ -42,7 +42,7 @@ function Invoke-Closeout {
     )
     $hadStr = if ($HadPreferredReviewers) { 'true' } else { 'false' }
     $manualStr = if ($ManualReviewerSelection) { 'true' } else { 'false' }
-    $args = @{
+    $invokeArgs = @{
         HadPreferredReviewers          = $hadStr
         ManualReviewerSelection        = $manualStr
         PreferredReviewersOfferState   = $OfferState
@@ -54,24 +54,24 @@ function Invoke-Closeout {
         RoundId                        = $RoundId
     }
     if (-not [string]::IsNullOrWhiteSpace($PreferredReviewersSnapshotJson)) {
-        $args['PreferredReviewersSnapshotJson'] = $PreferredReviewersSnapshotJson
+        $invokeArgs['PreferredReviewersSnapshotJson'] = $PreferredReviewersSnapshotJson
     }
     if (-not [string]::IsNullOrWhiteSpace($EffectivePreferredPath)) {
-        $args['EffectivePreferredPath'] = $EffectivePreferredPath
+        $invokeArgs['EffectivePreferredPath'] = $EffectivePreferredPath
     }
     if (-not [string]::IsNullOrWhiteSpace($PreferenceSource)) {
-        $args['PreferenceSource'] = $PreferenceSource
+        $invokeArgs['PreferenceSource'] = $PreferenceSource
     }
     if (-not [string]::IsNullOrWhiteSpace($ProposedPreferredPath)) {
-        $args['ProposedPreferredPath'] = $ProposedPreferredPath
+        $invokeArgs['ProposedPreferredPath'] = $ProposedPreferredPath
     }
     if (-not [string]::IsNullOrWhiteSpace($PreferredRoot)) {
-        $args['PreferredRoot'] = $PreferredRoot
+        $invokeArgs['PreferredRoot'] = $PreferredRoot
     }
     if (-not [string]::IsNullOrWhiteSpace($Orchestrator)) {
-        $args['Orchestrator'] = $Orchestrator
+        $invokeArgs['Orchestrator'] = $Orchestrator
     }
-    return (& $target @args | ConvertFrom-Json)
+    return (& $target @invokeArgs | ConvertFrom-Json)
 }
 
 function New-TestSnapshot {

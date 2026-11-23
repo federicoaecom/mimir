@@ -51,7 +51,7 @@ All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and 
 
 | Command | Purpose |
 |---|---|
-| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1` | Run the full test suite (add `-AsJson` for a structured report) |
+| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1` | Run the full test suite (add `-AsJson` for a structured report; `-ThrottleLimit <n>` runs n files at a time, default 1, and CI stays sequential; 2 is the tested value) |
 | `pwsh -NoProfile -File tools/Test-TextEncoding.ps1` | UTF-8-without-BOM, LF check on tracked text files |
 | `pwsh -NoProfile -File tools/Test-PsScriptsParse.ps1` | PowerShell parse check |
 | `pwsh -NoProfile -File tools/Test-PyScriptsParse.ps1` | Python parse check (no bytecode written) |
@@ -59,6 +59,8 @@ All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and 
 | `pwsh -NoProfile -ExecutionPolicy Bypass -File tools/Invoke-PrePushMechanicalChecks.ps1 -AsJson` | Pre-push mechanical checks (git context, parse, whitespace) |
 | `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/Invoke-CiChecks.ps1` | Every CI check in order, as CI runs it |
 | `pwsh -NoProfile -File tools/Invoke-LinuxTestsInDocker.ps1` | The CI checks on Linux in a local Docker container (committed HEAD) |
+| `pwsh -NoProfile -File tools/Invoke-Python38SmokeInDocker.ps1` | The Python engines on a real Python 3.8 (the minimum) in a local Docker container (working tree) |
+| `pwsh -NoProfile -File tools/Invoke-StaticAnalysis.ps1` | Advisory static analysis with the optional development tools ruff (pyflakes rules) and PSScriptAnalyzer; findings never fail it, and a tool that is not installed is skipped |
 
 `-ExecutionPolicy Bypass` is required when a script dot-sources another `.ps1` as a child process on a machine with a restrictive execution policy (see `tests/Invoke-Tests.ps1`'s own doc comment).
 
@@ -67,6 +69,8 @@ All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and 
 - Strict TDD for behavior changes: observe RED before writing the fix, then GREEN, then refactor. Do not invent evidence for a step that was not actually run.
 - Tests must stay self-contained: no dependency on a real KB or machine-specific external tools. The synthetic fixture at `tests/fixtures/sample-kb/` is the reference for building a query-engine or extractor test — never point a new test at a real customer KB.
 - Keep tests where the runner expects them: PowerShell self-tests as `Test-*SelfTest.ps1`, Python tests as `Test*.py`, under `tests/<domain>/` mirroring `skills/*/scripts/` or `tools/`.
+- PowerShell tests dot-source `tests/fixtures/AssertSupport.ps1` for their assertions and define no local `Assert*` function; `tests/Test-LocalAssertGuardSelfTest.ps1` enforces this for files outside `tests/fixtures/local-assert-baseline.txt`. Migrate a baseline file only when you touch it for another reason, and remove its entry in the same change.
+- A new extractor rule gets one Python unit test for its parsing function (load the engine with `tests/mimir-lite/_engine_loader.py`, as `tests/mimir-lite/TestBuildKbIntelligenceIndexParsingFunctions.py` does) and one end-to-end self-test, instead of several process-starting cases. A new extractor is one record in `EXTRACTOR_RECORDS` of `skills/mimir-lite/scripts/GeneXusKbIntelligenceCore.py` plus its call in `EXTRACTOR_CALLS` of `Build-KbIntelligenceIndex.py` and its function; `main` runs the records in order.
 - After any change to a script's contract (parameters, exit codes, output shape), re-run the full suite, not just the touched test file.
 
 ## Commit conventions

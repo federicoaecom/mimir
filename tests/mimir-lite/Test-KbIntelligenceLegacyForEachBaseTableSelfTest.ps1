@@ -58,6 +58,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $utf8NoBomEncodingSupportPath = Join-Path ((Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'skills/mimir-lite/scripts')) 'Utf8NoBomEncodingSupport.ps1'
 if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) {
@@ -306,6 +307,7 @@ endfor]]></Source>
 
     $indexPath = Join-Path $tempRoot 'KbWorkspace/KbIntelligence/kb-intelligence.sqlite'
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $indexPath) -Force)
+    Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
     & $buildScript -SourceRoot $kbObjectsPath -OutputPath $indexPath | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Build-KbIntelligenceIndex failed; exit $LASTEXITCODE"

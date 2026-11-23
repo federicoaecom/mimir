@@ -8,6 +8,8 @@
       - with a `python3` older than 3.8 first on PATH, the gate skips it and parses with a
         Python 3.8+ interpreter, the same one the product's discovery helper picks;
       - a syntax error is reported with its file and line;
+      - syntax newer than the Python 3.8 floor (a match statement) is reported even when the
+        running interpreter is newer;
       - with no Python on PATH, every file is reported as a finding and the gate exits 1.
     The old `python3` is a fake (`.cmd` on Windows, shell script elsewhere) that reports 3.6
     on `--version` and writes a marker file on any other call. The gate's PATH is set exactly,
@@ -60,6 +62,10 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $badRoot 'tests') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $badRoot 'tests/bad.py') -Encoding utf8NoBOM -Value "x = 1`ndef broken(:`n"
 
+    $newSyntaxRoot = Join-Path $fixtureRoot 'new-syntax-root'
+    New-Item -ItemType Directory -Path (Join-Path $newSyntaxRoot 'skills') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $newSyntaxRoot 'skills/new.py') -Encoding utf8NoBOM -Value "x = 1`nmatch x:`n    case 1:`n        pass`n"
+
     if ($null -ne $realPython) {
         $oldPyBin = Join-Path $fixtureRoot 'old-python-bin'
         $marker = Join-Path $fixtureRoot 'old-python-ran.txt'
@@ -83,7 +89,17 @@ try {
         }
     }
 
-    # 3) No Python on PATH: every file becomes a finding and the gate exits 1.
+    # 3) Syntax newer than the 3.8 floor is reported, whatever the running interpreter's version.
+    if ($null -ne $realPython) {
+        $run = Invoke-ParseGate -RootPath $newSyntaxRoot -PathValue (@((Split-Path -Parent $realPython.Source), $pwshOnlyBin) -join [System.IO.Path]::PathSeparator)
+        Assert-True ($run.ExitCode -eq 1) "a match statement should fail the 3.8 floor check (got exit $($run.ExitCode))"
+        if ($run.Report) {
+            $finding = @($run.Report.findings)
+            Assert-True ($finding.Count -eq 1 -and $finding[0].file -match 'new\.py$') 'the match statement should be reported once, on new.py'
+        }
+    }
+
+    # 4) No Python on PATH: every file becomes a finding and the gate exits 1.
     $run = Invoke-ParseGate -RootPath $okRoot -PathValue $pwshOnlyBin
     Assert-True ($run.ExitCode -eq 1) "without Python, the gate should exit 1 (got $($run.ExitCode))"
     if ($run.Report) {

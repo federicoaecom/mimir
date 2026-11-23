@@ -18,3 +18,5 @@ tests/**/__pycache__/
 tests/**/*.pyc
 !/tools/
 !/tools/**
+# Corpus lock files created by sync, build and query runs over a corpus; never tracked.
+.mimir-sync.lock

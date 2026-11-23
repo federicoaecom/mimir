@@ -11,8 +11,8 @@
     closed prose enumerations in the Markdown documents could keep the
     old/incomplete set without citing the new term.
 
-    This gate extracts TRUTH from the code: it derives the canonical backend
-    set from $AdapterScript in the real dispatcher's AST. It then scans the
+    This gate derives the canonical backend set from the data-only registry
+    used by the dispatcher. It then scans the
     *.md files at the root + skills/mimir-delegate/**/*.md +
     skills/mimir-lite/**/*.md (excluding CHANGELOG.md and temp folders) and
     flags any logical unit/sentence that cites >= 2 backends forming a proper
@@ -41,6 +41,8 @@
     Emits structured diagnostic in JSON.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'BaseRef', Justification = 'Accepted for the common gate contract.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ChangedFiles', Justification = 'Accepted for the common gate contract.')]
 [CmdletBinding()]
 param(
     [string]$RootPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path,
@@ -62,7 +64,6 @@ $ErrorActionPreference = 'Stop'
 $resolvedRoot = (Resolve-Path -LiteralPath $RootPath).Path
 
 $dispatcherRel = 'skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1'
-$dispatcherPath = Join-Path $resolvedRoot $dispatcherRel
 
 $findings = [System.Collections.Generic.List[object]]::new()
 $truncated = $false
@@ -176,35 +177,25 @@ function Parse-MarkdownLogicalUnits {
     return @($units)
 }
 
-if (Test-Path -LiteralPath $dispatcherPath -PathType Leaf) {
-    $tokens = $null
-    $parserErrors = $null
-    $dispatcherAst = [System.Management.Automation.Language.Parser]::ParseFile($dispatcherPath, [ref]$tokens, [ref]$parserErrors)
-
-    if (@($parserErrors).Count -eq 0) {
-        $assign = @($dispatcherAst.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-            $node.Left.Extent.Text.Trim() -eq '$AdapterScript'
-        }, $true))[0]
-
-        if ($null -ne $assign) {
-            $ht = if ($assign.Right -is [System.Management.Automation.Language.HashtableAst]) {
-                $assign.Right
-            } else {
-                @($assign.Right.FindAll({ param($node) $node -is [System.Management.Automation.Language.HashtableAst] }, $true))[0]
-            }
-
-            if ($null -ne $ht) {
-                $extracted = [System.Collections.Generic.List[string]]::new()
-                foreach ($pair in $ht.KeyValuePairs) {
-                    $extracted.Add($pair.Item1.Extent.Text.Trim("'", '"', ' '))
-                }
-                $canonicalBackends = @($extracted)
-            }
-        }
+$registryPath = Join-Path $resolvedRoot 'skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1'
+$registry = Import-PowerShellDataFile -LiteralPath $registryPath
+$seen = @{}
+if ($registry.Backends -isnot [array]) { throw 'BLOCK: invalid backend registry' }
+foreach ($record in $registry.Backends) {
+    if ($record -isnot [hashtable]) { throw 'BLOCK: invalid backend registry' }
+    $name = $record.Name
+    if ($name -isnot [string] -or [string]::IsNullOrWhiteSpace($name) -or $seen.ContainsKey($name) -or $name -eq 'orchestrator-native' -or
+        $record.Adapter -isnot [string] -or [string]::IsNullOrWhiteSpace($record.Adapter) -or
+        $record.ExeParam -isnot [string] -or [string]::IsNullOrWhiteSpace($record.ExeParam) -or
+        $record.ContentionKeys -isnot [array] -or $record.TimeoutSec -isnot [int] -or $record.TimeoutSec -lt 1 -or
+        $record.CdCapable -isnot [bool]) { throw 'BLOCK: invalid backend registry' }
+    foreach ($key in $record.ContentionKeys) {
+        if ($key -isnot [string]) { throw 'BLOCK: invalid backend registry' }
     }
+    $seen[$name] = $true
+    $canonicalBackends += $name
 }
+if ($canonicalBackends.Count -lt 2) { throw 'BLOCK: invalid backend registry' }
 
 if ($canonicalBackends.Count -ge 2) {
     $backendPatterns = [ordered]@{}

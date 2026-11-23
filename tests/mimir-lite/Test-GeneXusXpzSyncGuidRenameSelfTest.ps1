@@ -243,6 +243,12 @@ try {
     if (@($dObj.RenamedByGuidItems).Count -ne 1) { throw "D: RenamedByGuidItems should have 1 item; got $(@($dObj.RenamedByGuidItems).Count)" }
     if ($dObj.RenamedByGuidItems[0].Action -ne 'orphan-removed') { throw "D: Action should be 'orphan-removed'; got '$($dObj.RenamedByGuidItems[0].Action)'" }
 
+    if (@($dObj.GuidRemovedFiles).Count -ne 1 -or $dObj.GuidRemovedFiles[0].FilePath -ne (Join-Path $d.AttrDir 'Old.xml')) { throw 'D: removal must report the actual old path' }
+    if (@($repDObj.Summary.GuidRemovedFiles).Count -ne 1 -or $repDObj.Summary.GuidRemovedFiles[0].FilePath -ne (Join-Path $d.AttrDir 'Old.xml')) { throw 'D: report must include the removed path' }
+    $dAgain = Invoke-Sync -Pkg $pkgD -Corpus $d.Corpus
+    $dAgainObj = Assert-StdoutIsPureJson -Case 'D repeat' -Result $dAgain
+    if ($dAgain.ExitCode -ne 0 -or @($dAgainObj.GuidRemovedFiles).Count -ne 0 -or $dAgainObj.RenamedByGuid -ne 0) { throw 'D: repeat must not remove or rename again' }
+
     # --- E: GUID collision (new name already belongs to another object) ---
     $e = New-CaseDir -Name 'collision'
     New-AttrFile -Path (Join-Path $e.AttrDir 'Old.xml') -Guid $guid1 -Name 'Old' -LastUpdate '2020-01-01T00:00:00.0000000Z' -Description 'G1 renamed to New'
@@ -251,6 +257,7 @@ try {
     New-Package -Path $pkgE -Guid $guid1 -Name 'New' -LastUpdate '2026-01-01T00:00:00.0000000Z'
     $rE = Invoke-Sync -Pkg $pkgE -Corpus $e.Corpus
     if ($rE.ExitCode -eq 0) { throw "E: GUID collision should fail (fail-closed), not exit 0" }
+    if ($rE.StdOut.Trim() -ne '') { throw 'E: failure before any removal must keep stdout empty' }
     if ($rE.Output -notmatch 'Name collision in the corpus') { throw "E: should report a name collision; output: $($rE.Output)" }
     if (-not (Test-Path -LiteralPath (Join-Path $e.AttrDir 'Old.xml'))) { throw "E: the old file should have been preserved" }
     $newGuidE = (Select-String -LiteralPath (Join-Path $e.AttrDir 'New.xml') -Pattern 'guid="([0-9a-f-]+)"').Matches[0].Groups[1].Value
@@ -376,6 +383,34 @@ try {
     if ($kWarning.Count -eq 0) { throw "K: a warning should name the GUID and Broken.xml; warnings: $(@($kObj.Warnings) -join ' | ')" }
     $metaKAfter = Get-Content -LiteralPath $metaK -Raw
     if ($metaKAfter -eq $metaKBefore -or $metaKAfter -notmatch 'pacote\.xml') { throw "K: kb-source-metadata.md should be refreshed with the applied package" }
+
+    # --- L: a later collision must not hide an earlier completed unlink ---
+    $l = New-CaseDir -Name 'late-failure'
+    $guid3 = '33333333-3333-3333-3333-333333333333'
+    $oldA = Join-Path $l.AttrDir 'OldA.xml'
+    $newA = Join-Path $l.AttrDir 'NewA.xml'
+    $oldB = Join-Path $l.AttrDir 'OldB.xml'
+    $newB = Join-Path $l.AttrDir 'NewB.xml'
+    New-AttrFile -Path $oldA -Guid $guid1 -Name 'OldA' -LastUpdate '2020-01-01T00:00:00Z'
+    New-AttrFile -Path $newA -Guid $guid1 -Name 'NewA' -LastUpdate '2020-01-01T00:00:00Z'
+    New-AttrFile -Path $oldB -Guid $guid2 -Name 'OldB' -LastUpdate '2020-01-01T00:00:00Z'
+    New-AttrFile -Path $newB -Guid $guid3 -Name 'NewB' -LastUpdate '2020-01-01T00:00:00Z'
+    $before = @{}; foreach ($path in @($newA, $oldB, $newB)) { $before[$path] = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) }
+    $pkgL = Join-Path $l.Root 'package.xml'
+    Write-Utf8 -Path $pkgL -Content "<ExportFile><Objects/><Attributes><Attribute name=`"NewA`" guid=`"$guid1`" lastUpdate=`"2026-01-01T00:00:00Z`"/><Attribute name=`"NewB`" guid=`"$guid2`" lastUpdate=`"2026-01-01T00:00:00Z`"/></Attributes></ExportFile>"
+    $repL = Join-Path $l.Root 'report.json'
+    $rL = Invoke-Sync -Pkg $pkgL -Corpus $l.Corpus -ReportPath $repL
+    if ($rL.ExitCode -eq 0 -or $rL.StdErr -notmatch 'Name collision in the corpus') { throw "L: expected collision failure: $($rL.Output)" }
+    if (Test-Path -LiteralPath $oldA) { throw 'L: eligible orphan should have been removed before failure' }
+    foreach ($path in @($newA, $oldB, $newB)) {
+        if (-not (Test-Path -LiteralPath $path) -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -ne $before[$path]) { throw "L: remaining file changed: $path" }
+    }
+    $lObj = Assert-StdoutIsPureJson -Case 'L' -Result $rL
+    if ($lObj.Status -ne 'failed' -or $lObj.Error -notmatch 'Name collision in the corpus') { throw 'L: JSON must explicitly report the failure and diagnostic' }
+    if (@($lObj.GuidRemovedFiles).Count -ne 1 -or $lObj.GuidRemovedFiles[0].FilePath -ne $oldA -or $lObj.GuidRemovedFiles[0].Guid -ne $guid1 -or $lObj.GuidRemovedFiles[0].FolderType -ne 'Attribute') { throw 'L: JSON must report exactly the completed removal' }
+    if (-not (Test-Path -LiteralPath $repL)) { throw 'L: requested kept report is missing' }
+    $lReport = Get-Content -LiteralPath $repL -Raw | ConvertFrom-Json
+    if (($lReport.Summary | ConvertTo-Json -Depth 8 -Compress) -ne ($lObj | ConvertTo-Json -Depth 8 -Compress)) { throw 'L: report summary must match failure JSON' }
 
     Write-Output 'OK: Test-GeneXusXpzSyncGuidRenameSelfTest.ps1'
     exit 0

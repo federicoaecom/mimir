@@ -66,6 +66,7 @@
 .EXAMPLE
     .\Invoke-Codex.ps1 -MessagePath .\large-prompt.txt -Model gpt-5.5
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidAssignmentToAutomaticVariable', 'Profile', Justification = 'Public -Profile parameter that callers pass by name.')]
 [CmdletBinding(DefaultParameterSetName = 'Inline')]
 param(
     [Parameter(Mandatory, Position = 0, ParameterSetName = 'Inline')] [string] $Message,

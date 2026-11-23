@@ -49,7 +49,7 @@ The wrappers use the shared Mimir Lite checkout at `<MimirLiteRoot>`.
 | `Test-<KbName>KbFullSnapshot.ps1` | Verifies a full XPZ against `KbObjectsXml` without changing it. |
 | `Rebuild-<KbName>KbIntelligenceIndex.ps1` | Rebuilds and validates the derived index. |
 | `Query-<KbName>KbIntelligence.ps1` | Queries the derived index. |
-| `Test-<KbName>KbIndexGate.ps1` | Index freshness gate: `GATE_OK` or `BLOCK: <reason>`. |
+| `Test-<KbName>KbIndexGate.ps1` | Index gate: `GATE_OK` when the index was built from the current, completely synchronized corpus, or `BLOCK: <reason>`. |
 | `Get-<KbName>KbMetadata.ps1` | Reads key fields of `kb-source-metadata.md`. |
 | `Test-<KbName>KbMetadataWrapper.ps1` | Checks that the metadata reader works. |
 | `Resolve-<KbName>KbIdentity.ps1` | Reads the KB identity from the native KB folder. |
@@ -69,6 +69,12 @@ pwsh -NoProfile -File "<WorkspaceRoot>/scripts/Test-<KbName>KbSetupAudit.ps1"
 2. Put the `.xpz` file in `IdeXpzExports`.
 3. Ask the agent to run the Mimir Lite **sync** workflow. It materializes the XPZ
    into `KbObjectsXml` and rebuilds the index.
+4. Commit `KbObjectsXml` together with its synchronization state
+   (`KbObjectsXml/.mimir-sync-state.json`). If a sync fails or is interrupted,
+   the corpus stays marked incomplete and the index refuses it until the sync is
+   completed (re-run the same XPZ, or sync a full export with `-FullSnapshot`)
+   and the index is rebuilt. Never delete or edit the state file to get past
+   that.
 
 ## Current state
 
@@ -81,4 +87,6 @@ authoritative sources instead:
   `Query-<KbName>KbIntelligence.ps1 -Query index-metadata`.
 - Overall state: `suggested_operational_state` in the output of
   `Test-<KbName>KbSetupAudit.ps1`.
-- Ready for questions: `Test-<KbName>KbIndexGate.ps1` returns `GATE_OK`.
+- Ready for questions: `Test-<KbName>KbIndexGate.ps1` returns `GATE_OK`: the
+  corpus is completely synchronized and the index was built from it. The dates
+  above are information only.

@@ -21,6 +21,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $scriptDir = Join-Path $repoRoot 'skills/mimir-lite/scripts'
@@ -91,7 +92,7 @@ function Write-Fixture {
     [System.IO.File]::WriteAllText((Join-Path $folders[$Folder] "$Name.xml"), $Xml, $enc)
 }
 
-foreach ($attributeName in @('LineTotal', 'OrderSubtotal', 'ItemCode', 'OrderDate', 'UnitPrice', 'LineCount')) {
+foreach ($attributeName in @('LineTotal', 'OrderSubtotal', 'ItemCode', 'OrderDate', 'UnitPrice', 'LineCount', 'StrayTotal')) {
     Write-Fixture 'Attribute' $attributeName (New-ClassicAttributeXml -Name $attributeName)
 }
 $subtotalFormulaXml = New-ClassicFormulaXml -Name 'OrderSubtotal' -Type 'SUM' -Source 'LineTotal'
@@ -115,6 +116,16 @@ Write-Fixture 'Formula' 'CountOfLines' @"
   </GxLegacyPayload>
 </Object>
 "@
+# A formula with no <Source> of its own and a <Source> after its </Formula>: that <Source> is not
+# its expression, for the build (no relation) as for attribute-info (not a formula).
+Write-Fixture 'Formula' 'StrayTotal' @"
+<Object type="gxlegacy/Formula" name="StrayTotal" guid="" lastUpdate="1998-01-01T00:00:00.0000000Z" dataSource="gx-legacy-export">
+  <GxLegacyPayload>
+<Formula><Name>StrayTotal</Name><Type>SUM</Type></Formula>
+<Note><Source><![CDATA[LineTotal]]></Source></Note>
+  </GxLegacyPayload>
+</Object>
+"@
 Write-Fixture 'Procedure' 'PriceOf' @"
 <Object type="$procedureGuid" name="PriceOf" guid="" lastUpdate="1998-01-01T00:00:00.0000000Z" dataSource="gx-legacy-export">
   <GxLegacyPayload>
@@ -132,6 +143,7 @@ Write-Fixture 'Attribute' 'Apply' (New-ModernAttributeXml -Name 'Apply' -Guid '0
 
 $sqlitePath = Join-Path $kbIntelDir 'kb-intelligence.sqlite'
 $validationPath = Join-Path $kbIntelDir 'kb-intelligence-validation.json'
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $buildScript -SourceRoot $kbObjectsPath -OutputPath $sqlitePath -ValidationReportPath $validationPath `
     -FailOnValidationFailure -KbWorkspaceRoot $kbWorkspaceRoot
 Assert-True ($LASTEXITCODE -eq 0) "Build-KbIntelligenceIndex should complete with classic formulas; exit $LASTEXITCODE"
@@ -174,6 +186,9 @@ Assert-True ($subtotalUse[0].line -eq $expectedLine) "OrderSubtotal evidence sho
 Assert-True ($null -ne $subtotalUse[0].PSObject.Properties['source_file']) 'who-uses rows should carry source_file'
 Assert-True ("$($subtotalUse[0].source_file)".Replace('\', '/').EndsWith('Formula/OrderSubtotal.xml')) "OrderSubtotal evidence should point to Formula/OrderSubtotal.xml; got $($subtotalUse[0].source_file)"
 
+# Rule: a <Source> outside the <Formula> element is not the formula's expression.
+Assert-True ((Find-FormulaUse $lineTotalRows 'StrayTotal').Count -eq 0) "who-uses Attribute LineTotal should not list StrayTotal (its only <Source> is outside its <Formula>); got: $(Format-Rows $lineTotalRows)"
+
 # Rule: a classic formula whose attribute is not indexed gives no relation.
 Assert-True (@($lineTotalRows | Where-Object { $_.source_name -eq 'NotIndexed' }).Count -eq 0) "The formula NotIndexed (no indexed attribute) should give no relation; got: $(Format-Rows $lineTotalRows)"
 
@@ -207,6 +222,7 @@ foreach ($case in @(
         [pscustomobject]@{ Name = 'UnitPrice'; IsFormula = $true; Expression = 'udp(PPriceOf, ItemCode, OrderDate)' },
         [pscustomobject]@{ Name = 'LineCount'; IsFormula = $true; Expression = 'count(LineNumber)' },
         [pscustomobject]@{ Name = 'LineTotal'; IsFormula = $false; Expression = $null },
+        [pscustomobject]@{ Name = 'StrayTotal'; IsFormula = $false; Expression = $null },
         [pscustomobject]@{ Name = 'InvoiceTotal'; IsFormula = $true; Expression = 'sum(InvoiceLineAmount) - InvoiceDiscount if &Apply = 1' }
     )) {
     $info = Invoke-IndexQuery -Query 'attribute-info' -Type 'Attribute' -Name $case.Name

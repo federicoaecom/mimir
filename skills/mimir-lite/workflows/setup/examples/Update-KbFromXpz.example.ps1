@@ -62,6 +62,15 @@ Completion contract (KbIntelligence rigor; see the sync workflow and the README)
   failed because the index was not regenerated.
   Do not treat it as a failure of the exported package. Install Python 3.8 or later and rerun
   Rebuild-KbIntelligenceIndex.ps1 before broad triage or declaring the sync OK.
+- Failure with exit 12 from the rebuild: the corpus is not complete (a sync failed or was
+  interrupted, the corpus records no synchronization state, or its state file cannot be read).
+  XML files may have been written, but the corpus is not certified, so the index was not
+  rebuilt and queries stay blocked. Follow the builder's recovery: for an incomplete corpus,
+  re-run the sync of the package that left it incomplete (when the sync reported one) or run a
+  verified -FullSnapshot sync of a full KB export; for a corpus with no state or an unreadable
+  one, only a verified -FullSnapshot sync of a full KB export. Then rebuild.
+- Failure with exit 13 from the rebuild: the corpus lock stayed busy (another sync, index build,
+  or query). Wait for it to finish, then run Rebuild-KbIntelligenceIndex.ps1.
 - Other failures: materialization error or index engine error (do not confuse with missing Python).
 
 .EXAMPLE
@@ -200,13 +209,19 @@ function Invoke-IndexRefresh {
 
     $prefix = 'Index refresh failed after XPZ/XML materialization. The XPZ/XML materialization completed; only the KbIntelligence index was not generated.'
 
+    $rebuildErrorLines = [System.Collections.Generic.List[string]]::new()
+    $rebuildExitCode = 0
     try {
         $global:LASTEXITCODE = $null
         # Captured, then sent to stderr: the rebuild prints its own report on stdout, and
-        # this wrapper's stdout must carry only the sync result JSON line.
-        $rebuildOutput = @(& $ScriptPath @rebuildParams)
+        # this wrapper's stdout must carry only the sync result JSON line. Its stderr is kept
+        # too, to explain a refusal (exit 12 or 13) with the builder's own recovery.
+        $rebuildOutput = @(& $ScriptPath @rebuildParams 2>&1)
         $rebuildSucceeded = $?
         foreach ($rebuildLine in $rebuildOutput) {
+            if ($rebuildLine -is [System.Management.Automation.ErrorRecord]) {
+                $rebuildErrorLines.Add($rebuildLine.ToString().Trim())
+            }
             Write-HumanLine ([string]$rebuildLine)
         }
         $rebuildExitCodeVariable = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
@@ -217,7 +232,7 @@ function Invoke-IndexRefresh {
         } else {
             1
         }
-        if ($rebuildExitCode -ne 0) {
+        if ($rebuildExitCode -ne 0 -and $rebuildExitCode -ne 12 -and $rebuildExitCode -ne 13) {
             if ($rebuildExitCode -eq 8) {
                 throw "$(Get-GeneXusPythonPrerequisiteErrorMessage)"
             }
@@ -225,11 +240,19 @@ function Invoke-IndexRefresh {
             throw "Index rebuild failed (exit $rebuildExitCode)."
         }
     } catch {
-        if ($_.Exception.Message -match '^PREREQUISITE MISSING:') {
-            throw "$prefix $($_.Exception.Message)"
-        }
-
         throw "$prefix $($_.Exception.Message)"
+    }
+
+    # Refusals from the corpus check: the materialization did not leave a complete corpus (12),
+    # or another process held the corpus lock (13). Neither means the index is up to date.
+    $builderDetail = @($rebuildErrorLines | Where-Object { $_ -match '^BLOCK:' })
+    if ($builderDetail.Count -eq 0) { $builderDetail = @($rebuildErrorLines | Where-Object { $_ }) }
+    $detail = if ($builderDetail.Count -gt 0) { $builderDetail -join ' ' } else { 'The builder printed no detail.' }
+    if ($rebuildExitCode -eq 12) {
+        throw "Index rebuild refused (exit 12): the corpus is not complete, so the KbIntelligence index was not rebuilt and queries stay blocked. XML files may have been written, but the corpus is not certified. Builder: $detail"
+    }
+    if ($rebuildExitCode -eq 13) {
+        throw "Index rebuild refused (exit 13): the corpus lock stayed busy (another sync, index build, or query is running), so the KbIntelligence index was not rebuilt. Wait for it to finish, then run Rebuild-KbIntelligenceIndex.ps1. Builder: $detail"
     }
 }
 
@@ -306,71 +329,6 @@ function Get-ResultValue {
     return $prop.Value
 }
 
-function Remove-RenamedObjectResidue {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RootPath
-    )
-
-    $xmlFiles = Get-ChildItem -Path $RootPath -Recurse -File -Filter *.xml
-    $objectInfos = New-Object System.Collections.Generic.List[object]
-
-    foreach ($file in $xmlFiles) {
-        try {
-            $firstMeaningfulLine = Get-Content -Path $file.FullName -TotalCount 2 | Select-Object -Last 1
-            if ($null -eq $firstMeaningfulLine -or $firstMeaningfulLine -notmatch '^<Object ') {
-                continue
-            }
-
-            $guidMatch = [regex]::Match($firstMeaningfulLine, ' guid="([^"]+)"')
-            if (-not $guidMatch.Success) {
-                continue
-            }
-
-            $nameMatch = [regex]::Match($firstMeaningfulLine, ' name="([^"]+)"')
-            $lastUpdateMatch = [regex]::Match($firstMeaningfulLine, ' lastUpdate="([^"]+)"')
-
-            $parsedLastUpdate = [datetime]::MinValue
-            if ($lastUpdateMatch.Success) {
-                [datetime]::TryParse($lastUpdateMatch.Groups[1].Value, [ref]$parsedLastUpdate) | Out-Null
-            }
-
-            $objectInfos.Add([pscustomobject]@{
-                Guid = $guidMatch.Groups[1].Value
-                Name = if ($nameMatch.Success) { $nameMatch.Groups[1].Value } else { "" }
-                LastUpdate = $parsedLastUpdate
-                FullName = $file.FullName
-                BaseName = $file.BaseName
-            })
-        } catch {
-            Write-HumanLine ("WARNING: failed to inspect {0}: {1}" -f $file.FullName, $_.Exception.Message)
-        }
-    }
-
-    $removedFiles = New-Object System.Collections.Generic.List[string]
-
-    foreach ($group in ($objectInfos | Group-Object Guid | Where-Object { $_.Count -gt 1 })) {
-        $ordered = @(
-            $group.Group |
-            Sort-Object `
-                @{ Expression = { if ($_.Name -and $_.BaseName -eq $_.Name) { 1 } else { 0 } }; Descending = $true }, `
-                @{ Expression = { $_.LastUpdate }; Descending = $true }, `
-                @{ Expression = { $_.FullName }; Descending = $false }
-        )
-
-        $keep = $ordered[0]
-        $toRemove = @($ordered | Select-Object -Skip 1)
-
-        foreach ($item in $toRemove) {
-            Remove-Item -LiteralPath $item.FullName -Force
-            $removedFiles.Add($item.FullName)
-            Write-HumanLine ("Removed renamed-object residue: {0} (guid {1}); kept {2}" -f $item.FullName, $item.Guid, $keep.FullName)
-        }
-    }
-
-    return $removedFiles
-}
-
 if (-not $KbMetadataPath) {
     $KbMetadataPath = Join-Path $repoRoot "kb-source-metadata.md"
 }
@@ -387,6 +345,7 @@ $params = @{
     DestinationRoot  = $destinationRoot
     KbMetadataPath   = $KbMetadataPath
     KbWorkspaceRoot  = $repoRoot
+    GuidCleanupContractVersion = 1
 }
 
 if ($VerifyOnly) {
@@ -423,9 +382,7 @@ if ($null -ne $rawResult) {
     }
 }
 
-$removedRenameResidue = @()
 if (-not $VerifyOnly) {
-    $removedRenameResidue = @(Remove-RenamedObjectResidue -RootPath $destinationRoot)
     Invoke-IndexRefresh `
         -ScriptPath $IndexUpdateScriptPath `
         -SharedSkillsRoot $SharedSkillsRoot `
@@ -449,7 +406,7 @@ if ($shouldShowGitSummary -and $null -ne $result) {
     $hasMaterialChange = ($created -gt 0) -or ($updated -gt 0) -or
         ($normalizedFileNames -gt 0) -or ($fullSnapshotMissing -gt 0) -or
         ($fullSnapshotExtra -gt 0) -or ($renamedByGuid -gt 0) -or
-        ($renameResidualsDetected -gt 0) -or ($removedRenameResidue.Count -gt 0)
+        ($renameResidualsDetected -gt 0)
     if (-not $hasMaterialChange) {
         $shouldShowGitSummary = $false
     }
@@ -458,11 +415,6 @@ if ($shouldShowGitSummary -and $null -ne $result) {
 # stdout: exclusively the engine's JSON line, re-emitted byte-for-byte (without re-serializing,
 # to avoid introducing formatting/ordering drift). All human diagnostics go to stderr.
 $rawResult
-
-if ($removedRenameResidue.Count -gt 0) {
-    Write-HumanLine ""
-    Write-HumanLine ("RemovedRenameResidue      : {0}" -f $removedRenameResidue.Count)
-}
 
 if ($shouldShowGitSummary) {
     Show-LocalGitSummary -RepositoryRoot $repoRoot -PathFilter "KbObjectsXml"

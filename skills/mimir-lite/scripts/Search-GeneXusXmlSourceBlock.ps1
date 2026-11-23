@@ -33,6 +33,7 @@
     Emits structured JSON.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Recurse', Justification = 'Read by Get-XmlFiles through dynamic scope.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]

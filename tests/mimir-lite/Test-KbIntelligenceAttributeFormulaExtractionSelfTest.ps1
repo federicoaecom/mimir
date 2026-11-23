@@ -6,6 +6,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 # Python 3.8+ resolved once, the same way the KbIntelligence wrappers do it
 # (python3, then python, then py -3).
@@ -71,6 +72,7 @@ $validationPath = Join-Path $kbIntelDir 'kb-intelligence-validation.json'
 $validationCases = Join-Path $fixturesRoot 'kb-intelligence-attribute-formula.validation-extraction.json'
 $indexScript = Join-Path $scriptDir 'Build-KbIntelligenceIndex.ps1'
 
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $indexScript `
     -SourceRoot $kbObjectsPath `
     -OutputPath $sqlitePath `

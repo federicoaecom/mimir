@@ -61,6 +61,51 @@ try {
     $prefPath = Join-Path $tempRoot 'preferred-reviewers.json'
     $capPath = Join-Path $tempRoot 'capabilities.json'
 
+    # A disposable script copy proves registry-driven writing without modifying the real registry.
+    $fixture = Join-Path $tempRoot 'registry-fixture'
+    [IO.Directory]::CreateDirectory($fixture) | Out-Null
+    foreach ($name in @('Set-LlmDelegatePreferredReviewers.ps1', 'LlmDelegateTargetFamilySupport.ps1', 'LlmDelegateStatePath.ps1', 'LlmDelegateBackendRegistry.psd1')) {
+        Copy-Item -LiteralPath (Join-Path $scriptsDir $name) -Destination $fixture
+    }
+    $support = Join-Path $scriptsDir 'LlmDelegateBackendRegistrySupport.ps1'
+    if (Test-Path -LiteralPath $support) { Copy-Item -LiteralPath $support -Destination $fixture }
+    $fixtureSet = Join-Path $fixture 'Set-LlmDelegatePreferredReviewers.ps1'
+    $fixtureRegistry = Join-Path $fixture 'LlmDelegateBackendRegistry.psd1'
+    $originalRegistry = [IO.File]::ReadAllText($fixtureRegistry)
+    $syntheticRegistry = $originalRegistry.Replace("    @{ Name = 'codex';", "    @{ Name = 'synthetic-cli'; Adapter = 'fake.ps1'; ExeParam = 'FakeExe'; ContentionKeys = @(); TimeoutSec = 10; CdCapable = `$false }`n    @{ Name = 'codex';")
+    [IO.File]::WriteAllText($fixtureRegistry, $syntheticRegistry)
+    $fixtureOutput = Join-Path $tempRoot 'synthetic-preference.json'
+    $syntheticJson = '[{"backend":"synthetic-cli","targetModelKey":"example/model","invokeArgs":{},"fallbackChain":[{"backend":"codex","targetModelKey":"openai/model","invokeArgs":{}}]}]'
+    $result = & $fixtureSet -ReviewersJson $syntheticJson -Orchestrator cursor -Scope machine -OutputPath $fixtureOutput 2>$null | ConvertFrom-Json
+    Assert-True ($LASTEXITCODE -eq 0 -and $result.written -eq 1) 'Registry-added CLI preference should be written.'
+    $syntheticDoc = [IO.File]::ReadAllText($fixtureOutput) | ConvertFrom-Json
+    Assert-True ($syntheticDoc.reviewers[0].type -eq 'delegation-cli' -and $syntheticDoc.reviewers[0].invokeArgs.model -eq 'model' -and $syntheticDoc.reviewers[0].fallbackChain[0].backend -eq 'codex') 'Synthetic CLI serialization must preserve its type, model and fallback.'
+    $savedHash = (Get-FileHash -LiteralPath $fixtureOutput -Algorithm SHA256).Hash
+    $knownCli = '[{"backend":"codex","targetModelKey":"openai/model","invokeArgs":{}}]'
+    foreach ($badRegistry in @('missing', 'malformed')) {
+        if ($badRegistry -eq 'missing') { Remove-Item -LiteralPath $fixtureRegistry }
+        else { [IO.File]::WriteAllText($fixtureRegistry, $originalRegistry.Replace("ExeParam = 'CodexExe'", 'ExeParam = 123')) }
+        $previousError = [Console]::Error
+        $capturedError = [IO.StringWriter]::new()
+        try {
+            [Console]::SetError($capturedError)
+            $blocked = & $fixtureSet -ReviewersJson $knownCli -Orchestrator cursor -Scope machine -OutputPath $fixtureOutput -Overwrite | ConvertFrom-Json
+            $writerExit = $LASTEXITCODE
+            $diagnostic = $capturedError.ToString().TrimEnd()
+        } finally {
+            [Console]::SetError($previousError)
+            $capturedError.Dispose()
+        }
+        Assert-True ($writerExit -eq 1 -and $null -ne $blocked -and $blocked.reason -eq 'backend-registry-invalid' -and $blocked.written -eq 0) "$badRegistry registry must block the writer with a JSON refusal."
+        if ($badRegistry -eq 'missing') {
+            Assert-True ($diagnostic.Contains($fixtureRegistry)) 'Missing registry diagnostic must identify the registry path.'
+        } else {
+            Assert-True ($diagnostic -ceq 'BLOCK: invalid backend registry') 'Malformed registry must have an exact diagnostic on stderr.'
+        }
+        Assert-True ((Get-FileHash -LiteralPath $fixtureOutput -Algorithm SHA256).Hash -ceq $savedHash) "$badRegistry registry must not alter preference bytes."
+        Assert-True (@(Get-ChildItem -LiteralPath $tempRoot -File | Where-Object { $_.Name -like 'synthetic-preference.json.bak-*' -or $_.Name -like 'synthetic-preference.json.tmp-*' }).Count -eq 0) "$badRegistry registry must not create backup or temporary files."
+    }
+
     # --------------------------------------------------------------------------------------
     # (A) Schema 3 CLI write with Orchestrator+Scope+OutputPath; invokeArgs; models;
     #     sanitization; hard-veto = exit 3 (not discardedVeto).

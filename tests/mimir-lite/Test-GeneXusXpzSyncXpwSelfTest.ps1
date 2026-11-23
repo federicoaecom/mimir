@@ -200,10 +200,13 @@ try {
     $result = Invoke-Sync -SyncArgs @('-InputPath', $text, '-DestinationRoot', $dest)
     Assert-True ($result.ExitCode -ne 0 -and $result.StdErr -match 'Unsupported InputPath') "Case4b: a .txt input should fail with 'Unsupported InputPath'; got exit $($result.ExitCode): $($result.StdErr)"
 
-    # 4c — a .zip with no .xpw entry keeps the existing error.
+    # 4c — an XML-only ZIP uses the same streamed XML rule as an XPZ.
     $xmlOnly = New-GeneXusXpwFixtureZip -Path (Join-Path $work4 'xml-only.zip') -Entries ([ordered]@{ 'export.xml' = @('<ExportFile/>') })
-    $result = Invoke-Sync -SyncArgs @('-InputPath', $xmlOnly, '-DestinationRoot', $dest)
-    Assert-True ($result.ExitCode -ne 0 -and $result.StdErr -match 'Unsupported InputPath') "Case4c: a .zip without .xpw entries should fail with 'Unsupported InputPath'; got exit $($result.ExitCode): $($result.StdErr)"
+    $summary = Invoke-SyncOk -SyncArgs @('-InputPath', $xmlOnly, '-DestinationRoot', $dest) -Case 'Case4c'
+    Assert-True ($null -eq $summary.PackageXmlPath -and $summary.PackageXmlEntry -ceq 'export.xml') 'Case4c: an XML ZIP reports the archive entry instead of an extracted path.'
+    # The corpus lock and state files (.mimir-*) are coordination records, not materialized objects.
+    $materialized = @(Get-ChildItem -LiteralPath $dest -Recurse -File | Where-Object { -not $_.Name.StartsWith('.mimir-') })
+    Assert-True ($summary.TotalExportedItems -eq 0 -and $materialized.Count -eq 0) 'Case4c: an empty export must materialize nothing.'
 } finally {
     if (Test-Path -LiteralPath $work4) { Remove-Item -LiteralPath $work4 -Recurse -Force }
 }
@@ -229,7 +232,8 @@ try {
     $fromXpz = Invoke-SyncOk -SyncArgs @('-InputPath', $xpz, '-DestinationRoot', $destXpz) -Case 'Case5 xpz'
     Assert-True ($fromXml.Created -eq 7 -and $fromXpz.Created -eq 7) "Case5: Created xml=$($fromXml.Created), xpz=$($fromXpz.Created) (expected 7 each)."
     Assert-True ($fromXml.PackageXmlPath -eq (Resolve-Path -LiteralPath $xml).Path) 'Case5: PackageXmlPath of an .xml input should stay the input path.'
-    Assert-True ($fromXpz.PackageXmlPath -like '*legacy.xml') 'Case5: PackageXmlPath of an .xpz input should stay the extracted inner XML.'
+    Assert-True ($null -eq $fromXml.PackageXmlEntry) 'Case5: an .xml input has no archive entry.'
+    Assert-True ($null -eq $fromXpz.PackageXmlPath -and $fromXpz.PackageXmlEntry -ceq 'legacy.xml') 'Case5: an .xpz input reports the streamed entry, not an extracted path.'
 } finally {
     if (Test-Path -LiteralPath $work5) { Remove-Item -LiteralPath $work5 -Recurse -Force }
 }

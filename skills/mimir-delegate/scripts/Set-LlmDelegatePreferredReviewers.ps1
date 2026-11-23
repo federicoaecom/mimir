@@ -4,10 +4,12 @@
     Writes the CURATED preferred-reviewers list (schema 3), at machine or orchestrator scope.
 .DESCRIPTION
     Part of the mimir-delegate skill mechanism; methodology in 15-peer-review.md.
-    Preference != authorization. Schema 3: delegation-cli (6 CLI backends) and
+    Preference != authorization. Schema 3: delegation-cli (names from the CLI registry) and
     orchestrator-native-subagent (orchestrator-native backend). Path cascade via
     -PreferredRoot/-Orchestrator/-Scope, or -OutputPath bypass (mutually exclusive).
     -Orchestrator/-Scope/-ReviewersJson required in the body. stdout=JSON; stderr=diagnostics.
+    If the CLI registry cannot be loaded or validated, the writer refuses with
+    reason backend-registry-invalid before touching the preferred-reviewers file.
 .PARAMETER ReviewersJson
     Array of primary reviewers OR { reviewers, schemaVersion?, fallbackPolicy? }. A schemaVersion other
     than 3 is refused (reviewers-schema-unsupported).
@@ -91,7 +93,12 @@ function Stop-WithReason {
 }
 
 $hardVetoPatterns = @('mistral-large-3', 'nemotron-3-ultra')
-$allowedDispatchBackends = @('opencode', 'codex', 'claude-code', 'copilot', 'gemini', 'antigravity')
+try {
+    . (Join-Path $PSScriptRoot 'LlmDelegateBackendRegistrySupport.ps1')
+    $allowedDispatchBackends = @(Get-LlmDelegateBackendRegistry | ForEach-Object { $_.Name })
+} catch {
+    Stop-WithReason -Reason 'backend-registry-invalid' -ExitCode 1 -Detail $_.Exception.Message
+}
 $allowedNativeBackends = @('orchestrator-native')
 $allowedScopes = @('machine', 'orchestrator')
 $allowedInvokeArgs = @('backend', 'model', 'profile', 'localProvider', 'oss', 'timeoutSec')

@@ -94,7 +94,8 @@ try {
         -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
         -RedirectStandardInput $in
     if (-not $p.WaitForExit($TimeoutSec * 1000)) {
-        try { $p.Kill() } catch { }
+        # Kill the whole tree: the started process (runner or launcher) has the CLI as a descendant.
+        try { $p.Kill($true) } catch { }
         throw "BLOCK: Claude Code exceeded ${TimeoutSec}s and was terminated."
     }
 

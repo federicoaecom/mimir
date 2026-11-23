@@ -67,6 +67,7 @@
     Emits structured diagnostic in JSON.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ChangedFiles', Justification = 'Accepted for the common gate contract.')]
 [CmdletBinding()]
 param(
     [string]$RootPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path,
@@ -84,29 +85,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-function Invoke-RepoGit {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot,
-
-        [Parameter(Mandatory = $true)]
-        [string[]]$Arguments
-    )
-
-    $output = & git -C $RepositoryRoot @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    $lines = @()
-    if ($null -ne $output) {
-        $lines = @($output | ForEach-Object { $_.ToString() })
-    }
-
-    return [pscustomobject]@{
-        ExitCode = $exitCode
-        Lines    = $lines
-        Text     = ($lines -join [Environment]::NewLine)
-    }
-}
+. (Join-Path $PSScriptRoot 'PrePushGitSupport.ps1')
 
 # Contract tokens: PowerShell parameter (-Xxx, uppercase initial so as not to
 # match -eq/-not/-join operators), CLI/Python flag (--xxx), and .PARAMETER Xxx block.

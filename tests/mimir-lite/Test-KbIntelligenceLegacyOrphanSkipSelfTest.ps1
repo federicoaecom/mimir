@@ -26,6 +26,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $utf8NoBomEncodingSupportPath = Join-Path ((Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'skills/mimir-lite/scripts')) 'Utf8NoBomEncodingSupport.ps1'
 if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) {
@@ -79,6 +80,7 @@ $sqlitePath = Join-Path $kbIntelDir 'kb-intelligence.sqlite'
 $validationPath = Join-Path $kbIntelDir 'kb-intelligence-validation.json'
 $indexScript = Join-Path $scriptDir 'Build-KbIntelligenceIndex.ps1'
 
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $indexScript `
     -SourceRoot $kbObjectsPath `
     -OutputPath $sqlitePath `
@@ -127,6 +129,7 @@ $sqlitePathB = Join-Path $kbIntelDirB 'kb-intelligence.sqlite'
 $validationPathB = Join-Path $kbIntelDirB 'kb-intelligence-validation.json'
 
 # Without -FailOnValidationFailure: we want to read the report even with BLOCK.
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPathB
 & $indexScript `
     -SourceRoot $kbObjectsPathB `
     -OutputPath $sqlitePathB `
@@ -163,6 +166,7 @@ $validationPathC = Join-Path $kbIntelDirC 'kb-intelligence-validation.json'
 
 $cFailed = $false
 try {
+    Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPathC
     & $indexScript -SourceRoot $kbObjectsPathC -OutputPath $sqlitePathC -ValidationReportPath $validationPathC -KbWorkspaceRoot $kbWorkspaceRootC 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { $cFailed = $true }
 } catch {
@@ -202,6 +206,7 @@ foreach ($probe in @('SkipProbe', 'StringFlagProbe')) {
 [System.IO.File]::WriteAllText((Join-Path $kbObjectsPathD 'WebPanel/wpProof.xml'), $webPanelXml, $enc)
 
 $validationPathD = Join-Path $kbIntelDirD 'kb-intelligence-validation.json'
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPathD
 & (Join-Path $scriptsCopy 'Build-KbIntelligenceIndex.ps1') `
     -SourceRoot $kbObjectsPathD `
     -OutputPath (Join-Path $kbIntelDirD 'kb-intelligence.sqlite') `
@@ -238,6 +243,7 @@ foreach ($orphan in @($classicOrphans + $indexedClassicOrphans)) {
 }
 
 $validationPathE = Join-Path $kbIntelDirE 'kb-intelligence-validation.json'
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPathE
 & $indexScript `
     -SourceRoot $kbObjectsPathE `
     -OutputPath (Join-Path $kbIntelDirE 'kb-intelligence.sqlite') `

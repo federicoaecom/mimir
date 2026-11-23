@@ -76,6 +76,7 @@ $markdownLinkIncludePaths = @(
     'skills/mimir-lite/references/08-agent-guide.md',
     'skills/mimir-lite/references/09-script-inventory.md',
     'skills/mimir-delegate/references/15-peer-review.md',
+    'skills/mimir-delegate/references/backend-contracts.md',
     'skills/mimir-lite/references/kb-index-methodology.md',
     'skills/mimir-lite/references/kb-index-reference.md'
 )

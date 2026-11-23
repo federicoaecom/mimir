@@ -18,6 +18,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 # Python 3.8+ resolved once, the same way the KbIntelligence wrappers do it
 # (python3, then python, then py -3).
@@ -121,6 +122,7 @@ $wpOrfaXml = @'
 $sqlitePath = Join-Path $kbIntelDir 'kb-intelligence.sqlite'
 $indexScript = Join-Path $scriptDir 'Build-KbIntelligenceIndex.ps1'
 
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $indexScript `
     -SourceRoot $kbObjectsPath `
     -OutputPath $sqlitePath `

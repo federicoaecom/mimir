@@ -10,7 +10,7 @@ Mimir Lite reads and understands a GeneXus KB from its XPZ/XML exports. It never
 ## Core rules (apply to every workflow)
 
 - The XML corpus (`KbObjectsXml`) is the normative source. A derived index or a sanitized template is a shortcut to it, never a replacement.
-- Before any substantive query against the derived index, run its mandatory freshness/compatibility check (`Test-*KbIndexGate.ps1`, via the **find** workflow) and get `GATE_OK`. A blocked check means treat the index as untrustworthy — do not fall back to a manual scan of the corpus.
+- Before any substantive query against the derived index, run its mandatory freshness/compatibility check (`Test-*KbIndexGate.ps1`, via the **find** workflow) and get `GATE_OK`. `GATE_OK` means the corpus is completely synchronized and the index was built from its current synchronization generation; dates are information only. A blocked check means treat the index as untrustworthy — do not fall back to a manual scan of the corpus. An index query or build that exits `12` refuses an incomplete corpus or an index built from another generation (complete the sync, then rebuild the index; never delete or edit `.mimir-sync-state.json`), and exit `13` means the corpus lock stayed busy (wait and run it again); neither is an empty result.
 - Toward the KB itself, this skill is read-only. `KbObjectsXml` is written only by the **sync** workflow's official flow; nothing here edits it by hand.
 - Never claim an import, build, or packaging result — this skill does not perform those actions and has no evidence about them.
 - Always state a confidence level for a functional conclusion: direct evidence, additional XML reading needed, strong inference, or hypothesis.

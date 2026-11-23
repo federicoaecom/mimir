@@ -99,11 +99,10 @@ $exe = Resolve-OpenCodeExe -Override $OpenCodeExe
 #     agent its own config resolves to. With an EXPLICIT -Agent <x>, confirm that <x> RESOLVES, to avoid
 #     silently falling back to 'build' (`--agent <missing>` does not fail).
 $agentExplicit = $PSBoundParameters.ContainsKey('Agent') -and -not [string]::IsNullOrWhiteSpace($Agent)
-# INHERITED cwd (opencode has no -Cd). WARNING: on Windows, `opencode run` FAILS (empty stdout /
+# Caller guidance: opencode runs in the INHERITED cwd (it has no -Cd). WARNING: on Windows, `opencode run` FAILS (empty stdout /
 # uv_spawn ENAMETOOLONG) when this cwd is a git WORKTREE (.git gitlink). Run from a flat dir
 # without .git (e.g. git archive HEAD -> dir). See SKILL.md, section "KNOWN LIMITATION - opencode run
 # FAILS IN A GIT WORKTREE CWD (WINDOWS)".
-$cwd = (Get-Location).Path
 if ($agentExplicit) {
     $res = Test-OpenCodeAgentResolves -Exe $exe -Name $Agent
     if (-not $res.ok) {

@@ -274,10 +274,25 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
 '@ | Set-Content -LiteralPath $manuscript -Encoding utf8
 
     # ---------------------------------------------------------------------------------------
-    # Invocation helper (child process, stdout/stderr split into files)
+    # Invocation helpers (child process, stdout/stderr split into files)
     # ---------------------------------------------------------------------------------------
-    $defaultClaudeCircuitRoot = Join-Path $tmp 'claude-circuit'
-    function Invoke-Harness {
+    # Each harness run is an independent child process with its own RoundId, ledger folder,
+    # Claude circuit root and, where a case reads it, its own fake call log. Start-Harness
+    # launches one without waiting and Receive-Harness collects it, so a section starts its
+    # independent cases together and then asserts them in order: the file's run time is
+    # dominated by child process starts and fake sleeps, not by work. At most
+    # $script:HarnessConcurrency harness processes run at once: 6, divided by the test runner's
+    # throttle (MIMIR_TEST_THROTTLE, set only when the runner itself runs files in parallel), so
+    # parallel files do not multiply the load.
+    $runnerThrottle = 0
+    if (-not [int]::TryParse([string]$env:MIMIR_TEST_THROTTLE, [ref]$runnerThrottle) -or $runnerThrottle -lt 1) { $runnerThrottle = 1 }
+    $script:HarnessConcurrency = if ($runnerThrottle -gt 1) { [int][math]::Max(1, [math]::Floor(6 / $runnerThrottle)) } else { 6 }
+    # Waiting for a free slot gives up after this long (the same bound Receive-Harness gives one
+    # run): the harness runs still in flight are killed and the failure names their cases.
+    $script:HarnessWaitSeconds = 180
+    $script:harnessInFlight = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+    $script:harnessCases = @{}
+    function Start-Harness {
         param(
             [Parameter(Mandatory)] [object[]] $Reviewers,
             [string] $Sensitivity = 'public',
@@ -287,7 +302,10 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
             [switch] $UseManuscriptText,
             [switch] $OmitManuscriptSource,
             [switch] $BothManuscriptSources,
-            [AllowEmptyString()] [string] $ManuscriptText = ''
+            [AllowEmptyString()] [string] $ManuscriptText = '',
+            # Process environment for this child only (a $null value removes the variable); set
+            # around Start-Process on this thread and restored before returning.
+            [hashtable] $Environment = @{}
         )
         $rid = [guid]::NewGuid().ToString('N')
         $revFile = Join-Path $tmp "rev-$rid.json"
@@ -312,14 +330,53 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
         }
         if (-not $NoRoundId) { $argList += @('-RoundId', $rid) }
         if (-not $NoExeMap) { $argList += @('-BackendExeMap', $exeMapFile) }
-        if (-not $Extra.ContainsKey('ClaudeCircuitStateRoot')) { $argList += @('-ClaudeCircuitStateRoot', $defaultClaudeCircuitRoot) }
+        # A circuit root per run keeps concurrent Claude Code runs from sharing quota-circuit state.
+        if (-not $Extra.ContainsKey('ClaudeCircuitStateRoot')) { $argList += @('-ClaudeCircuitStateRoot', (Join-Path $tmp "claude-circuit-$rid")) }
         foreach ($k in $Extra.Keys) { $argList += @("-$k", [string]$Extra[$k]) }
 
-        $p = Start-Process -FilePath 'pwsh' -ArgumentList $argList -NoNewWindow -PassThru `
-            -RedirectStandardOutput $oFile -RedirectStandardError $eFile
+        $waitDeadline = [DateTime]::UtcNow.AddSeconds($script:HarnessWaitSeconds)
+        while (@($script:harnessInFlight | Where-Object { -not $_.HasExited }).Count -ge $script:HarnessConcurrency) {
+            if ([DateTime]::UtcNow -ge $waitDeadline) {
+                $stuck = @($script:harnessInFlight | Where-Object { -not $_.HasExited })
+                foreach ($s in $stuck) { try { $s.Kill($true) } catch { } }
+                $stuckCases = @($stuck | ForEach-Object { $script:harnessCases[$_.Id] })
+                throw "ASSERT FAILED: no harness slot freed within $($script:HarnessWaitSeconds) s; killed the runs still in flight: $($stuckCases -join '; ')"
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        # The case this run belongs to, for the failure above: the assignment target at the call
+        # site (for example '$wave1.codexOss'), or the call line, with its line number.
+        $callSite = @(Get-PSCallStack | Where-Object { $_.FunctionName -notin @('Start-Harness', 'Invoke-Harness') })[0]
+        $callLine = if ($null -ne $callSite -and $null -ne $callSite.Position) { $callSite.Position.StartScriptPosition.Line.Trim() } else { '' }
+        $caseLabel = if ($callLine -match '^(\$[^=\s]+)\s*=\s*(Start|Invoke)-Harness') { $Matches[1] } elseif ($callLine.Length -gt 80) { $callLine.Substring(0, 80) } else { $callLine }
+        $caseLabel = "$caseLabel (line $(if ($null -ne $callSite) { $callSite.ScriptLineNumber } else { '?' }), RoundId $rid)"
+        $savedEnvironment = @{}
+        foreach ($name in $Environment.Keys) {
+            $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+            [Environment]::SetEnvironmentVariable($name, $Environment[$name], 'Process')
+        }
+        try {
+            $p = Start-Process -FilePath 'pwsh' -ArgumentList $argList -NoNewWindow -PassThru `
+                -RedirectStandardOutput $oFile -RedirectStandardError $eFile
+        } finally {
+            foreach ($name in $savedEnvironment.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
+            }
+        }
+        # Reading Handle now keeps ExitCode available after the process has exited unobserved.
+        $null = $p.Handle
+        $script:harnessInFlight.Add($p)
+        $script:harnessCases[$p.Id] = $caseLabel
+        return [pscustomobject]@{ process = $p; oFile = $oFile; eFile = $eFile; rid = $rid }
+    }
+    function Receive-Harness {
+        param([Parameter(Mandatory)] $Handle)
+        $p = $Handle.process
         [void]$p.WaitForExit(180000)
-        $stdout = Get-Content -LiteralPath $oFile -Raw -Encoding utf8 -ErrorAction SilentlyContinue
-        $stderr = Get-Content -LiteralPath $eFile -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+        [void]$script:harnessInFlight.Remove($p)
+        $script:harnessCases.Remove($p.Id)
+        $stdout = Get-Content -LiteralPath $Handle.oFile -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+        $stderr = Get-Content -LiteralPath $Handle.eFile -Raw -Encoding utf8 -ErrorAction SilentlyContinue
         if ($null -eq $stdout) { $stdout = '' }
         if ($null -eq $stderr) { $stderr = '' }
         $json = $null
@@ -329,97 +386,63 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
             stderr    = $stderr
             exit      = $p.ExitCode
             json      = $json
-            roundId   = $rid
-            ledgerDir = Join-Path $ledgerRoot $rid
+            roundId   = $Handle.rid
+            ledgerDir = Join-Path $ledgerRoot $Handle.rid
         }
     }
-
-    # =======================================================================================
-    # 1) EFFECTIVE MODEL + FAIL-CLOSEDS
-    # =======================================================================================
-    # opencode without model -> uses the INPUT targetModelKey (same value to gate and adapter)
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/no-model'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
-    Assert-True ($null -ne $r.json) 'opencode without model: should emit a summary'
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'responded') "opencode without model+public: expected responded; got $($rv.state)"
-    Assert-True ($rv.effectiveModel -eq 'openai/no-model') "opencode without model: effectiveModel should be the input targetModelKey; got '$($rv.effectiveModel)'"
-
-    # opencode without model AND without targetModelKey -> error
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; invokeArgs = @{} }) -Sensitivity 'public'
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'error') "opencode without model and without targetModelKey: expected error; got $($rv.state)"
-
-    # unknown backend -> defensive error with an English reason
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'no-such-backend'; targetModelKey = 'openai/gpt-5.6'; invokeArgs = @{} }) -Sensitivity 'public'
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'error' -and [string]$rv.reason -match "unknown backend: 'no-such-backend'") "unknown backend: expected error with an English reason; got state=$($rv.state) reason=$($rv.reason)"
-
-    # codex without model WITH config -> the gate without -Model returns targetModelKey; the harness derives the last segment
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{} }) `
-        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg }
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.effectiveModel -eq 'gpt-5.5') "codex without model+config: effectiveModel should be 'gpt-5.5' (bare); got '$($rv.effectiveModel)'"
-    Assert-True ($rv.targetModelKey -eq 'openai/gpt-5.5') "codex without model+config: targetModelKey should be 'openai/gpt-5.5'; got '$($rv.targetModelKey)'"
-    Assert-True ($rv.state -eq 'gateAsk') "codex without model+config kb-sensitive without policy: expected gateAsk; got $($rv.state)"
-
-    # codex without model WITHOUT config -> fail-closed error
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{} }) `
-        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfgMissing }
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'error') "codex without model and without config: expected error; got $($rv.state)"
-
-    # claude-code/copilot/gemini/antigravity without model -> error
-    foreach ($b in @('claude-code', 'copilot', 'gemini', 'antigravity')) {
-        $r = Invoke-Harness -Reviewers @(@{ backend = $b; invokeArgs = @{} }) -Sensitivity 'public'
-        $rv = Get-Reviewer $r.json 0
-        Assert-True ($rv.state -eq 'error') "$b without model: expected fail-closed error; got $($rv.state)"
-        Assert-True ($null -eq $rv.effectiveModel) "$b without model: effectiveModel should be null"
+    function Invoke-Harness {
+        Receive-Harness (Start-Harness @args)
     }
 
-    # =======================================================================================
-    # 2) CODEX GATE WITH OSS (-Oss/-LocalProvider reach the gate -> local -> allow -> dispatches)
-    # =======================================================================================
-    # explicit -Cd to satisfy the fail-closed (codex is cd-capable in kb-sensitive, even with a local model)
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'qwen2.5-coder'; oss = $true; localProvider = 'ollama' } }) `
-        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfgMissing; Cd = $tmp }
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.gateVerdict -eq 'allow') "codex oss local kb-sensitive: gate should return allow (oss/localProvider reached the gate); got '$($rv.gateVerdict)'"
-    Assert-True ($rv.state -eq 'responded') "codex oss local: should dispatch and respond via the fake; got $($rv.state)"
-
-    # =======================================================================================
-    # 3) GENERAL GATE: kb-sensitive fail-closed without policy; a gate that THROWS
-    # =======================================================================================
-    # external claude-code kb-sensitive without policy -> ask
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8' } }) -Sensitivity 'kb-sensitive'
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'gateAsk') "claude-code kb-sensitive without policy: expected gateAsk; got $($rv.state)"
-
-    # a gate that THROWS: a nonexistent -KbWorkspaceRoot makes the policy resolver throw (the gate does not catch it)
+    # Fixtures some cases below need before their runs start.
     $ghost = Join-Path $tmp 'missing-folder-xyz'
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8' } }) `
+    $stolenCodexLedger = Join-Path $tmp 'roubar-codex-ledger'
+    [IO.Directory]::CreateDirectory($stolenCodexLedger) | Out-Null
+    $rid429 = 'panel-strip-429-' + [guid]::NewGuid().ToString('N')
+    # Cases that read the fake-opencode call log each get their own log, so runs in flight at the
+    # same time never mix their ENTER/EXIT lines.
+    $parallelismLog = Join-Path $tmp 'conc-parallelism.log'
+    $singleFlightLog = Join-Path $tmp 'conc-single-flight.log'
+    $nativeLeakLog = Join-Path $tmp 'conc-native-leak.log'
+    $divergentFallbackLog = Join-Path $tmp 'conc-divergent-fallback.log'
+
+    # The two slowest runs start first and are collected in their own sections: the parallelism
+    # case (8 s fake sleeps; three ollama-cloud reviewers under OllamaConcurrency=2 run in two waves,
+    # which is the fewest that still shows the ceiling) and a fallback that times out.
+    $revs = @()
+    1..3 | ForEach-Object { $revs += @{ backend = 'opencode'; targetModelKey = "ollama-cloud/sleep-$_"; invokeArgs = @{} } }
+    1..5 | ForEach-Object { $revs += @{ backend = 'opencode'; targetModelKey = "openai/sleep-$_"; invokeArgs = @{} } }
+    $early = @{}
+    $early.parallelism = Start-Harness -Reviewers $revs -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg; OllamaConcurrency = 2 } `
+        -Environment @{ PANEL_FAKE_LOG = $parallelismLog }
+    $early.fallbackTimeout = Start-Harness -Reviewers @(@{
+            backend = 'opencode'; targetModelKey = 'openai/empty-primary-timeout-fallback'; invokeArgs = @{}
+            fallbackChain = @(
+                @{ backend = 'opencode'; targetModelKey = 'openai/timeout-fallback'; invokeArgs = @{ backend = 'opencode'; model = 'openai/timeout-fallback'; timeoutSec = 2 } }
+            )
+        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+
+    # Sections 1 to 5b start together.
+    $wave1 = @{}
+    $wave1.opencodeNoModel = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/no-model'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave1.opencodeNoModelNoTarget = Start-Harness -Reviewers @(@{ backend = 'opencode'; invokeArgs = @{} }) -Sensitivity 'public'
+    $wave1.unknownBackend = Start-Harness -Reviewers @(@{ backend = 'no-such-backend'; targetModelKey = 'openai/gpt-5.6'; invokeArgs = @{} }) -Sensitivity 'public'
+    $wave1.codexNoModelConfig = Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{} }) `
+        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg }
+    $wave1.codexNoModelNoConfig = Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{} }) `
+        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfgMissing }
+    foreach ($b in @('claude-code', 'copilot', 'gemini', 'antigravity')) {
+        $wave1["noModel-$b"] = Start-Harness -Reviewers @(@{ backend = $b; invokeArgs = @{} }) -Sensitivity 'public'
+    }
+    $wave1.codexOss =Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'qwen2.5-coder'; oss = $true; localProvider = 'ollama' } }) `
+        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfgMissing; Cd = $tmp }
+    $wave1.claudeKbAsk = Start-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8' } }) -Sensitivity 'kb-sensitive'
+    $wave1.gateThrows = Start-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8' } }) `
         -Sensitivity 'public' -Extra @{ KbWorkspaceRoot = $ghost }
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'error') "gate that throws: expected error; got $($rv.state)"
-    Assert-True ($null -eq $rv.gateVerdict) "gate that throws: gateVerdict should be null"
-    Assert-True ($null -ne $r.json) 'gate that throws: the harness should still emit a summary'
-
-    # =======================================================================================
-    # 4) OPENCODE IN KB-SENSITIVE -> unavailable (no gate/adapter); fake NOT invoked
-    # =======================================================================================
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'ollama-cloud/x'; invokeArgs = @{ model = 'ollama-cloud/x' } }) `
+    $wave1.opencodeKbUnavailable = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'ollama-cloud/x'; invokeArgs = @{ model = 'ollama-cloud/x' } }) `
         -Sensitivity 'kb-sensitive'
-    $rv = Get-Reviewer $r.json 0
-    Assert-True ($rv.state -eq 'unavailable') "opencode kb-sensitive: expected unavailable; got $($rv.state)"
-    Assert-True ($null -eq $rv.gateVerdict) 'opencode kb-sensitive: gateVerdict should be null'
-    Assert-True ([int]$r.json.unavailableCount -ge 1) 'opencode kb-sensitive: unavailableCount >= 1'
-    Assert-True ($null -ne $rv.statePath) 'opencode kb-sensitive: should have .state.txt in the ledger'
-
-    # =======================================================================================
-    # 5) SPLAT + CONTAINMENT (per-backend) — no dispatch (kb-sensitive -> gateAsk)
-    # =======================================================================================
-    # claude-code: permissionMode/tools and internal keys -> securityBlockedArgs; maxTurns (no such adapter parameter) -> droppedArgs
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{
+    $wave1.claudeContainment = Start-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{
                     model = 'claude-opus-4-8'
                     permissionMode = 'bypassPermissions'
                     tools = 'Bash'
@@ -431,6 +454,116 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
                     ClaudeExe = 'C:\tmp\fake-claude.exe'
                     MessagePath = 'C:\tmp\outro-prompt.txt'
                 } }) -Sensitivity 'kb-sensitive'
+    $wave1.opencodeContainment = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'ollama-cloud/x'; invokeArgs = @{ model = 'ollama-cloud/x'; agent = 'build' } }) -Sensitivity 'kb-sensitive'
+    $wave1.geminiApprovalMode = Start-Harness -Reviewers @(
+        @{ backend = 'gemini'; invokeArgs = @{ model = 'gemini-3-flash-preview'; approvalMode = 'plan' } },
+        @{ backend = 'gemini'; invokeArgs = @{ model = 'gemini-3-flash-preview'; approvalMode = 'yolo' } }
+    ) -Sensitivity 'kb-sensitive'
+    $wave1.antigravityContainment = Start-Harness -Reviewers @(@{ backend = 'antigravity'; invokeArgs = @{
+        model = 'gemini-3.6-flash-high'; mode = 'plan'; profile = 'public-review'; cd = $tmp
+        agent = 'custom'; approvalMode = 'plan'; scratchPath = $tmp; receiptPath = 'x.json'
+        simulateCleanupFailure = 'failed'; antigravityExe = 'x'; message = 'x'; messagePath = 'x'
+    } }) -Sensitivity 'public'
+    $wave1.unknownKeys = Start-Harness -Reviewers @(
+        @{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5'; foobar = 'x' } },
+        @{ backend = 'copilot'; invokeArgs = @{ model = 'gpt-5-mini'; foobar = 'y' } },
+        @{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8'; profile = 'p' } }
+    ) -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg }
+    $wave1.codexDurable = Start-Harness -Reviewers @(@{
+            backend = 'codex'
+            invokeArgs = @{
+                model          = 'gpt-5.5'
+                tempdir        = $stolenCodexLedger
+                retentionMode  = 'kb-sensitive'
+            }
+        }) -Sensitivity 'public' -Extra @{ CodexConfigPath = $cxCfg }
+    $wave1.codexStrip429 = Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5'; timeoutSec = 2 } }) `
+        -Sensitivity 'public' -NoRoundId -Extra @{ RoundId = $rid429; CodexConfigPath = $cxCfg } `
+        -Environment @{ MIMIR_TEST_CODEX_FORCE_TIMEOUT = '1' }
+    $wave1.gap2 = Start-Harness -Reviewers @(
+        @{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5'; timeoutSec = '600s' } },
+        @{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }
+    ) -Sensitivity 'public' -Extra @{ CodexConfigPath = $cxCfg }
+
+    # =======================================================================================
+    # 1) EFFECTIVE MODEL + FAIL-CLOSEDS
+    # =======================================================================================
+    # opencode without model -> uses the INPUT targetModelKey (same value to gate and adapter)
+    $r = Receive-Harness $wave1.opencodeNoModel
+    Assert-True ($null -ne $r.json) 'opencode without model: should emit a summary'
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'responded') "opencode without model+public: expected responded; got $($rv.state)"
+    Assert-True ($rv.effectiveModel -eq 'openai/no-model') "opencode without model: effectiveModel should be the input targetModelKey; got '$($rv.effectiveModel)'"
+
+    # opencode without model AND without targetModelKey -> error
+    $r = Receive-Harness $wave1.opencodeNoModelNoTarget
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'error') "opencode without model and without targetModelKey: expected error; got $($rv.state)"
+
+    # unknown backend -> defensive error with an English reason
+    $r = Receive-Harness $wave1.unknownBackend
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'error' -and [string]$rv.reason -match "unknown backend: 'no-such-backend'") "unknown backend: expected error with an English reason; got state=$($rv.state) reason=$($rv.reason)"
+
+    # codex without model WITH config -> the gate without -Model returns targetModelKey; the harness derives the last segment
+    $r = Receive-Harness $wave1.codexNoModelConfig
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.effectiveModel -eq 'gpt-5.5') "codex without model+config: effectiveModel should be 'gpt-5.5' (bare); got '$($rv.effectiveModel)'"
+    Assert-True ($rv.targetModelKey -eq 'openai/gpt-5.5') "codex without model+config: targetModelKey should be 'openai/gpt-5.5'; got '$($rv.targetModelKey)'"
+    Assert-True ($rv.state -eq 'gateAsk') "codex without model+config kb-sensitive without policy: expected gateAsk; got $($rv.state)"
+
+    # codex without model WITHOUT config -> fail-closed error
+    $r = Receive-Harness $wave1.codexNoModelNoConfig
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'error') "codex without model and without config: expected error; got $($rv.state)"
+
+    # claude-code/copilot/gemini/antigravity without model -> error
+    foreach ($b in @('claude-code', 'copilot', 'gemini', 'antigravity')) {
+        $r = Receive-Harness $wave1["noModel-$b"]
+        $rv = Get-Reviewer $r.json 0
+        Assert-True ($rv.state -eq 'error') "$b without model: expected fail-closed error; got $($rv.state)"
+        Assert-True ($null -eq $rv.effectiveModel) "$b without model: effectiveModel should be null"
+    }
+
+    # =======================================================================================
+    # 2) CODEX GATE WITH OSS (-Oss/-LocalProvider reach the gate -> local -> allow -> dispatches)
+    # =======================================================================================
+    # explicit -Cd to satisfy the fail-closed (codex is cd-capable in kb-sensitive, even with a local model)
+    $r = Receive-Harness $wave1.codexOss
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.gateVerdict -eq 'allow') "codex oss local kb-sensitive: gate should return allow (oss/localProvider reached the gate); got '$($rv.gateVerdict)'"
+    Assert-True ($rv.state -eq 'responded') "codex oss local: should dispatch and respond via the fake; got $($rv.state)"
+
+    # =======================================================================================
+    # 3) GENERAL GATE: kb-sensitive fail-closed without policy; a gate that THROWS
+    # =======================================================================================
+    # external claude-code kb-sensitive without policy -> ask
+    $r = Receive-Harness $wave1.claudeKbAsk
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'gateAsk') "claude-code kb-sensitive without policy: expected gateAsk; got $($rv.state)"
+
+    # a gate that THROWS: a nonexistent -KbWorkspaceRoot ($ghost) makes the policy resolver throw (the gate does not catch it)
+    $r =Receive-Harness $wave1.gateThrows
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'error') "gate that throws: expected error; got $($rv.state)"
+    Assert-True ($null -eq $rv.gateVerdict) "gate that throws: gateVerdict should be null"
+    Assert-True ($null -ne $r.json) 'gate that throws: the harness should still emit a summary'
+
+    # =======================================================================================
+    # 4) OPENCODE IN KB-SENSITIVE -> unavailable (no gate/adapter); fake NOT invoked
+    # =======================================================================================
+    $r = Receive-Harness $wave1.opencodeKbUnavailable
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'unavailable') "opencode kb-sensitive: expected unavailable; got $($rv.state)"
+    Assert-True ($null -eq $rv.gateVerdict) 'opencode kb-sensitive: gateVerdict should be null'
+    Assert-True ([int]$r.json.unavailableCount -ge 1) 'opencode kb-sensitive: unavailableCount >= 1'
+    Assert-True ($null -ne $rv.statePath) 'opencode kb-sensitive: should have .state.txt in the ledger'
+
+    # =======================================================================================
+    # 5) SPLAT + CONTAINMENT (per-backend) — no dispatch (kb-sensitive -> gateAsk)
+    # =======================================================================================
+    # claude-code: permissionMode/tools and internal keys -> securityBlockedArgs; maxTurns (no such adapter parameter) -> droppedArgs
+    $r = Receive-Harness $wave1.claudeContainment
     $rv = Get-Reviewer $r.json 0
     $sb = @($rv.securityBlockedArgs)
     Assert-True (($sb -contains 'permissionMode') -and ($sb -contains 'tools')) "claude-code containment: securityBlockedArgs should contain permissionMode/tools; got [$($sb -join ',')]"
@@ -440,15 +573,12 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     }
 
     # opencode: agent -> securityBlockedArgs (even in kb-sensitive: classification precedes unavailable)
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'ollama-cloud/x'; invokeArgs = @{ model = 'ollama-cloud/x'; agent = 'build' } }) -Sensitivity 'kb-sensitive'
+    $r = Receive-Harness $wave1.opencodeContainment
     $rv = Get-Reviewer $r.json 0
     Assert-True (@($rv.securityBlockedArgs) -contains 'agent') "opencode containment: securityBlockedArgs should contain agent"
 
     # gemini approvalMode=plan -> droppedArgs ; approvalMode=yolo -> securityBlockedArgs
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'gemini'; invokeArgs = @{ model = 'gemini-3-flash-preview'; approvalMode = 'plan' } },
-        @{ backend = 'gemini'; invokeArgs = @{ model = 'gemini-3-flash-preview'; approvalMode = 'yolo' } }
-    ) -Sensitivity 'kb-sensitive'
+    $r = Receive-Harness $wave1.geminiApprovalMode
     $rvPlan = Get-Reviewer $r.json 0
     $rvYolo = Get-Reviewer $r.json 1
     Assert-True (@($rvPlan.droppedArgs) -contains 'approvalMode') 'gemini approvalMode=plan -> droppedArgs'
@@ -456,11 +586,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     Assert-True (@($rvYolo.securityBlockedArgs) -contains 'approvalMode') 'gemini approvalMode=yolo -> securityBlockedArgs'
 
     # antigravity public-review: no profile/cwd/containment override or internal seam gets through.
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'antigravity'; invokeArgs = @{
-        model = 'gemini-3.6-flash-high'; mode = 'plan'; profile = 'public-review'; cd = $tmp
-        agent = 'custom'; approvalMode = 'plan'; scratchPath = $tmp; receiptPath = 'x.json'
-        simulateCleanupFailure = 'failed'; antigravityExe = 'x'; message = 'x'; messagePath = 'x'
-    } }) -Sensitivity 'public'
+    $r = Receive-Harness $wave1.antigravityContainment
     $rvAgBlocked = Get-Reviewer $r.json 0
     $agyBlocked = @($rvAgBlocked.securityBlockedArgs)
     foreach ($key in @('mode','profile','cd','agent','approvalMode','scratchPath','receiptPath','simulateCleanupFailure','antigravityExe','message','messagePath')) {
@@ -468,11 +594,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     }
 
     # codex / copilot: an unknown key -> droppedArgs ; a non-codex backend with profile -> droppedArgs
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5'; foobar = 'x' } },
-        @{ backend = 'copilot'; invokeArgs = @{ model = 'gpt-5-mini'; foobar = 'y' } },
-        @{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8'; profile = 'p' } }
-    ) -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg }
+    $r = Receive-Harness $wave1.unknownKeys
     Assert-True (@((Get-Reviewer $r.json 0).droppedArgs) -contains 'foobar') 'codex unknown key -> droppedArgs'
     Assert-True (@((Get-Reviewer $r.json 1).droppedArgs) -contains 'foobar') 'copilot unknown key -> droppedArgs'
     Assert-True (@((Get-Reviewer $r.json 2).droppedArgs) -contains 'profile') 'claude-code with profile -> droppedArgs (profile is codex-only)'
@@ -484,16 +606,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     # with a subdirectory PER REVIEWER so recoveredAfterTimeout pairing is not ambiguous
     # when two codex primary reviewers return the same text in the same round;
     # invokeArgs.tempdir/retentionMode -> droppedArgs. Bound wins.
-    $stolenCodexLedger = Join-Path $tmp 'roubar-codex-ledger'
-    [IO.Directory]::CreateDirectory($stolenCodexLedger) | Out-Null
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'codex'
-            invokeArgs = @{
-                model          = 'gpt-5.5'
-                tempdir        = $stolenCodexLedger
-                retentionMode  = 'kb-sensitive'
-            }
-        }) -Sensitivity 'public' -Extra @{ CodexConfigPath = $cxCfg }
+    $r =Receive-Harness $wave1.codexDurable
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'responded') "codex durable splat: expected responded; got $($rv.state)"
     $droppedCodex = @($rv.droppedArgs)
@@ -516,51 +629,104 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     Assert-True ($cap -eq 'success') "codex durable: captureOutcome=success; got '$cap'"
 
     # (c) strip MIMIR_CODEX_ in Parallel: a path/RoundId with 429 in the sentinels does NOT become quota
-    $prevForceTimeout = $env:MIMIR_TEST_CODEX_FORCE_TIMEOUT
-    $env:MIMIR_TEST_CODEX_FORCE_TIMEOUT = '1'
-    try {
-        $rid429 = 'panel-strip-429-' + [guid]::NewGuid().ToString('N')
-        $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5'; timeoutSec = 2 } }) `
-            -Sensitivity 'public' -NoRoundId -Extra @{ RoundId = $rid429; CodexConfigPath = $cxCfg }
-        $rv = Get-Reviewer $r.json 0
-        Assert-True ($rv.state -eq 'timeout') "codex strip 429: expected timeout (not quota); got $($rv.state)"
-        Assert-True ([int]$r.json.quotaCount -eq 0) "codex strip 429: quotaCount should be 0; got $($r.json.quotaCount)"
-        Assert-True ($null -ne $rv.errorPath) 'codex strip 429: should write .error.txt with the complete errText'
-        $errLedger = Get-Content -LiteralPath $rv.errorPath -Raw -Encoding utf8
-        Assert-True ($errLedger -match '429') 'codex strip 429: errorPath preserves path/429 (complete errText)'
-        Assert-True ($errLedger -match 'exceeded' -and $errLedger -match 'was terminated') 'codex strip 429: timeout evidence in errorPath'
-    } finally {
-        if ($null -eq $prevForceTimeout) {
-            Remove-Item Env:\MIMIR_TEST_CODEX_FORCE_TIMEOUT -ErrorAction SilentlyContinue
-        } else {
-            $env:MIMIR_TEST_CODEX_FORCE_TIMEOUT = $prevForceTimeout
-        }
-    }
+    # (MIMIR_TEST_CODEX_FORCE_TIMEOUT=1 is set for this run only.)
+    $r = Receive-Harness $wave1.codexStrip429
+    $rv = Get-Reviewer $r.json 0
+    Assert-True ($rv.state -eq 'timeout') "codex strip 429: expected timeout (not quota); got $($rv.state)"
+    Assert-True ([int]$r.json.quotaCount -eq 0) "codex strip 429: quotaCount should be 0; got $($r.json.quotaCount)"
+    Assert-True ($null -ne $rv.errorPath) 'codex strip 429: should write .error.txt with the complete errText'
+    $errLedger = Get-Content -LiteralPath $rv.errorPath -Raw -Encoding utf8
+    Assert-True ($errLedger -match '429') 'codex strip 429: errorPath preserves path/429 (complete errText)'
+    Assert-True ($errLedger -match 'exceeded' -and $errLedger -match 'was terminated') 'codex strip 429: timeout evidence in errorPath'
 
     # (d) GAP-2: invalid timeoutSec -> error only for that reviewer; the other responds
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5'; timeoutSec = '600s' } },
-        @{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }
-    ) -Sensitivity 'public' -Extra @{ CodexConfigPath = $cxCfg }
+    $r = Receive-Harness $wave1.gap2
     Assert-True ((Get-Reviewer $r.json 0).state -eq 'error') "GAP-2: timeoutSec '600s' -> error; got $((Get-Reviewer $r.json 0).state)"
     Assert-True ((Get-Reviewer $r.json 0).reason -match 'timeoutSec invalid:') 'GAP-2: reason cites the invalid timeoutSec'
     Assert-True ((Get-Reviewer $r.json 1).state -eq 'responded') "GAP-2: the second reviewer should not go down with the panel; got $((Get-Reviewer $r.json 1).state)"
     Assert-True ([int]$r.json.respondedCount -eq 1 -and [int]$r.json.errorCount -eq 1) 'GAP-2: the panel completes with 1 responded + 1 error'
 
+    # Sections 6 to 8c start together; the two Antigravity gate cases after them must run alone,
+    # because they count lines in the shared fake-antigravity call log.
+    $wave2 = @{}
+    $wave2.blockThrows = Start-Harness -Reviewers @(
+        @{ backend = 'opencode'; targetModelKey = 'openai/empty-iso'; invokeArgs = @{} },
+        @{ backend = 'opencode'; targetModelKey = 'openai/ok-iso'; invokeArgs = @{} }
+    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.ollamaConcurrencyZero = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/x'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg; OllamaConcurrency = 0 }
+    $wave2.singleFlight = Start-Harness -Reviewers @(
+        @{ backend = 'opencode'; targetModelKey = 'ollama-cloud/empty-1'; invokeArgs = @{} },
+        @{ backend = 'opencode'; targetModelKey = 'ollama-cloud/empty-2'; invokeArgs = @{} }
+    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -Environment @{ PANEL_FAKE_LOG = $singleFlightLog }
+    $wave2.offTask = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/offtask'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.quota = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'ollama-cloud/cota-1'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.notQuota = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/exausto-1'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.timeout = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/timeout-1'; invokeArgs = @{ timeoutSec = 2 } }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.fallbackSkip = Start-Harness -Reviewers @(@{
+            backend = 'opencode'; targetModelKey = 'openai/primary-ok'; invokeArgs = @{}
+            fallbackChain = @(
+                @{ backend = 'opencode'; targetModelKey = 'openai/fallback-skip'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fallback-skip' } }
+            )
+        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.fallbackActivated = Start-Harness -Reviewers @(@{
+            backend = 'opencode'; targetModelKey = 'openai/empty-primary'; invokeArgs = @{}
+            fallbackChain = @(
+                @{ backend = 'opencode'; targetModelKey = 'openai/fallback-ok'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fallback-ok' } }
+            )
+        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.nativeLeak = Start-Harness -Reviewers @(
+        @{
+            backend = 'orchestrator-native'
+            targetModelKey = 'moonshot/kimi-k3-max'
+            harnessModelId = 'kimi-k3-max'
+            invokeArgs = @{}
+            fallbackChain = @(
+                @{ backend = 'opencode'; targetModelKey = 'openai/native-fallback-skip'; invokeArgs = @{ model = 'openai/native-fallback-skip' } }
+            )
+        },
+        @{
+            backend = 'opencode'
+            targetModelKey = 'openai/parallel-after-native'
+            invokeArgs = @{}
+        }
+    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -Environment @{ PANEL_FAKE_LOG = $nativeLeakLog }
+    $wave2.nativeLeakNoFallback = Start-Harness -Reviewers @(
+        @{
+            backend = 'orchestrator-native'
+            targetModelKey = 'moonshot/kimi-k3-max'
+            harnessModelId = 'kimi-k3-max'
+            invokeArgs = @{}
+        }
+    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave2.divergentFallback = Start-Harness -Reviewers @(@{
+            backend = 'opencode'; targetModelKey = 'openai/bad-primary'; invokeArgs = @{ backend = 'opencode'; model = 'openai/bad-primary' }
+            fallbackChain = @(
+                @{ backend = 'opencode'; targetModelKey = 'openai/fb-0'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fb-0' } },
+                @{ backend = 'codex'; targetModelKey = 'openai/fb-1'; invokeArgs = @{ backend = 'opencode'; model = 'gpt-5.5' } }
+            )
+        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -Environment @{ PANEL_FAKE_LOG = $divergentFallbackLog }
+    $wave2.realDispatch = Start-Harness -Reviewers @(
+        @{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8' } },
+        @{ backend = 'copilot';     invokeArgs = @{ model = 'gpt-5-mini' } },
+        @{ backend = 'gemini';      invokeArgs = @{ model = 'gemini-3-flash-preview' } },
+        @{ backend = 'antigravity'; invokeArgs = @{ model = 'gemini-3.6-flash-high' } }
+    ) -Sensitivity 'public' -Extra @{ Cd = $tmp }
+
     # =======================================================================================
     # 6) PARALLELISM: occupancy <= OllamaConcurrency for ollama-cloud; others free; a throw does not abort
     # =======================================================================================
-    Set-Content -LiteralPath $concLog -Value '' -NoNewline -Encoding utf8
-    $revs = @()
-    1..5 | ForEach-Object { $revs += @{ backend = 'opencode'; targetModelKey = "ollama-cloud/sleep-$_"; invokeArgs = @{} } }
-    1..5 | ForEach-Object { $revs += @{ backend = 'opencode'; targetModelKey = "openai/sleep-$_"; invokeArgs = @{} } }
-    $r = Invoke-Harness -Reviewers $revs -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg; OllamaConcurrency = 2 }
+    $r = Receive-Harness $early.parallelism
     Assert-True ($null -ne $r.json) 'parallelism: should emit a summary'
-    Assert-True ([int]$r.json.respondedCount -eq 10) "parallelism: expected 10 responded; got $($r.json.respondedCount)"
-    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$r.json.ollamaQuotaWarning)) 'parallelism: ollamaQuotaWarning should be present (5 ollama-cloud dispatched in the batch)'
+    Assert-True ([int]$r.json.respondedCount -eq 8) "parallelism: expected 8 responded; got $($r.json.respondedCount)"
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$r.json.ollamaQuotaWarning)) 'parallelism: ollamaQuotaWarning should be present (3 ollama-cloud dispatched in the batch)'
     Assert-True ($r.stderr -match 'ollamaQuotaWarning') 'parallelism: ollamaQuotaWarning should go out via stderr'
 
-    $logLines = @(Get-Content -LiteralPath $concLog -ErrorAction SilentlyContinue | Where-Object { $_ })
+    $logLines = @(Get-Content -LiteralPath $parallelismLog -ErrorAction SilentlyContinue | Where-Object { $_ })
     function Get-MaxOverlap {
         param([string[]]$Lines, [string]$Family)
         $events = @()
@@ -581,34 +747,26 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     Assert-True ($openaiMax -ge 3) "openai (no semaphore): occupancy should exceed the ollama ceiling (>=3); measured $openaiMax — signal that the semaphore does NOT limit other providers"
 
     # a block that throws does not abort the rest: one 'empty' (throws in the adapter -> error) + one responded
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'opencode'; targetModelKey = 'openai/empty-iso'; invokeArgs = @{} },
-        @{ backend = 'opencode'; targetModelKey = 'openai/ok-iso'; invokeArgs = @{} }
-    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.blockThrows
     Assert-True ((Get-Reviewer $r.json 0).state -eq 'error') 'block that throws: the empty one should become error'
     Assert-True ((Get-Reviewer $r.json 1).state -eq 'responded') 'block that throws: the other reviewer should NOT be aborted'
 
     # OllamaConcurrency=0 -> validation error (no summary)
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/x'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg; OllamaConcurrency = 0 }
+    $r = Receive-Harness $wave2.ollamaConcurrencyZero
     Assert-True ($r.exit -ne 0) 'OllamaConcurrency=0: validation should fail (exit != 0)'
     Assert-True ($null -eq $r.json) 'OllamaConcurrency=0: should not emit a summary'
 
     # =======================================================================================
     # 7) NO SINGLE-FLIGHT: empty ollama-cloud in a batch -> error; fake NOT re-invoked; saturation
     # =======================================================================================
-    Set-Content -LiteralPath $concLog -Value '' -NoNewline -Encoding utf8
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'opencode'; targetModelKey = 'ollama-cloud/empty-1'; invokeArgs = @{} },
-        @{ backend = 'opencode'; targetModelKey = 'ollama-cloud/empty-2'; invokeArgs = @{} }
-    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.singleFlight
     Assert-True ((Get-Reviewer $r.json 0).state -eq 'error') 'single-flight: ollama empty-1 -> error'
     Assert-True ((Get-Reviewer $r.json 1).state -eq 'error') 'single-flight: ollama empty-2 -> error'
     Assert-True ([int]$r.json.errorCount -ge 2) 'single-flight: errorCount >= 2'
     Assert-True (-not [string]::IsNullOrWhiteSpace([string]$r.json.concurrencySaturationWarning)) 'single-flight: concurrencySaturationWarning should be present (2+ ollama in error)'
     Assert-True ($r.stderr -match 'concurrencySaturationWarning') 'single-flight: the saturation warning should go out via stderr'
     # each empty was invoked ONCE (no re-dispatch)
-    $logLines = @(Get-Content -LiteralPath $concLog -ErrorAction SilentlyContinue | Where-Object { $_ })
+    $logLines = @(Get-Content -LiteralPath $singleFlightLog -ErrorAction SilentlyContinue | Where-Object { $_ })
     $entries1 = @($logLines | Where-Object { ($_ -split "`t")[3] -eq 'ollama-cloud/empty-1' -and ($_ -split "`t")[1] -eq 'ENTER' }).Count
     Assert-True ($entries1 -eq 1) "single-flight: the empty-1 fake should be invoked ONCE; measured $entries1"
 
@@ -616,8 +774,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     # 8) MECHANICAL CLASSIFICATION: responded for non-empty text even off-task
     # =======================================================================================
     # the fake returns text that is NOT a verdict; the harness does NOT reclassify -> responded
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/offtask'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.offTask
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'responded') "mechanical classification: non-empty off-task text -> responded; got $($rv.state)"
     Assert-True ($null -ne $rv.verdictPath) 'mechanical classification: should write .verdict.txt'
@@ -628,8 +785,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     # 8b) DISPATCH CLASSIFICATION: quota -> quota; timeout -> timeout
     # =======================================================================================
     # quota: fake-opencode emits a stream error with 402/quota/balance -> the adapter throws BLOCK -> quota
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'ollama-cloud/cota-1'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.quota
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'quota') "quota: 402/quota/balance on dispatch should become quota; got $($rv.state)"
     Assert-True ([int]$r.json.quotaCount -ge 1) 'quota: quotaCount >= 1'
@@ -640,15 +796,13 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     # NOT quota: a generic error containing "exhausted" (network/context) must not become quota. Locks
     # in the regression of the widened $quotaFailurePattern, which classified "retries exhausted" as
     # quota on ALL backends and would send the operator to wait for a cycle reset over a non-quota failure.
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/exausto-1'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.notQuota
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'error') "not-quota: 'retries exhausted' should become error, not quota; got $($rv.state)"
     Assert-True ([int]$r.json.quotaCount -eq 0) "not-quota: quotaCount should stay 0; got $($r.json.quotaCount)"
 
     # timeout: the fake sleeps beyond -TimeoutSec (via invokeArgs.timeoutSec) -> adapter "exceeded...terminated" -> timeout
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/timeout-1'; invokeArgs = @{ timeoutSec = 2 } }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.timeout
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'timeout') "timeout: should classify timeout; got $($rv.state)"
     Assert-True ([int]$r.json.timeoutCount -ge 1) 'timeout: timeoutCount >= 1'
@@ -657,12 +811,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     # =======================================================================================
     # 8d) FALLBACK: auditable activation, skip on success and pre-dispatch divergence
     # =======================================================================================
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'opencode'; targetModelKey = 'openai/primary-ok'; invokeArgs = @{}
-            fallbackChain = @(
-                @{ backend = 'opencode'; targetModelKey = 'openai/fallback-skip'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fallback-skip' } }
-            )
-        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.fallbackSkip
     Assert-True (@($r.json.reviewers).Count -eq 2) 'fallback skip: should register primary + fallback.'
     $rv0 = Get-Reviewer $r.json 0
     $rv1 = Get-Reviewer $r.json 1
@@ -671,12 +820,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     Assert-True ($rv1.countsForDiversity -eq $false) 'fallback skip: skippedAfterSuccess does not count toward diversity.'
     Assert-True ($rv1.fallbackOf -eq 'openai/primary-ok') 'fallback skip: fallbackOf should point to the primary.'
 
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'opencode'; targetModelKey = 'openai/empty-primary'; invokeArgs = @{}
-            fallbackChain = @(
-                @{ backend = 'opencode'; targetModelKey = 'openai/fallback-ok'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fallback-ok' } }
-            )
-        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.fallbackActivated
     Assert-True (@($r.json.reviewers).Count -eq 2) 'fallback activated: should register primary + fallback.'
     $rv0 = Get-Reviewer $r.json 0
     $rv1 = Get-Reviewer $r.json 1
@@ -689,23 +833,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     # =======================================================================================
     # 8e) NATIVE LEAK (V40): orchestrator-native in the harness -> defensive error + suppressed chain
     # =======================================================================================
-    Set-Content -LiteralPath $concLog -Value '' -NoNewline -Encoding utf8
-    $r = Invoke-Harness -Reviewers @(
-        @{
-            backend = 'orchestrator-native'
-            targetModelKey = 'moonshot/kimi-k3-max'
-            harnessModelId = 'kimi-k3-max'
-            invokeArgs = @{}
-            fallbackChain = @(
-                @{ backend = 'opencode'; targetModelKey = 'openai/native-fallback-skip'; invokeArgs = @{ model = 'openai/native-fallback-skip' } }
-            )
-        },
-        @{
-            backend = 'opencode'
-            targetModelKey = 'openai/parallel-after-native'
-            invokeArgs = @{}
-        }
-    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.nativeLeak
     Assert-True (@($r.json.reviewers).Count -eq 3) 'native leak: should register the native primary + suppressed fallback + parallel CLI reviewer.'
     $rvNative = Get-Reviewer $r.json 0
     Assert-True ($rvNative.state -eq 'error') "native leak: state should be error; got $($rvNative.state)"
@@ -726,7 +854,7 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     Assert-True ($rvNativeSkip.dispatchAttempted -eq $false) 'native leak: the suppressed fallback should not dispatch.'
     $rvParallel = Get-ReviewerByTarget $r.json 'openai/parallel-after-native'
     Assert-True ($rvParallel.state -eq 'responded') "native leak: the parallel CLI reviewer should respond; got $($rvParallel.state)"
-    $logLinesLeak = @(Get-Content -LiteralPath $concLog -ErrorAction SilentlyContinue | Where-Object { $_ })
+    $logLinesLeak = @(Get-Content -LiteralPath $nativeLeakLog -ErrorAction SilentlyContinue | Where-Object { $_ })
     $parallelEnters = @($logLinesLeak | Where-Object {
         $parts = @($_ -split "`t")
         $parts.Count -ge 4 -and $parts[1] -eq 'ENTER' -and $parts[3] -eq 'openai/parallel-after-native'
@@ -738,25 +866,13 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     Assert-True ($parallelEnters -eq 1) "native leak: the parallel CLI reviewer should be invoked once; measured $parallelEnters"
     Assert-True ($fallbackEnters -eq 0) "native leak: the suppressed fallback should not invoke the adapter; measured $fallbackEnters"
 
-    $r = Invoke-Harness -Reviewers @(
-        @{
-            backend = 'orchestrator-native'
-            targetModelKey = 'moonshot/kimi-k3-max'
-            harnessModelId = 'kimi-k3-max'
-            invokeArgs = @{}
-        }
-    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.nativeLeakNoFallback
     Assert-True (@($r.json.reviewers).Count -eq 1) 'native leak without fallback: should register only the primary.'
     $rvNativeOnly = Get-Reviewer $r.json 0
     Assert-True ($rvNativeOnly.reason -eq 'orchestrator-native-leaked-to-dispatch') 'native leak without fallback: expected the leak reason.'
     Assert-True (@($rvNativeOnly.suppressedFallbackChain).Count -eq 0) 'native leak without fallback: suppressedFallbackChain should be empty.'
 
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'opencode'; targetModelKey = 'openai/empty-primary-timeout-fallback'; invokeArgs = @{}
-            fallbackChain = @(
-                @{ backend = 'opencode'; targetModelKey = 'openai/timeout-fallback'; invokeArgs = @{ backend = 'opencode'; model = 'openai/timeout-fallback'; timeoutSec = 2 } }
-            )
-        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $early.fallbackTimeout
     Assert-True (@($r.json.reviewers).Count -eq 2) 'fallback timeout: should register primary + fallback.'
     $rv1 = Get-Reviewer $r.json 1
     Assert-True ($rv1.state -eq 'timeout') "fallback timeout: the fallback should register timeout; got $($rv1.state)"
@@ -772,14 +888,37 @@ Conteúdo com acentuação pt-BR: revisão, dedução, ação. Avalie e emita pa
     $getPropAst = @($functionAsts | Where-Object { $_.Name -eq 'Get-Prop' })[0]
     $timeoutAst = @($functionAsts | Where-Object { $_.Name -eq 'Get-FallbackDispatcherTimeoutMs' })[0]
     Assert-True ($null -ne $getPropAst -and $null -ne $timeoutAst) 'fallback dispatcher: the Get-Prop/Get-FallbackDispatcherTimeoutMs functions should exist.'
-    $timeoutMapAssign = @($harnessAst.FindAll({
-        param($node)
-        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-        $node.Left.Extent.Text.Trim() -eq '$AdapterDefaultTimeoutSec'
-    }, $true))[0]
-    Assert-True ($null -ne $timeoutMapAssign) 'fallback dispatcher: the $AdapterDefaultTimeoutSec declaration should exist in the AST.'
+    # A disposable copy exercises fail-closed startup without changing the live registry.
+    $registryFixture = Join-Path $tmp 'registry-startup'
+    [void][IO.Directory]::CreateDirectory($registryFixture)
+    Copy-Item -LiteralPath $harness -Destination $registryFixture
+    Copy-Item -LiteralPath (Join-Path $scriptsDir 'LlmDelegateBackendRegistrySupport.ps1') -Destination $registryFixture
+    Copy-Item -LiteralPath (Join-Path $scriptsDir 'LlmDelegateTargetFamilySupport.ps1') -Destination $registryFixture
+    $fixtureHarness = Join-Path $registryFixture 'Invoke-LlmDelegatePanelDispatch.ps1'
+    $fixtureRegistry = Join-Path $registryFixture 'LlmDelegateBackendRegistry.psd1'
+    $fixtureLedger = Join-Path $registryFixture 'ledger'
+    $registryText = Get-Content -LiteralPath (Join-Path $scriptsDir 'LlmDelegateBackendRegistry.psd1') -Raw
+    foreach ($case in @('missing', 'malformed', 'duplicate', 'numeric-exe')) {
+        if ($case -eq 'malformed') { Set-Content -LiteralPath $fixtureRegistry -Value '@{ Backends = @(' -Encoding utf8 }
+        if ($case -eq 'duplicate') { Set-Content -LiteralPath $fixtureRegistry -Value ($registryText.Replace("Name = 'codex'", "Name = 'opencode'")) -Encoding utf8 }
+        if ($case -eq 'numeric-exe') { Set-Content -LiteralPath $fixtureRegistry -Value ($registryText.Replace("ExeParam = 'OpenCodeExe'", 'ExeParam = 123')) -Encoding utf8 }
+        $registryStdout = Join-Path $registryFixture "$case.out"
+        $registryStderr = Join-Path $registryFixture "$case.err"
+        & pwsh -NoProfile -File $fixtureHarness -ManuscriptPath $manuscript -ReviewersJson '[]' -PayloadSensitivity public -TempDir $fixtureLedger 1> $registryStdout 2> $registryStderr
+        Assert-True ($LASTEXITCODE -ne 0) "$case registry: startup must fail"
+        Assert-True ([string]::IsNullOrWhiteSpace([IO.File]::ReadAllText($registryStdout))) "$case registry: no summary on stdout"
+        Assert-True (-not [string]::IsNullOrWhiteSpace([IO.File]::ReadAllText($registryStderr))) "$case registry: diagnostic on stderr"
+        if ($case -eq 'numeric-exe') { Assert-True ([IO.File]::ReadAllText($registryStderr) -match 'BLOCK: invalid backend registry') 'numeric-exe registry: invalid registry diagnostic' }
+        Assert-True (-not (Test-Path -LiteralPath $fixtureLedger)) "$case registry: no ledger or dispatch"
+    }
+
+    # Execute the dispatcher's actual registry initialization, not its empty map initializers.
+    $initStart = $harnessText.IndexOf(". (Join-Path `$PSScriptRoot 'LlmDelegateBackendRegistrySupport.ps1')")
+    $initEnd = $harnessText.IndexOf('function Get-Prop', $initStart)
+    Assert-True ($initStart -ge 0 -and $initEnd -gt $initStart) 'registry initialization should precede Get-Prop.'
+    $registryInit = $harnessText.Substring($initStart, $initEnd - $initStart).Replace('$PSScriptRoot', '$scriptsDir')
+    . ([scriptblock]::Create($registryInit))
     $timeoutProbe = @"
-`$script:AdapterDefaultTimeoutSec = $($timeoutMapAssign.Right.Extent.Text)
 $($getPropAst.Extent.Text)
 $($timeoutAst.Extent.Text)
 [pscustomobject]@{
@@ -808,27 +947,6 @@ $($timeoutAst.Extent.Text)
     # =======================================================================================
     # AST Guard: strict key parity across the dispatcher's 5 maps, ValidateSet and preferences
     # =======================================================================================
-    function Get-AstHashtableKeys {
-        param($Ast, [string]$VarName)
-        $assign = @($Ast.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-            $node.Left.Extent.Text.Trim() -eq "`$$VarName"
-        }, $true))[0]
-        Assert-True ($null -ne $assign) "AST Guard: `$$VarName declaration not found in the AST"
-        $ht = if ($assign.Right -is [System.Management.Automation.Language.HashtableAst]) {
-            $assign.Right
-        } else {
-            @($assign.Right.FindAll({ param($node) $node -is [System.Management.Automation.Language.HashtableAst] }, $true))[0]
-        }
-        Assert-True ($null -ne $ht) "AST Guard: HashtableAst not found for `$$VarName"
-        $keys = [System.Collections.Generic.List[string]]::new()
-        foreach ($pair in $ht.KeyValuePairs) {
-            $keys.Add($pair.Item1.Extent.Text.Trim("'", '"', ' '))
-        }
-        return @($keys)
-    }
-
     function Get-AstBackendValidateSet {
         param([string]$FilePath)
         $pErrors = $null
@@ -875,7 +993,7 @@ $($timeoutAst.Extent.Text)
         return @($vals)
     }
 
-    $mapAdapterScriptKeys = @(Get-AstHashtableKeys $harnessAst 'AdapterScript')
+    $mapAdapterScriptKeys = @($AdapterScript.Keys)
     $canonicalSorted = @($mapAdapterScriptKeys | Sort-Object)
     Assert-True ($canonicalSorted.Count -eq 6) "AST Guard: expected exactly 6 canonical backends; got $($canonicalSorted.Count)"
 
@@ -883,12 +1001,12 @@ $($timeoutAst.Extent.Text)
     $authDispatchOnly = @($authValidateSet | Where-Object { $_ -ne 'orchestrator-native' } | Sort-Object)
 
     $collectionsToCompare = [ordered]@{
-        'Invoke-LlmDelegatePanelDispatch.ps1 ($ExeParam)'                = @(Get-AstHashtableKeys $harnessAst 'ExeParam' | Sort-Object)
-        'Invoke-LlmDelegatePanelDispatch.ps1 ($ContentionKeys)'          = @(Get-AstHashtableKeys $harnessAst 'ContentionKeys' | Sort-Object)
-        'Invoke-LlmDelegatePanelDispatch.ps1 ($AdapterDefaultTimeoutSec)'= @(Get-AstHashtableKeys $harnessAst 'AdapterDefaultTimeoutSec' | Sort-Object)
-        'Invoke-LlmDelegatePanelDispatch.ps1 ($AdapterCdCapable)'        = @(Get-AstHashtableKeys $harnessAst 'AdapterCdCapable' | Sort-Object)
+        'Invoke-LlmDelegatePanelDispatch.ps1 ($ExeParam)'                = @($ExeParam.Keys | Sort-Object)
+        'Invoke-LlmDelegatePanelDispatch.ps1 ($ContentionKeys)'          = @($ContentionKeys.Keys | Sort-Object)
+        'Invoke-LlmDelegatePanelDispatch.ps1 ($AdapterDefaultTimeoutSec)'= @($AdapterDefaultTimeoutSec.Keys | Sort-Object)
+        'Invoke-LlmDelegatePanelDispatch.ps1 ($AdapterCdCapable)'        = @($AdapterCdCapable.Keys | Sort-Object)
         'Resolve-LlmDelegateAuthorization.ps1 (ValidateSet -Backend, without orchestrator-native)' = $authDispatchOnly
-        'Set-LlmDelegatePreferredReviewers.ps1 ($allowedDispatchBackends)' = @(Get-AstArrayAssignmentValues (Join-Path $scriptsDir 'Set-LlmDelegatePreferredReviewers.ps1') 'allowedDispatchBackends' | Sort-Object)
+        'Set-LlmDelegatePreferredReviewers.ps1 ($allowedDispatchBackends)' = @((Get-LlmDelegateBackendRegistry | ForEach-Object { $_.Name }) | Sort-Object)
     }
     Assert-True ($authValidateSet -contains 'orchestrator-native') "AST Guard: Authorization's ValidateSet should include orchestrator-native"
     foreach ($entry in $collectionsToCompare.GetEnumerator()) {
@@ -923,30 +1041,18 @@ $($timeoutAst.Extent.Text)
     $nativeLocality = Join-Path $scriptsDir 'Resolve-OrchestratorNativeModelLocality.ps1'
     Assert-True (Test-Path -LiteralPath $nativeLocality -PathType Leaf) "AST Guard: locality script $nativeLocality not found"
 
-    Set-Content -LiteralPath $concLog -Value '' -NoNewline -Encoding utf8
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'opencode'; targetModelKey = 'openai/bad-primary'; invokeArgs = @{ backend = 'opencode'; model = 'openai/bad-primary' }
-            fallbackChain = @(
-                @{ backend = 'opencode'; targetModelKey = 'openai/fb-0'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fb-0' } },
-                @{ backend = 'codex'; targetModelKey = 'openai/fb-1'; invokeArgs = @{ backend = 'opencode'; model = 'gpt-5.5' } }
-            )
-        }) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave2.divergentFallback
     $rv0 = Get-Reviewer $r.json 0
     Assert-True ($rv0.state -eq 'error') 'divergent fallback: should fail in pre-dispatch.'
     Assert-True ([string]$rv0.reason -match 'invokeArgs.backend') 'divergent fallback: reason should cite invokeArgs.backend.'
-    $logAfterBad = @(Get-Content -LiteralPath $concLog -ErrorAction SilentlyContinue | Where-Object { $_ })
+    $logAfterBad = @(Get-Content -LiteralPath $divergentFallbackLog -ErrorAction SilentlyContinue | Where-Object { $_ })
     $badCalls = @($logAfterBad | Where-Object { $_ -match 'bad-primary|fb-0|fb-1' })
     Assert-True ($badCalls.Count -eq 0) "divergent fallback: the fake executor should not be called for the invalid entry; calls=[$($badCalls -join ' | ')]"
 
     # =======================================================================================
     # 8c) REAL DISPATCH of claude-code / copilot / gemini / antigravity (model, cwd and receipt)
     # =======================================================================================
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-opus-4-8' } },
-        @{ backend = 'copilot';     invokeArgs = @{ model = 'gpt-5-mini' } },
-        @{ backend = 'gemini';      invokeArgs = @{ model = 'gemini-3-flash-preview' } },
-        @{ backend = 'antigravity'; invokeArgs = @{ model = 'gemini-3.6-flash-high' } }
-    ) -Sensitivity 'public' -Extra @{ Cd = $tmp }
+    $r = Receive-Harness $wave2.realDispatch
     $tmpFwd = $tmp.Replace('\', '/')
 
     $rvCl = Get-Reviewer $r.json 0
@@ -1012,23 +1118,64 @@ $($timeoutAst.Extent.Text)
     Assert-True ($rvAgSensitive.state -eq 'unavailable' -and $rvAgSensitive.reason -eq 'refusedSensitivity') 'antigravity kb-sensitive uses unavailable + refusedSensitivity'
     Assert-True (-not $rvAgSensitive.dispatchAttempted -and $agyCallsAfter -eq $agyCallsBefore) 'the profile gate blocks kb-sensitive before the adapter'
 
-    # Typed adapter Reason=quota + dispatcher state=quota => clean reason (no adapterReason=processFailure).
-    # ManuscriptText with no spaces: the harness's Start-Process -ArgumentList fragments values with spaces.
-    $r = Invoke-Harness -Reviewers @(@{
+    # The remaining cases (rest of 8c, sections 9 and 10) start together.
+    $explicitCd = $tmp
+    $kbRoot = Join-Path $tmp 'kb-root'
+    New-Item -ItemType Directory -Path $kbRoot -Force | Out-Null
+    Copy-Item -LiteralPath $pol -Destination (Join-Path $kbRoot 'llm-delegation-policy.json')
+    $wave3 = @{}
+    $wave3.antigravityTypedQuota = Start-Harness -Reviewers @(@{
         backend = 'antigravity'; targetModelKey = 'antigravity/gemini-3.6-flash-high'
         invokeArgs = @{ model = 'gemini-3.6-flash-high' }
     }) -Sensitivity 'public' -UseManuscriptText -ManuscriptText 'FORCE_AGY_QUOTA'
+    $wave3.claudeSensitiveLedger = Start-Harness -Reviewers @(@{
+            backend = 'claude-code'
+            targetModelKey = 'anthropic/claude-sensitive-ledger'
+            invokeArgs = @{ model = 'claude-sensitive-ledger' }
+        }) -Sensitivity 'kb-sensitive' -Extra @{ Cd = $tmp; PolicyPath = $polAnthropic }
+    $wave3.claudeUntrusted = Start-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-untrusted-workspace' } }) `
+        -Sensitivity 'public' -Extra @{ Cd = $tmp }
+    $wave3.untrustedFallback = Start-Harness -Reviewers @(@{
+            backend = 'claude-code'; targetModelKey = 'anthropic/claude-opus-4-8'; invokeArgs = @{ model = 'claude-untrusted-workspace' }
+            fallbackChain = @(
+                @{ backend = 'opencode'; targetModelKey = 'openai/fallback-after-unavailable'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fallback-after-unavailable' } }
+            )
+        }) -Sensitivity 'public' -Extra @{ Cd = $tmp; OpenCodeConfigPath = $ocCfg }
+    $wave3.explicitCd = Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }) `
+        -Sensitivity 'public' -Extra @{ CodexConfigPath = $cxCfg; Cd = $explicitCd }
+    $wave3.kbWorkspaceCd = Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }) `
+        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg; KbWorkspaceRoot = $kbRoot }
+    $wave3.cdFailClosed = Start-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }) `
+        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg; PolicyPath = $pol }
+    $wave3.contract = Start-Harness -Reviewers @(
+        @{ backend = 'opencode'; targetModelKey = 'openai/contract'; invokeArgs = @{} },
+        @{ backend = 'claude-code'; invokeArgs = @{} }   # no model -> error, null targetModelKey
+    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $wave3.missingRoundId = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/x'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -NoRoundId
+    $wave3.manuscriptText = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/texto-inline'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -UseManuscriptText `
+        -ManuscriptText 'manuscript-inline'
+    $wave3.oversizedText = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/texto-grande'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -UseManuscriptText `
+        -ManuscriptText ('x' * 30001)
+    $wave3.missingSource = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/missing-origin'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -OmitManuscriptSource
+    $wave3.ambiguousSource = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/ambiguous-origin'; invokeArgs = @{} }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -BothManuscriptSources -ManuscriptText 'manuscript-inline'
+    $wave3.invalidText = Start-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/invalid-text'; invokeArgs = 'not-an-object' }) `
+        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -UseManuscriptText -ManuscriptText 'manuscript-inline'
+
+    # Typed adapter Reason=quota + dispatcher state=quota => clean reason (no adapterReason=processFailure).
+    # ManuscriptText with no spaces: the harness's Start-Process -ArgumentList fragments values with spaces.
+    $r = Receive-Harness $wave3.antigravityTypedQuota
     Assert-True ($null -ne $r.json -and @($r.json.reviewers).Count -ge 1) 'antigravity typed quota: expected a summary with a reviewer'
     $rvAgQuota = Get-Reviewer $r.json 0
     Assert-True ($rvAgQuota.state -eq 'quota') "antigravity typed quota: expected state=quota; got $($rvAgQuota.state)"
     Assert-True ([string]$rvAgQuota.reason -eq 'quota') "antigravity typed quota: expected clean reason 'quota'; got '$($rvAgQuota.reason)'"
     Assert-True ([int]$r.json.quotaCount -ge 1) 'antigravity typed quota: quotaCount >= 1'
 
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'claude-code'
-            targetModelKey = 'anthropic/claude-sensitive-ledger'
-            invokeArgs = @{ model = 'claude-sensitive-ledger' }
-        }) -Sensitivity 'kb-sensitive' -Extra @{ Cd = $tmp; PolicyPath = $polAnthropic }
+    $r = Receive-Harness $wave3.claudeSensitiveLedger
     $rvClSensitive = Get-Reviewer $r.json 0
     Assert-True ($rvClSensitive.state -eq 'responded') "claude-code kb-sensitive ledger: expected responded; got $($rvClSensitive.state)"
     Assert-True ($rvClSensitive.sidecarAccepted -eq $true) 'claude-code kb-sensitive ledger: the sidecar should be accepted.'
@@ -1045,19 +1192,13 @@ $($timeoutAst.Extent.Text)
     Assert-True ($null -eq $sensitiveSidecar.stderrSha256) 'claude-code kb-sensitive ledger: stderrSha256 should be omitted/null.'
 
     # An untrusted Claude Code workspace -> unavailable, to allow panel fallback.
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'claude-code'; invokeArgs = @{ model = 'claude-untrusted-workspace' } }) `
-        -Sensitivity 'public' -Extra @{ Cd = $tmp }
+    $r = Receive-Harness $wave3.claudeUntrusted
     $rvClUntrusted = Get-Reviewer $r.json 0
     Assert-True ($rvClUntrusted.state -eq 'unavailable') "claude-code workspace-not-trusted: expected unavailable; got $($rvClUntrusted.state)"
     Assert-True ([string]$rvClUntrusted.reason -match 'workspace-not-trusted') 'claude-code workspace-not-trusted: reason should cite the canonical code'
 
     # A primary reviewer's workspace-not-trusted should activate fallback like any other technical unavailable.
-    $r = Invoke-Harness -Reviewers @(@{
-            backend = 'claude-code'; targetModelKey = 'anthropic/claude-opus-4-8'; invokeArgs = @{ model = 'claude-untrusted-workspace' }
-            fallbackChain = @(
-                @{ backend = 'opencode'; targetModelKey = 'openai/fallback-after-unavailable'; invokeArgs = @{ backend = 'opencode'; model = 'openai/fallback-after-unavailable' } }
-            )
-        }) -Sensitivity 'public' -Extra @{ Cd = $tmp; OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave3.untrustedFallback
     Assert-True (@($r.json.reviewers).Count -eq 2) 'fallback workspace-not-trusted: should register primary reviewer + fallback.'
     $rvClUntrusted = Get-Reviewer $r.json 0
     $rvFallbackUntrusted = Get-Reviewer $r.json 1
@@ -1071,20 +1212,14 @@ $($timeoutAst.Extent.Text)
     # 9) -Cd: precedence (explicit / cwd / KbWorkspaceRoot) + fail-closed
     # =======================================================================================
     # explicit (public): -Cd wins -> fake-codex writes CD=<explicit>
-    $explicitCd = $tmp
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }) `
-        -Sensitivity 'public' -Extra @{ CodexConfigPath = $cxCfg; Cd = $explicitCd }
+    $r = Receive-Harness $wave3.explicitCd
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'responded') "explicit Cd: should dispatch; got $($rv.state)"
     $vtext = Get-Content -LiteralPath $rv.verdictPath -Raw -Encoding utf8
     Assert-True ($vtext -match ([regex]::Escape("CD=$explicitCd"))) "explicit Cd: the fake should receive -C $explicitCd; got '$vtext'"
 
     # kb-sensitive + KbWorkspaceRoot + allow policy -> -Cd = KbWorkspaceRoot
-    $kbRoot = Join-Path $tmp 'kb-root'
-    New-Item -ItemType Directory -Path $kbRoot -Force | Out-Null
-    Copy-Item -LiteralPath $pol -Destination (Join-Path $kbRoot 'llm-delegation-policy.json')
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }) `
-        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg; KbWorkspaceRoot = $kbRoot }
+    $r = Receive-Harness $wave3.kbWorkspaceCd
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.gateVerdict -eq 'allow') "Cd/KbWorkspaceRoot: the gate should allow via the openai/* policy; got '$($rv.gateVerdict)'"
     Assert-True ($rv.state -eq 'responded') 'Cd/KbWorkspaceRoot: should dispatch'
@@ -1092,8 +1227,7 @@ $($timeoutAst.Extent.Text)
     Assert-True ($vtext -match ([regex]::Escape("CD=$kbRoot"))) "Cd/KbWorkspaceRoot: the fake should receive -C $kbRoot; got '$vtext'"
 
     # fail-closed: kb-sensitive + allow (policy) + no -Cd + no -KbWorkspaceRoot -> error
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'codex'; invokeArgs = @{ model = 'gpt-5.5' } }) `
-        -Sensitivity 'kb-sensitive' -Extra @{ CodexConfigPath = $cxCfg; PolicyPath = $pol }
+    $r = Receive-Harness $wave3.cdFailClosed
     $rv = Get-Reviewer $r.json 0
     Assert-True ($rv.state -eq 'error') "Cd fail-closed: kb-sensitive allow without -Cd/-KbWorkspaceRoot should error; got $($rv.state)"
     Assert-True ($rv.reason -match 'fail-closed') 'Cd fail-closed: reason should cite fail-closed'
@@ -1101,10 +1235,7 @@ $($timeoutAst.Extent.Text)
     # =======================================================================================
     # 10) OUTPUT CONTRACT
     # =======================================================================================
-    $r = Invoke-Harness -Reviewers @(
-        @{ backend = 'opencode'; targetModelKey = 'openai/contract'; invokeArgs = @{} },
-        @{ backend = 'claude-code'; invokeArgs = @{} }   # no model -> error, null targetModelKey
-    ) -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg }
+    $r = Receive-Harness $wave3.contract
 
     # stdout = exactly 1 line
     $stdoutTrim = $r.stdout.TrimEnd("`r", "`n")
@@ -1123,14 +1254,11 @@ $($timeoutAst.Extent.Text)
     Assert-True ($base -match '^[0-9A-Za-z._-]+\.verdict\.txt$') "contract: the ledger name should be Windows-safe; got '$base'"
 
     # missing RoundId -> guid
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/x'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -NoRoundId
+    $r = Receive-Harness $wave3.missingRoundId
     Assert-True ($r.json.roundId -match '^[0-9a-f]{32}$') "missing RoundId: should generate a guid 'N'; got '$($r.json.roundId)'"
 
     # ManuscriptText -> transactional preparer before dispatch
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/texto-inline'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -UseManuscriptText `
-        -ManuscriptText 'manuscript-inline'
+    $r = Receive-Harness $wave3.manuscriptText
     Assert-True ($r.exit -eq 0) 'ManuscriptText: expected exit 0'
     Assert-True ($r.json.success -eq $true) 'ManuscriptText: success=true'
     Assert-True ($r.json.roundStarted -eq $true) 'ManuscriptText: roundStarted=true'
@@ -1142,9 +1270,7 @@ $($timeoutAst.Extent.Text)
     Assert-True (Test-Path -LiteralPath $prepManifest -PathType Leaf) 'ManuscriptText: preparation-manifest.json should exist'
 
     # Oversized ManuscriptText -> structured block before preparing/dispatching
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/texto-grande'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -UseManuscriptText `
-        -ManuscriptText ('x' * 30001)
+    $r = Receive-Harness $wave3.oversizedText
     Assert-True ($r.exit -eq 1) 'oversized ManuscriptText: expected exit 1'
     Assert-True ($r.json.Kind -eq 'mimir-panel-dispatch-result') "oversized ManuscriptText: expected the dispatcher's Kind"
     Assert-True ([int]$r.json.SchemaVersion -eq 3) 'oversized ManuscriptText: SchemaVersion=3'
@@ -1154,8 +1280,7 @@ $($timeoutAst.Extent.Text)
     Assert-True ($r.json.preparationError.failureCode -eq 'manuscript-text-too-large') 'oversized ManuscriptText: failureCode manuscript-text-too-large'
 
     # Missing/ambiguous source -> structured block before preparing/dispatching
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/missing-origin'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -OmitManuscriptSource
+    $r = Receive-Harness $wave3.missingSource
     Assert-True ($r.exit -eq 1) 'missing source: expected exit 1'
     Assert-True ($r.json.Kind -eq 'mimir-panel-dispatch-result') "missing source: expected the dispatcher's Kind"
     Assert-True ([int]$r.json.SchemaVersion -eq 3) 'missing source: SchemaVersion=3'
@@ -1164,8 +1289,7 @@ $($timeoutAst.Extent.Text)
     Assert-True ([int]$r.json.reviewersDispatched -eq 0) 'missing source: zero dispatches'
     Assert-True ($r.json.preparationError.failureCode -eq 'manuscript-source-missing') 'missing source: failureCode manuscript-source-missing'
 
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/ambiguous-origin'; invokeArgs = @{} }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -BothManuscriptSources -ManuscriptText 'manuscript-inline'
+    $r = Receive-Harness $wave3.ambiguousSource
     Assert-True ($r.exit -eq 1) 'ambiguous source: expected exit 1'
     Assert-True ($r.json.Kind -eq 'mimir-panel-dispatch-result') "ambiguous source: expected the dispatcher's Kind"
     Assert-True ([int]$r.json.SchemaVersion -eq 3) 'ambiguous source: SchemaVersion=3'
@@ -1175,8 +1299,7 @@ $($timeoutAst.Extent.Text)
     Assert-True ($r.json.preparationError.failureCode -eq 'manuscript-source-ambiguous') 'ambiguous source: failureCode manuscript-source-ambiguous'
 
     # Preparation failure -> the dispatcher's own summary, without starting a round/dispatch
-    $r = Invoke-Harness -Reviewers @(@{ backend = 'opencode'; targetModelKey = 'openai/invalid-text'; invokeArgs = 'not-an-object' }) `
-        -Sensitivity 'public' -Extra @{ OpenCodeConfigPath = $ocCfg } -UseManuscriptText -ManuscriptText 'manuscript-inline'
+    $r = Receive-Harness $wave3.invalidText
     Assert-True ($r.exit -eq 1) 'invalid ManuscriptText: expected exit 1'
     Assert-True ($r.json.Kind -eq 'mimir-panel-dispatch-result') "invalid ManuscriptText: expected the dispatcher's Kind"
     Assert-True ([int]$r.json.SchemaVersion -eq 3) 'invalid ManuscriptText: SchemaVersion=3'

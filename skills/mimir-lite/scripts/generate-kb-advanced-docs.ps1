@@ -16,14 +16,7 @@ if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) 
 }
 . $utf8NoBomEncodingSupportPath
 
-function Format-MdCell {
-    param([AllowNull()][object]$Value)
-    if ($null -eq $Value) { return "" }
-    $text = [string]$Value
-    $text = $text -replace '\r?\n', '<br/>'
-    $text = $text -replace '\|', '\|'
-    return $text.Trim()
-}
+. (Join-Path $PSScriptRoot 'MimirMarkdownCellSupport.ps1')
 
 function Add-Table {
     param(

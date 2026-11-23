@@ -71,29 +71,6 @@ function Get-RelativeDisplayPath {
     )
 }
 
-function Invoke-RepoGit {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot,
-
-        [Parameter(Mandatory = $true)]
-        [string[]]$Arguments
-    )
-
-    $output = & git -C $RepositoryRoot @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    $lines = @()
-    if ($null -ne $output) {
-        $lines = @($output | ForEach-Object { $_.ToString() })
-    }
-
-    return [pscustomobject]@{
-        ExitCode = $exitCode
-        Lines    = $lines
-        Text     = ($lines -join [Environment]::NewLine)
-    }
-}
-
 function Test-GitRefExists {
     param(
         [Parameter(Mandatory = $true)]
@@ -466,154 +443,67 @@ if ($whitespaceStatus -ne 'clean') {
     [void]$mechanicalFailures.Add('whitespace')
 }
 
-$traceabilityCoverageScript = Join-Path $PSScriptRoot 'Test-PrePushTraceabilityCoverage.ps1'
-if (Test-Path -LiteralPath $traceabilityCoverageScript -PathType Leaf) {
-    $traceabilityOutput = & $traceabilityCoverageScript -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
-    $traceabilityExitCode = $LASTEXITCODE
-    $traceabilityJsonText = ($traceabilityOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-    $traceabilityObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($traceabilityJsonText)) {
-        $traceabilityObject = $traceabilityJsonText | ConvertFrom-Json
-    }
-
-    if ($traceabilityExitCode -eq 0 -and $null -ne $traceabilityObject) {
-        $traceabilityCoverageGate.status = $traceabilityObject.status
-        $traceabilityCoverageGate.findings = @($traceabilityObject.findings)
+# Literal paths are also the discovery seam for the enumeration parity gate.
+$advisoryGates = @(
+    @{ Path = (Join-Path $PSScriptRoot 'Test-PrePushTraceabilityCoverage.ps1'); Gate = $traceabilityCoverageGate; Code = 'TRACEABILITY_COVERAGE_SCRIPT_ERROR'; Backend = $false; NewToken = $false }
+    @{ Path = (Join-Path $PSScriptRoot 'Test-GeneXusUnexpectedCharacter.ps1'); Gate = $unexpectedCharGate; Code = 'UNEXPECTED_CHARACTER_SCRIPT_ERROR'; Backend = $false; NewToken = $false }
+    @{ Path = (Join-Path $PSScriptRoot 'Test-PrePushNewTokenPropagation.ps1'); Gate = $newTokenPropagationGate; Code = 'NEW_TOKEN_PROPAGATION_SCRIPT_ERROR'; Backend = $false; NewToken = $true }
+    @{ Path = (Join-Path $PSScriptRoot 'Test-PrePushSharedScriptSkillCoverage.ps1'); Gate = $sharedScriptSkillGate; Code = 'SHARED_SCRIPT_SKILL_COVERAGE_SCRIPT_ERROR'; Backend = $false; NewToken = $false }
+    @{ Path = (Join-Path $PSScriptRoot 'Test-PrePushGateEnumerationParity.ps1'); Gate = $gateEnumParityGate; Code = 'GATE_ENUMERATION_PARITY_SCRIPT_ERROR'; Backend = $false; NewToken = $false }
+    @{ Path = (Join-Path $PSScriptRoot 'Test-PrePushBackendEnumerationParity.ps1'); Gate = $backendEnumParityGate; Code = 'BACKEND_ENUMERATION_PARITY_SCRIPT_ERROR'; Backend = $true; NewToken = $false }
+)
+foreach ($row in $advisoryGates) {
+    if (-not (Test-Path -LiteralPath $row.Path -PathType Leaf)) { continue }
+    if ($row.Backend) {
+        try {
+            $output = & $row.Path -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
+            $exitCode = $LASTEXITCODE
+            $jsonText = ($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+        } catch {
+            $exitCode = 1
+            $jsonText = $_.ToString()
+        }
     } else {
-        $traceabilityCoverageGate.status = 'warn'
-        $traceabilityCoverageGate.findings = @([pscustomobject][ordered]@{
-            code     = 'TRACEABILITY_COVERAGE_SCRIPT_ERROR'
-            severity = 'warn'
-            path     = 'tools/Test-PrePushTraceabilityCoverage.ps1'
-            message  = "Advisory failure while running Test-PrePushTraceabilityCoverage.ps1: $traceabilityJsonText"
-        })
+        $output = & $row.Path -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
+        $exitCode = $LASTEXITCODE
+        $jsonText = ($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
     }
-}
-
-$unexpectedCharScript = Join-Path $PSScriptRoot 'Test-GeneXusUnexpectedCharacter.ps1'
-if (Test-Path -LiteralPath $unexpectedCharScript -PathType Leaf) {
-    $unexpectedCharOutput = & $unexpectedCharScript -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
-    $unexpectedCharExitCode = $LASTEXITCODE
-    $unexpectedCharJsonText = ($unexpectedCharOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-    $unexpectedCharObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($unexpectedCharJsonText)) {
-        $unexpectedCharObject = $unexpectedCharJsonText | ConvertFrom-Json
+    $gateObject = $null
+    if ((-not $row.Backend -or $exitCode -eq 0) -and -not [string]::IsNullOrWhiteSpace($jsonText)) {
+        try {
+            $gateObject = $jsonText | ConvertFrom-Json
+        } catch {
+            # Recover only malformed input. Preserve PowerShell projection errors and
+            # reader errors caused by limits on otherwise syntactically valid JSON.
+            if ($_.Exception.InnerException -isnot [Newtonsoft.Json.JsonReaderException]) { throw }
+            $options = [System.Text.Json.JsonDocumentOptions]::new()
+            $options.AllowTrailingCommas = $true
+            $options.CommentHandling = [System.Text.Json.JsonCommentHandling]::Skip
+            $options.MaxDepth = [int]::MaxValue
+            $parsed = try { [System.Text.Json.JsonDocument]::Parse($jsonText, $options) } catch [System.Text.Json.JsonException] { $null }
+            if ($null -ne $parsed) {
+                $parsed.Dispose()
+                throw
+            }
+        }
     }
-
-    if ($unexpectedCharExitCode -eq 0 -and $null -ne $unexpectedCharObject) {
-        $unexpectedCharGate.status = $unexpectedCharObject.status
-        $unexpectedCharGate.findings = @($unexpectedCharObject.findings)
+    if ($exitCode -eq 0 -and $null -ne $gateObject) {
+        $row.Gate.status = $gateObject.status
+        $row.Gate.findings = @($gateObject.findings)
+        if ($row.NewToken) {
+            # The prose cap and its discarded count must remain visible to reviewers.
+            $row.Gate.candidateCount = [int](Get-PropOrDefault $gateObject 'candidateCount' 0)
+            $row.Gate.classCounts = (Get-PropOrDefault $gateObject 'classCounts' $null)
+            $row.Gate.truncated = [bool](Get-PropOrDefault $gateObject 'truncated' $false)
+            $row.Gate.truncatedProseCount = [int](Get-PropOrDefault $gateObject 'truncatedProseCount' 0)
+        }
     } else {
-        $unexpectedCharGate.status = 'warn'
-        $unexpectedCharGate.findings = @([pscustomobject][ordered]@{
-            code     = 'UNEXPECTED_CHARACTER_SCRIPT_ERROR'
+        $row.Gate.status = 'warn'
+        $row.Gate.findings = @([pscustomobject][ordered]@{
+            code     = $row.Code
             severity = 'warn'
-            path     = 'tools/Test-GeneXusUnexpectedCharacter.ps1'
-            message  = "Advisory failure while running Test-GeneXusUnexpectedCharacter.ps1: $unexpectedCharJsonText"
-        })
-    }
-}
-
-$newTokenPropagationScript = Join-Path $PSScriptRoot 'Test-PrePushNewTokenPropagation.ps1'
-if (Test-Path -LiteralPath $newTokenPropagationScript -PathType Leaf) {
-    $newTokenOutput = & $newTokenPropagationScript -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
-    $newTokenExitCode = $LASTEXITCODE
-    $newTokenJsonText = ($newTokenOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-    $newTokenObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($newTokenJsonText)) {
-        $newTokenObject = $newTokenJsonText | ConvertFrom-Json
-    }
-
-    if ($newTokenExitCode -eq 0 -and $null -ne $newTokenObject) {
-        $newTokenPropagationGate.status = $newTokenObject.status
-        $newTokenPropagationGate.findings = @($newTokenObject.findings)
-        # The -MaxFindings cap truncates only the 'prose' class. Without projecting these
-        # fields, the reviewer (especially the semantic-only one, which only has the
-        # dossier) sees the listed candidates and does not know how many were discarded —
-        # and 13 (step 2) promises that truncatedProseCount reports exactly that.
-        $newTokenPropagationGate.candidateCount = [int](Get-PropOrDefault $newTokenObject 'candidateCount' 0)
-        $newTokenPropagationGate.classCounts = (Get-PropOrDefault $newTokenObject 'classCounts' $null)
-        $newTokenPropagationGate.truncated = [bool](Get-PropOrDefault $newTokenObject 'truncated' $false)
-        $newTokenPropagationGate.truncatedProseCount = [int](Get-PropOrDefault $newTokenObject 'truncatedProseCount' 0)
-    } else {
-        $newTokenPropagationGate.status = 'warn'
-        $newTokenPropagationGate.findings = @([pscustomobject][ordered]@{
-            code     = 'NEW_TOKEN_PROPAGATION_SCRIPT_ERROR'
-            severity = 'warn'
-            path     = 'tools/Test-PrePushNewTokenPropagation.ps1'
-            message  = "Advisory failure while running Test-PrePushNewTokenPropagation.ps1: $newTokenJsonText"
-        })
-    }
-}
-
-$sharedScriptSkillScript = Join-Path $PSScriptRoot 'Test-PrePushSharedScriptSkillCoverage.ps1'
-if (Test-Path -LiteralPath $sharedScriptSkillScript -PathType Leaf) {
-    $sharedScriptOutput = & $sharedScriptSkillScript -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
-    $sharedScriptExitCode = $LASTEXITCODE
-    $sharedScriptJsonText = ($sharedScriptOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-    $sharedScriptObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($sharedScriptJsonText)) {
-        $sharedScriptObject = $sharedScriptJsonText | ConvertFrom-Json
-    }
-
-    if ($sharedScriptExitCode -eq 0 -and $null -ne $sharedScriptObject) {
-        $sharedScriptSkillGate.status = $sharedScriptObject.status
-        $sharedScriptSkillGate.findings = @($sharedScriptObject.findings)
-    } else {
-        $sharedScriptSkillGate.status = 'warn'
-        $sharedScriptSkillGate.findings = @([pscustomobject][ordered]@{
-            code     = 'SHARED_SCRIPT_SKILL_COVERAGE_SCRIPT_ERROR'
-            severity = 'warn'
-            path     = 'tools/Test-PrePushSharedScriptSkillCoverage.ps1'
-            message  = "Advisory failure while running Test-PrePushSharedScriptSkillCoverage.ps1: $sharedScriptJsonText"
-        })
-    }
-}
-
-$gateEnumParityScript = Join-Path $PSScriptRoot 'Test-PrePushGateEnumerationParity.ps1'
-if (Test-Path -LiteralPath $gateEnumParityScript -PathType Leaf) {
-    $gateEnumOutput = & $gateEnumParityScript -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
-    $gateEnumExitCode = $LASTEXITCODE
-    $gateEnumJsonText = ($gateEnumOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-    $gateEnumObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($gateEnumJsonText)) {
-        $gateEnumObject = $gateEnumJsonText | ConvertFrom-Json
-    }
-
-    if ($gateEnumExitCode -eq 0 -and $null -ne $gateEnumObject) {
-        $gateEnumParityGate.status = $gateEnumObject.status
-        $gateEnumParityGate.findings = @($gateEnumObject.findings)
-    } else {
-        $gateEnumParityGate.status = 'warn'
-        $gateEnumParityGate.findings = @([pscustomobject][ordered]@{
-            code     = 'GATE_ENUMERATION_PARITY_SCRIPT_ERROR'
-            severity = 'warn'
-            path     = 'tools/Test-PrePushGateEnumerationParity.ps1'
-            message  = "Advisory failure while running Test-PrePushGateEnumerationParity.ps1: $gateEnumJsonText"
-        })
-    }
-}
-
-$backendEnumParityScript = Join-Path $PSScriptRoot 'Test-PrePushBackendEnumerationParity.ps1'
-if (Test-Path -LiteralPath $backendEnumParityScript -PathType Leaf) {
-    $backendEnumOutput = & $backendEnumParityScript -RootPath $resolvedRoot -BaseRef $effectiveBaseRef -ChangedFiles $changedFiles -AsJson 2>&1
-    $backendEnumExitCode = $LASTEXITCODE
-    $backendEnumJsonText = ($backendEnumOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-    $backendEnumObject = $null
-    if (-not [string]::IsNullOrWhiteSpace($backendEnumJsonText)) {
-        $backendEnumObject = $backendEnumJsonText | ConvertFrom-Json
-    }
-
-    if ($backendEnumExitCode -eq 0 -and $null -ne $backendEnumObject) {
-        $backendEnumParityGate.status = $backendEnumObject.status
-        $backendEnumParityGate.findings = @($backendEnumObject.findings)
-    } else {
-        $backendEnumParityGate.status = 'warn'
-        $backendEnumParityGate.findings = @([pscustomobject][ordered]@{
-            code     = 'BACKEND_ENUMERATION_PARITY_SCRIPT_ERROR'
-            severity = 'warn'
-            path     = 'tools/Test-PrePushBackendEnumerationParity.ps1'
-            message  = "Advisory failure while running Test-PrePushBackendEnumerationParity.ps1: $backendEnumJsonText"
+            path     = $row.Gate.script
+            message  = "Advisory failure while running $([IO.Path]::GetFileName($row.Path)): $jsonText"
         })
     }
 }

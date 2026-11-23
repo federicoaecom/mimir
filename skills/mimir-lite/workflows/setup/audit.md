@@ -78,13 +78,14 @@ Fold in **every** item below the audit found; omitting one when evidence exists 
 | `INVENTORY_RECOMMENDED_MISSING` | Recommended thin wrappers | Rerun the scaffolder (fallback: the `.example.ps1` files) | Yes |
 | Stale verb prefix (8.f) | Local name ≠ canonical example (`Update-` vs `Rebuild-`, etc.) | Rename + update references | Yes |
 | `Test-*KbPowerShellRuntime.ps1` missing | Missing runtime gate | Add the runtime wrapper | Yes |
+| Index gate `corpus generation check failed (corpus-unknown)` or `(index-generation-missing)` on a corpus synced before corpus states existed (8.g5 in [`update.md`](update.md)) | Corpus state migration | Full KB export, sync and gate wrapper alignment (8.a–8.c), `-FullSnapshot` sync, index rebuild, `.gitignore` update, gate check (8.g5) | Yes, never automatic |
 
 ### Items that do **not** enter this workflow's plan
 
 Never promise in the consolidated plan what belongs to another workstream; mention it only as **out of scope**, with the responsible workflow:
 
 - XPZ materialization, XML corpus sync, `last_xpz_materialization_run_at` → the **sync** workflow.
-- Index rebuild/regeneration when it is stale due to materialization → index wrappers + a chained **sync** run.
+- Index rebuild/regeneration when the gate reports a corpus generation mismatch, or an incomplete corpus after a failed sync → index wrappers + a chained **sync** run (the corpus state migration of 8.g5 is the exception: it enters the plan).
 - Divergent directory naming in the official corpus → diagnose the type mismatch, then route a proposed fix to the **sync** workflow or a separately approved shared-engine correction; never manually rename directories in this read-only snapshot.
 - Generating or packaging business XML objects → out of scope for this workflow.
 - CUSTOMIZED scripts with editorial logic divergence and no deterministic fix → enter the plan as a **user decision** (8.c), not as an "automatic fix".

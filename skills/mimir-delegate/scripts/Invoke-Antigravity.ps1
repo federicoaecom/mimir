@@ -33,6 +33,8 @@
 .PARAMETER TimeoutSec
     Maximum wait time in seconds. Default: 1200.
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidAssignmentToAutomaticVariable', 'Profile', Justification = 'Public -Profile parameter that callers pass by name.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ReceiptPath', Justification = 'Read by Write-PublicReviewReceipt through dynamic scope.')]
 [CmdletBinding(DefaultParameterSetName = 'Inline')]
 param(
     [Parameter(Mandatory, Position = 0, ParameterSetName = 'Inline')] [string] $Message,
@@ -116,18 +118,21 @@ function Get-WorkspaceAncestorDiagnostics {
 
 function Get-DescendantProcessIds {
     param([int] $RootProcessId)
-    if ($IsWindows) {
-        $all = @(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId, ParentProcessId)
-    } else {
-        # Win32_Process exists only on Windows; elsewhere Get-Process exposes each process's parent.
-        # A process that exits during the scan is skipped instead of failing the whole enumeration.
-        $all = @(Get-Process -ErrorAction Stop | ForEach-Object {
-            try {
-                $parent = $_.Parent
-                if ($null -ne $parent) { [pscustomobject]@{ ProcessId = $_.Id; ParentProcessId = $parent.Id } }
-            } catch { }
-        })
+    # Test-only: simulate a slow process lookup (tests/mimir-delegate/Test-AntigravitySlowProcessLookupSelfTest.ps1).
+    # Capped at 60 s so a leaked value cannot delay timeout enforcement without bound.
+    $testDelayMs = 0
+    if ([int]::TryParse([string]$env:MIMIR_TEST_ANTIGRAVITY_LOOKUP_DELAY_MS, [ref]$testDelayMs) -and $testDelayMs -gt 0) {
+        Start-Sleep -Milliseconds ([Math]::Min($testDelayMs, 60000))
     }
+    # Get-Process exposes each process's parent on every OS. The WMI Win32_Process class is not used:
+    # a WMI query has no timeout and was seen to stall for minutes under load on Windows.
+    # A process that exits during the scan is skipped instead of failing the whole enumeration.
+    $all = @(Get-Process -ErrorAction Stop | ForEach-Object {
+        try {
+            $parent = $_.Parent
+            if ($null -ne $parent) { [pscustomobject]@{ ProcessId = $_.Id; ParentProcessId = $parent.Id } }
+        } catch { }
+    })
     $knownParents = [System.Collections.Generic.HashSet[int]]::new()
     [void]$knownParents.Add($RootProcessId)
     $found = [System.Collections.Generic.HashSet[int]]::new()
@@ -164,7 +169,8 @@ function Write-PublicReviewReceipt {
 $out = New-TemporaryFile
 $err = New-TemporaryFile
 $req = New-TemporaryFile
-$runner = [System.IO.Path]::ChangeExtension((New-TemporaryFile).FullName, '.ps1')
+# Build the runner path without creating a file: New-TemporaryFile would leave an empty .tmp behind.
+$runner = Join-Path ([System.IO.Path]::GetTempPath()) ('mimir-delegate-runner-' + [guid]::NewGuid().ToString('N') + '.ps1')
 
 try {
     if ($PSCmdlet.ParameterSetName -eq 'FromFile') {
@@ -277,6 +283,8 @@ exit $LASTEXITCODE
         } catch {
             $descendantEnumerationFailed = $true
         }
+        # The lookup can be slow: a run that finished meanwhile is not a timeout.
+        if ($proc.HasExited) { break }
         if ([DateTime]::UtcNow -ge $deadline) {
             $timedOut = $true
             # Kill descendants (agy) first and let the runner flush 1>/2> to the

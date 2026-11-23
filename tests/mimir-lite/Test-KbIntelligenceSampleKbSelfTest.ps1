@@ -49,6 +49,10 @@ foreach ($required in @($indexScript, $queryScript, $queriesTestScript)) {
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('kb-intel-sample-kb-selftest-{0}' -f ([guid]::NewGuid().ToString('N')))
 try {
 [void](New-Item -ItemType Directory -Path $tempRoot -Force)
+# The build and the queries take the corpus lock, which creates a lock file in the corpus: they run
+# over a scratch copy (with its complete synchronization state), never over the checked-in fixture.
+$corpusRoot = Join-Path $tempRoot 'sample-kb'
+Copy-Item -LiteralPath $sampleKbRoot -Destination $corpusRoot -Recurse
 
 $sqlitePath = Join-Path $tempRoot 'kb-intelligence.sqlite'
 $validationPath = Join-Path $tempRoot 'kb-intelligence-validation.json'
@@ -57,11 +61,11 @@ if (-not (Test-Path -LiteralPath $extractionValidationCases -PathType Leaf)) {
     throw "sample-kb validation-extraction fixture not found: $extractionValidationCases"
 }
 
-# --- Build the index from the checked-in synthetic fixture, also exercising the
+# --- Build the index from a copy of the checked-in synthetic fixture, also exercising the
 #     build-time relation extraction validation cases (idBasedOn, Formula calls,
 #     Source procedure calls, for-each table navigation, Table Key/Index). ---
 & $indexScript `
-    -SourceRoot $sampleKbRoot `
+    -SourceRoot $corpusRoot `
     -OutputPath $sqlitePath `
     -ValidationReportPath $validationPath `
     -ValidationCasesPath $extractionValidationCases `
@@ -184,10 +188,12 @@ if ($LASTEXITCODE -ne 0) {
 if ($impactAttributeText -notmatch '(?m)^    writability: \[Invoice\] classification=extended-fk-key writable=True ') {
     throw "impact-basic(Attribute, CustomerId) text should show the indented Invoice level writability; got:`n$impactAttributeText"
 }
-# who-uses stays an index-only query: a copy of the index whose source_root names a missing
-# corpus still answers with the writability, which carries no file-backed attribute facts.
+# who-uses stays an index-only query: a copy of the index whose source_root names a corpus that
+# holds only its synchronization state (no XML) still answers with the writability, which
+# carries no file-backed attribute facts.
 $detachedRoot = Join-Path $tempRoot 'detached'
-[void](New-Item -ItemType Directory -Path $detachedRoot -Force)
+[void](New-Item -ItemType Directory -Path (Join-Path $detachedRoot 'state-only-corpus') -Force)
+Copy-Item -LiteralPath (Join-Path $corpusRoot '.mimir-sync-state.json') -Destination (Join-Path $detachedRoot 'state-only-corpus')
 $detachedSqlitePath = Join-Path $detachedRoot 'kb-intelligence.sqlite'
 Copy-Item -LiteralPath $sqlitePath -Destination $detachedSqlitePath
 # Runs one SQL statement on the detached copy through a temporary .py file (UTF-8 without BOM),
@@ -204,9 +210,9 @@ function Invoke-DetachedIndexSql([string]$Sql) {
     [System.IO.File]::WriteAllText($sqlScriptPath, $sqlScript + "`n", (New-Object System.Text.UTF8Encoding($false)))
     & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $sqlScriptPath $detachedSqlitePath
 }
-Invoke-DetachedIndexSql "UPDATE metadata SET value = 'missing-corpus' WHERE key = 'source_root'"
+Invoke-DetachedIndexSql "UPDATE metadata SET value = 'state-only-corpus' WHERE key = 'source_root'"
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not point the detached index copy at a missing corpus; exit $LASTEXITCODE"
+    throw "Could not point the detached index copy at a corpus without XML; exit $LASTEXITCODE"
 }
 $detachedJson = & $pythonInterpreter.Source @($pythonInterpreter.PrefixArguments) $queryScript --index-path $detachedSqlitePath --query who-uses --object-type Attribute --object-name CustomerId --format json 2>&1
 if ($LASTEXITCODE -ne 0) {

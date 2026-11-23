@@ -45,7 +45,7 @@ Inventario actual de backends desde el dispatcher y la compuerta:
 - `gemini`
 - `antigravity`
 
-El conjunto de backends pertenece a [`skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1`](../../skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1) y se verifica con [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1). No trate este documento como fuente de verdad de adapters.
+El conjunto de backends lo define el registro de datos [`skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1`](../../skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1) que carga el dispatcher del panel, y se verifica con [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1). No trate este documento como fuente de verdad de adapters.
 
 Las familias recomendadas para el panel in-panel son ejemplos, no una regla fija: Codex / OpenAI, Claude Code / Anthropic cuando el orquestador no sea Anthropic, y Copilot, Gemini, Antigravity `public-review` o revisores nativos adicionales cuando estén disponibles. El principio y el piso de diversidad del `15` prevalecen sobre cualquier lista de ejemplo. Aunque opencode sigue disponible como backend y su adapter directo sigue disponible, no es una ruta in-panel elegible ni recomendada hasta que exista una postura de solo lectura y sin shell que sea exigible. El montaje del panel debe omitirlo manualmente; el dispatcher no aplica esta restricción de forma automática.
 
@@ -69,14 +69,14 @@ Capacidad y transporte del dossier son ejes independientes. Una herramienta fuer
 | Backend / ruta | Rol en el panel | Fuera del panel (adapter) | Transporte del dossier | Notas |
 |---|---|---|---|---|
 | Codex-delegate | `git-capable` | `git-capable` | N/A | Sandbox read-only en uso de panel. |
-| Subagente nativo (`orchestrator-native`) | `git-capable` | N/A típico | N/A | Ancla frecuente; no es clave de `$AdapterScript`. |
+| Subagente nativo (`orchestrator-native`) | `git-capable` | N/A típico | N/A | Ancla frecuente; no es una entrada del registro de backends (el registro rechaza `orchestrator-native`). |
 | Claude Code (async / panel) | `semantic-only` | `git-capable` vía `Invoke-ClaudeCode.ps1` síncrono con `-Tools default -PermissionMode dontAsk` | `stdin-dossier-capable` | El uso directo del adapter no cuenta como revisor `git-capable` in-panel del `14`; el perfil in-panel `git-capable` sigue como trabajo futuro. |
 | opencode | Omitido manualmente del conjunto de revisores in-panel; no despachar ni contar hasta que exista una postura exigible de solo lectura y sin shell | El adapter directo sigue disponible; sin `-Agent` usa el default configurado de opencode, que puede ser agéntico. Nombrar explícitamente un agente restringido no es automáticamente seguro ni garantiza un límite exigible sin shell. | `stdin-dossier-capable` | El dispatcher todavía enumera opencode y no aplica la omisión de montaje del panel; rechaza `invokeArgs.agent`, por lo que un opencode in-panel seleccionado no recibe agente explícito. Vea las notas de cwd/worktree y secretos locales. |
 | Copilot CLI | `semantic-only` | `semantic-only` | `argv-limited` (~30000 caracteres) | Omitir si el dossier supera el límite. |
 | Gemini CLI | `semantic-only` | `semantic-only` (`ApprovalMode=plan`) | `argv-limited` (~30000 caracteres) | Omitir si el dossier supera el límite. |
 | Antigravity `public-review` | `semantic-only` | siempre `semantic-only` | `argv-limited` (~30000 caracteres) | Nunca es ancla `git-capable`; crea su propio scratch; rechaza `-Cd`; acepta solo payload `public`. |
 
-Regla de mantenimiento: esta tabla es una enumeración cerrada por eje. La compuerta de paridad de backends no puede inferir una fila nueva faltante cuando cada fila cita un solo backend. Cuando se agregue un backend al dispatcher, actualice esta matriz en el mismo cambio.
+Regla de mantenimiento: esta tabla es una enumeración cerrada por eje. La compuerta de paridad de backends no puede inferir una fila nueva faltante cuando cada fila cita un solo backend. Cuando se agregue un backend al registro, actualice esta matriz en el mismo cambio.
 
 ## Omisión y etiquetas degradadas
 

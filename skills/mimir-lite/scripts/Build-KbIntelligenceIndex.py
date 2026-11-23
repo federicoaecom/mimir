@@ -39,36 +39,60 @@ Current scope:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import html
 import json
 import os
 import re
 import sqlite3
+import sys
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable, NamedTuple
+
+# The engine core shared with Query-KbIntelligenceIndex.py (sibling module, on sys.path as the
+# script's own folder).
+from GeneXusKbIntelligenceCore import (
+    ATTR_RE,
+    BC_LOAD_SOURCE_TYPES,
+    CDATA_RE,
+    CLASSIC_FORMULA_END_RE,
+    CLASSIC_FORMULA_FOLDER,
+    CLASSIC_FORMULA_NAME_RE,
+    CSS_USAGE_SOURCE_TYPES,
+    CUSTOM_TYPE_SOURCE_TYPES,
+    EXTRACTOR_RECORDS,
+    FOR_EACH_SOURCE_TYPES,
+    IDBASEDON_DOMAIN_SOURCE_TYPES,
+    LEVEL_ATTRIBUTE_RE,
+    LEVEL_RE,
+    SCHEMA_VERSION,
+    SOURCE_RE,
+    WORKWITH_SOURCE_TYPES,
+    ExtractorRecord,
+    read_text,
+)
+from GeneXusKbIntelligenceCore import PROPERTY_RE as OBJECT_MARKER_PROPERTY_RE
+from GeneXusKbIntelligenceCore import SOURCE_RE as CLASSIC_FORMULA_SOURCE_RE
+# Corpus synchronization state and lock (not part of the extractor signature).
+from GeneXusCorpusState import (
+    CORPUS_STATE_SCHEMA_VERSION,
+    EXIT_CORPUS_LOCK_BUSY,
+    EXIT_CORPUS_NOT_COMPLETE,
+    CorpusLockBusy,
+    corpus_lock_busy_recovery,
+    corpus_lock_with_retry,
+    corpus_state_recovery,
+    read_corpus_state,
+    stop_point_for_tests,
+)
 
 # Increment when the indexer's coverage or rules change materially (not on an inert refactor).
 EXTRACTOR_SIGNATURE_VERSION = "26"
-
-# Sources of the generalized idBasedOn -> Domain extractor (relation_scope + Attribute; outside: Panel/Stencil/PackagedModule).
-IDBASEDON_DOMAIN_SOURCE_TYPES = (
-    "Procedure",
-    "WebPanel",
-    "DataProvider",
-    "Transaction",
-    "API",
-    "DataSelector",
-    "Domain",
-    "SDT",
-    "WorkWith",
-    "WorkWithForWeb",
-    "Attribute",
-)
 
 
 def portable_source_root(source_root: Path, index_dir: Path) -> str:
@@ -85,13 +109,31 @@ def portable_source_root(source_root: Path, index_dir: Path) -> str:
     return Path(relative).as_posix()
 
 
-def compute_extractor_signature_hash() -> str:
-    script_path = Path(__file__).resolve()
-    return hashlib.sha256(script_path.read_bytes()).hexdigest()
+# Every module that shapes the index, in this fixed order: this script, the engine core it shares
+# with the query engine, and the other core modules it imports. GeneXusKbIntelligenceExtractorContract.ps1
+# lists the same files in the same order; keep the two lists in step.
+EXTRACTOR_SIGNATURE_MODULES = (
+    "Build-KbIntelligenceIndex.py",
+    "GeneXusKbIntelligenceCore.py",
+    "GeneXusObjectTypeCatalogCore.py",
+    "GeneXusTransactionWritabilityCore.py",
+)
 
 
-SOURCE_RE = re.compile(r"<Source(?:\s[^>]*)?>(?P<body>.*?)</Source>", re.IGNORECASE | re.DOTALL)
-CDATA_RE = re.compile(r"^\s*<!\[CDATA\[(?P<body>.*)\]\]>\s*$", re.DOTALL)
+def compute_extractor_signature_hash(script_dir: Path | None = None) -> str:
+    """SHA-256 of a manifest with one line '<sha256 of the file's bytes> <file name>' (LF-ended,
+    UTF-8) per EXTRACTOR_SIGNATURE_MODULES entry, in order, read from script_dir (default: this
+    script's folder). File names and contents count; the folder path does not."""
+    folder = Path(__file__).resolve().parent if script_dir is None else Path(script_dir)
+    manifest = []
+    for name in EXTRACTOR_SIGNATURE_MODULES:
+        module_path = folder / name
+        if not module_path.is_file():
+            raise SystemExit(f"Extractor signature module not found: {module_path}")
+        manifest.append(f"{hashlib.sha256(module_path.read_bytes()).hexdigest()} {name}\n")
+    return hashlib.sha256("".join(manifest).encode("utf-8")).hexdigest()
+
+
 LAST_UPDATE_RE = re.compile(r'\blastUpdate="([^"]+)"')
 GUID_RE = re.compile(r'\bguid="([^"]+)"')
 PROCEDURE_DOT_CALL_RE = re.compile(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*Call\s*\(", re.IGNORECASE)
@@ -121,6 +163,10 @@ EXTERNAL_OBJECT_METHOD_RE = re.compile(
     r"(?P<receiver>&[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*(?P<method>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
     re.IGNORECASE,
 )
+# Objects whose code is read for calls and external object methods. A literal here because
+# tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1 reads it from this file; the
+# extractor records use the same types (SOURCE_SCOPE_TYPES of GeneXusKbIntelligenceCore.py, kept
+# equal by tests/mimir-lite/TestKbIntelligenceExtractorRegistry.py).
 INDEXED_SOURCE_TYPES = (
     "Procedure",
     "WebPanel",
@@ -159,11 +205,8 @@ CLASSIC_CALL_VERB_RULES = {"call": "classic_call_command", "udp": "classic_udp_f
 CLASSIC_MENU_OPTION_RE = re.compile(r"<MenuOptions\b[^>]*>(?P<body>.*?)</MenuOptions>", re.IGNORECASE | re.DOTALL)
 CLASSIC_MENU_PGM_TYPE_RE = re.compile(r"<PgmType>\s*(?P<value>[^<]*?)\s*</PgmType>", re.IGNORECASE)
 CLASSIC_MENU_PGM_NAME_RE = re.compile(r"<PgmName>\s*(?P<value>[^<]*?)\s*</PgmName>", re.IGNORECASE)
-# A classic formula (GeneXus 7.0 and earlier, .xpw) is its own block, synced to the Formula folder
-# and named after the attribute it computes: <Formula><Name>, <Type>, <Source>.
-CLASSIC_FORMULA_FOLDER = "Formula"
-CLASSIC_FORMULA_NAME_RE = re.compile(r"<Formula\b[^>]*>\s*<Name>\s*(?P<name>[^<]*?)\s*</Name>", re.IGNORECASE)
-CLASSIC_FORMULA_SOURCE_RE = re.compile(r"<Source(?:\s[^>]*)?>(?P<body>.*?)</Source>", re.IGNORECASE | re.DOTALL)
+# A classic formula: CLASSIC_FORMULA_FOLDER, CLASSIC_FORMULA_NAME_RE, CLASSIC_FORMULA_END_RE, and
+# CLASSIC_FORMULA_SOURCE_RE come from GeneXusKbIntelligenceCore.py, shared with the query engine.
 CLASSIC_FORMULA_CALL_RULES = {
     "call": "classic_formula_call_command",
     "udp": "classic_formula_udp_func",
@@ -175,15 +218,12 @@ CLASSIC_MENU_OPTION_TARGETS = {
     "transaction": ("Transaction", "calls_transaction"),
     "report": ("Report", "calls_report"),
 }
-FOR_EACH_SOURCE_TYPES = ("Procedure", "WebPanel")
-BC_LOAD_SOURCE_TYPES = ("Procedure", "WebPanel", "DataProvider")
 ACTION_RE = re.compile(r"<action\b(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)
 ACTION_BLOCK_RE = re.compile(r"<action\b(?P<attrs>[^>]*)>(?P<body>.*?)</action>", re.IGNORECASE | re.DOTALL)
 CONDITION_RE = re.compile(r"<condition\b(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<(?P<tag>[A-Za-z][A-Za-z0-9]*)\b(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)
 PARAMETER_RE = re.compile(r"<parameter\b(?P<attrs>[^>]*)/?>", re.IGNORECASE | re.DOTALL)
 VARIABLE_RE = re.compile(r"<Variable\b(?P<attrs>[^>]*)>(?P<body>.*?)</Variable>", re.IGNORECASE | re.DOTALL)
-ATTR_RE = re.compile(r'(?P<name>[A-Za-z_][A-Za-z0-9_]*)="(?P<value>[^"]*)"')
 GXOBJECT_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-(?P<name>.+)$")
 ATTCUSTOMTYPE_PROPERTY_RE = re.compile(
     r"<Property>\s*<Name>ATTCUSTOMTYPE</Name>\s*<Value>(?P<value>.*?)</Value>\s*</Property>",
@@ -208,7 +248,6 @@ ATTRIBUTE_ROOT_RE = re.compile(r"^\s*(?:<\?xml[^>]*\?>\s*)?<Attribute\b", re.IGN
 # The SCSS of the design-system model's classes lives in the "Styles" Part of this type GUID, both in
 # authored DesignSystem objects and in DesignSystem nested inside PackagedModule (imported libs).
 DESIGN_SYSTEM_STYLES_PART_GUID = "c6b14574-4f5f-4e35-aaa7-e322e88a9a10"
-CSS_USAGE_SOURCE_TYPES = ("WebPanel", "Panel", "Transaction")
 # CSS class identifier accepts hyphen and digit (e.g. Card-Basico) — distinct from the GeneXus identifier.
 CSS_SELECTOR_RE = re.compile(r"^\s*\.(?P<name>[A-Za-z][A-Za-z0-9_-]*)\s*\{", re.MULTILINE)
 CSS_CLASS_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
@@ -348,11 +387,6 @@ LEGACY_ORPHAN_FOLDERS: set[str] = build_legacy_orphan_folders(GX_LEGACY_EXPORT_R
 LEGACY_ORPHAN_FOLDER_TO_TOKEN: dict[str, str] = build_legacy_orphan_folder_to_token(GX_LEGACY_EXPORT_REGISTRY)
 LEGACY_INDEXED_TOKEN_TO_TYPE: dict[str, str] = build_legacy_indexed_token_to_type(GX_LEGACY_EXPORT_REGISTRY)
 LEGACY_INDEXED_FOLDERS: set[str] = set(LEGACY_INDEXED_TOKEN_TO_TYPE.values())
-LEVEL_RE = re.compile(r"<Level\b(?P<attrs>[^>]*)>(?P<body>.*?)</Level>", re.IGNORECASE | re.DOTALL)
-LEVEL_ATTRIBUTE_RE = re.compile(
-    r"<Attribute\b(?P<attrs>[^>]*)>(?P<name>.*?)</Attribute>",
-    re.IGNORECASE | re.DOTALL,
-)
 KEY_RE = re.compile(r"<Key\b[^>]*>(?P<body>.*?)</Key>", re.IGNORECASE | re.DOTALL)
 KEY_ITEM_RE = re.compile(
     r"<Item\b(?P<attrs>[^>]*)>(?P<name>.*?)</Item>",
@@ -615,10 +649,6 @@ class CssClass:
     extractor_rule: str
 
 
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8-sig", errors="replace")
-
-
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
@@ -627,10 +657,7 @@ def sha256_text(text: str) -> str:
 # object-level <Properties> block (direct child of the root <Object>), NEVER from an <Object>
 # nested in <Part>/<ExportFile> (e.g. a PackagedModule that packages an imported lib and materializes
 # its internal objects, each with its own IsGeneratedObject). See converged design.
-OBJECT_MARKER_PROPERTY_RE = re.compile(
-    r"<Property>\s*<Name>(?P<name>.*?)</Name>\s*<Value>(?P<value>.*?)</Value>\s*</Property>",
-    re.IGNORECASE | re.DOTALL,
-)
+# OBJECT_MARKER_PROPERTY_RE is the core PROPERTY_RE.
 PROPERTIES_BLOCK_RE = re.compile(r"<Properties\b[^>]*>(?P<body>.*?)</Properties>", re.IGNORECASE | re.DOTALL)
 XML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 XML_CDATA_RE = re.compile(r"<!\[CDATA\[.*?\]\]>", re.DOTALL)
@@ -1066,9 +1093,42 @@ def case_insensitive_lookup(names: set[str], object_type: str) -> dict[str, str]
     return {key: values[0] for key, values in grouped.items()}
 
 
-def direct_call_pattern(names: set[str]) -> re.Pattern[str] | None:
+SIMPLE_CALL_NAME_RE = re.compile(r"\w+(?:\.\w+)*")
+DIRECT_CALL_TOKEN_RE = re.compile(r"(?<![&.])\b(?P<name>\w+(?:\.\w+)*)\s*\(")
+
+
+class DirectCallMatcher:
+    """Finds `Name(` calls for a fixed set of names with one generic token scan.
+
+    Matches exactly what the alternation `(?<![&.])\\b(?:name1|name2|...)\\s*\\(` (case-insensitive,
+    longest name first) matches, for ASCII names made of word characters and dots. A single
+    alternation of every name made the build quadratic in the number of objects; here each candidate
+    token is checked with a dictionary lookup instead. The returned items are the token scan's own
+    `re.Match` objects, so `group("name")`, `start()` and `end()` behave as before.
+    """
+
+    # re.IGNORECASE also matches these letters to ASCII i and s, but str.lower() does not map them
+    # (U+0130 dotted capital I, U+0131 dotless i, U+017F long s). The Kelvin sign already lowers to k.
+    _IGNORECASE_ASCII_FOLDS = {0x130: "i", 0x131: "i", 0x17F: "s"}
+
+    def __init__(self, names: set[str]) -> None:
+        self._lowered = {name.lower() for name in names}
+
+    def finditer(self, text: str):
+        lowered = self._lowered
+        folds = self._IGNORECASE_ASCII_FOLDS
+        for match in DIRECT_CALL_TOKEN_RE.finditer(text):
+            if match.group("name").translate(folds).lower() in lowered:
+                yield match
+
+
+def direct_call_pattern(names: set[str]) -> re.Pattern[str] | DirectCallMatcher | None:
     if not names:
         return None
+    if all(name.isascii() and SIMPLE_CALL_NAME_RE.fullmatch(name) for name in names):
+        return DirectCallMatcher(names)
+    # A non-ASCII name, or one with other characters, keeps the original single alternation, so
+    # matching never changes (re.IGNORECASE has case equivalences outside ASCII that a lookup would miss).
     alternatives = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
     return re.compile(rf"(?<![&.])\b(?P<name>{alternatives})\s*\(", re.IGNORECASE)
 
@@ -1437,10 +1497,14 @@ def extract_classic_formula_evidence(
         if not is_legacy_export_object(xml_text):
             continue
         name_match = CLASSIC_FORMULA_NAME_RE.search(xml_text)
-        source_match = CLASSIC_FORMULA_SOURCE_RE.search(xml_text)
-        if not name_match or not source_match:
+        if not name_match:
             continue
-        attribute = attribute_by_key.get(name_match.group("name").lower())
+        end_match = CLASSIC_FORMULA_END_RE.search(xml_text, name_match.end())
+        element_end = end_match.start() if end_match else len(xml_text)
+        source_match = CLASSIC_FORMULA_SOURCE_RE.search(xml_text, name_match.end(), element_end)
+        if not source_match:
+            continue
+        attribute = attribute_by_key.get(html.unescape(name_match.group("name")).strip().lower())
         if attribute is None:
             continue
         source = replace(attribute, path=path, rel_path=path.relative_to(source_root).as_posix())
@@ -1509,6 +1573,63 @@ def extract_attribute_formula_attribute_evidence(
     return evidences
 
 
+class CallTarget(NamedTuple):
+    """A target a call pattern relates a matched name to, when its lookup holds the name."""
+
+    lookup: dict[str, str]
+    target_type: str
+    relation_kind: str
+    extractor_rule: str
+
+
+class CallPattern(NamedTuple):
+    """A per-line call pattern of extract_evidence and the targets it tries, in order."""
+
+    pattern: re.Pattern[str] | DirectCallMatcher | None
+    targets: tuple[CallTarget, ...]
+
+
+def source_call_patterns(
+    procedure_lookup: dict[str, str],
+    workpanel_lookup: dict[str, str],
+    webpanel_lookup: dict[str, str],
+    data_provider_lookup: dict[str, str],
+    procedure_direct_re: re.Pattern[str] | DirectCallMatcher | None,
+    data_provider_direct_re: re.Pattern[str] | DirectCallMatcher | None,
+) -> tuple[CallPattern, ...]:
+    """The call patterns extract_evidence runs on each line of modern code, in order (the order
+    decides the evidence order). A Work Panel is called like a Procedure; a Procedure of the same
+    name wins."""
+
+    def procedure(rule: str) -> CallTarget:
+        return CallTarget(procedure_lookup, "Procedure", "calls_procedure", rule)
+
+    def workpanel(rule: str) -> CallTarget:
+        return CallTarget(workpanel_lookup, "WorkPanel", "calls_workpanel", rule)
+
+    return (
+        CallPattern(PROCEDURE_DOT_CALL_RE, (procedure("procedure_dot_call"), workpanel("workpanel_dot_call"))),
+        CallPattern(procedure_direct_re, (procedure("procedure_direct_call"),)),
+        CallPattern(
+            PROCEDURE_CALL_COMMAND_RE, (procedure("procedure_call_command"), workpanel("workpanel_call_command"))
+        ),
+        CallPattern(PROCEDURE_UDP_FUNC_RE, (procedure("procedure_udp_func"),)),
+        CallPattern(PROCEDURE_DOT_UDP_RE, (procedure("procedure_dot_udp"),)),
+        CallPattern(PROCEDURE_DOT_LINK_RE, (procedure("procedure_dot_link"),)),
+        CallPattern(
+            WEBPANEL_DOT_LINK_RE, (CallTarget(webpanel_lookup, "WebPanel", "calls_webpanel", "webpanel_dot_link"),)
+        ),
+        CallPattern(
+            WEBPANEL_DOT_CREATE_RE,
+            (CallTarget(webpanel_lookup, "WebPanel", "creates_webcomponent", "webpanel_dot_create"),),
+        ),
+        CallPattern(
+            data_provider_direct_re,
+            (CallTarget(data_provider_lookup, "DataProvider", "calls_dataprovider", "dataprovider_direct_call"),),
+        ),
+    )
+
+
 def extract_evidence(
     source_root: Path,
     source_objects: Iterable[ObjectInfo],
@@ -1527,6 +1648,14 @@ def extract_evidence(
     data_provider_direct_re = direct_call_pattern(data_provider_names)
     # Built for every KB, like the Procedure lookup: a modern call can target a Work Panel too.
     workpanel_lookup = case_insensitive_lookup(workpanel_names or set(), "WorkPanel")
+    call_patterns = source_call_patterns(
+        procedure_lookup,
+        workpanel_lookup,
+        webpanel_lookup,
+        data_provider_lookup,
+        procedure_direct_re,
+        data_provider_direct_re,
+    )
     # Built on the first classic object only, so a modern KB never builds (or fails on) the
     # Report and Transaction lookups.
     classic_lookups_by_type: dict[str, dict[str, str]] | None = None
@@ -1552,177 +1681,28 @@ def extract_evidence(
                     continue
                 line_no = block.start_line + offset
 
-                for match in PROCEDURE_DOT_CALL_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = procedure_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="Procedure",
-                            target_name=target_name,
-                            relation_kind="calls_procedure",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="procedure_dot_call",
-                        )
-                    # A Work Panel is called like a Procedure; a Procedure of the same name wins.
-                    elif workpanel_name := workpanel_lookup.get(matched_name.lower()):
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="WorkPanel",
-                            target_name=workpanel_name,
-                            relation_kind="calls_workpanel",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="workpanel_dot_call",
-                        )
-
-                direct_matches = procedure_direct_re.finditer(cleaned) if procedure_direct_re else ()
-                for match in direct_matches:
-                    matched_name = match.group("name")
-                    target_name = procedure_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="Procedure",
-                            target_name=target_name,
-                            relation_kind="calls_procedure",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="procedure_direct_call",
-                        )
-
-                for match in PROCEDURE_CALL_COMMAND_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = procedure_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="Procedure",
-                            target_name=target_name,
-                            relation_kind="calls_procedure",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="procedure_call_command",
-                        )
-                    # A Work Panel is called like a Procedure; a Procedure of the same name wins.
-                    elif workpanel_name := workpanel_lookup.get(matched_name.lower()):
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="WorkPanel",
-                            target_name=workpanel_name,
-                            relation_kind="calls_workpanel",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="workpanel_call_command",
-                        )
-
-                for match in PROCEDURE_UDP_FUNC_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = procedure_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="Procedure",
-                            target_name=target_name,
-                            relation_kind="calls_procedure",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="procedure_udp_func",
-                        )
-
-                for match in PROCEDURE_DOT_UDP_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = procedure_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="Procedure",
-                            target_name=target_name,
-                            relation_kind="calls_procedure",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="procedure_dot_udp",
-                        )
-
-                for match in PROCEDURE_DOT_LINK_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = procedure_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="Procedure",
-                            target_name=target_name,
-                            relation_kind="calls_procedure",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="procedure_dot_link",
-                        )
-
-                for match in WEBPANEL_DOT_LINK_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = webpanel_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="WebPanel",
-                            target_name=target_name,
-                            relation_kind="calls_webpanel",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="webpanel_dot_link",
-                        )
-
-                for match in WEBPANEL_DOT_CREATE_RE.finditer(cleaned):
-                    matched_name = match.group("name")
-                    target_name = webpanel_lookup.get(matched_name.lower())
-                    if target_name:
-                        add_evidence(
-                            evidences,
-                            source=source,
-                            target_type="WebPanel",
-                            target_name=target_name,
-                            relation_kind="creates_webcomponent",
-                            line=line_no,
-                            column=match.start("name") + 1,
-                            snippet=cleaned,
-                            extractor_rule="webpanel_dot_create",
-                        )
-
-                if data_provider_direct_re:
-                    for match in data_provider_direct_re.finditer(cleaned):
-                        matched_name = match.group("name")
-                        target_name = data_provider_lookup.get(matched_name.lower())
-                        if target_name:
-                            add_evidence(
-                                evidences,
-                                source=source,
-                                target_type="DataProvider",
-                                target_name=target_name,
-                                relation_kind="calls_dataprovider",
-                                line=line_no,
-                                column=match.start("name") + 1,
-                                snippet=cleaned,
-                                extractor_rule="dataprovider_direct_call",
-                            )
+                for call_pattern in call_patterns:
+                    if not call_pattern.pattern:
+                        continue
+                    for match in call_pattern.pattern.finditer(cleaned):
+                        matched_name = match.group("name").lower()
+                        # The first target that names an object wins: a Procedure before a Work
+                        # Panel of the same name.
+                        for target in call_pattern.targets:
+                            target_name = target.lookup.get(matched_name)
+                            if target_name:
+                                add_evidence(
+                                    evidences,
+                                    source=source,
+                                    target_type=target.target_type,
+                                    target_name=target_name,
+                                    relation_kind=target.relation_kind,
+                                    line=line_no,
+                                    column=match.start("name") + 1,
+                                    snippet=cleaned,
+                                    extractor_rule=target.extractor_rule,
+                                )
+                                break
 
     unique: dict[tuple[str, str, str, str, int, str], Evidence] = {}
     for evidence in evidences:
@@ -4433,14 +4413,65 @@ def write_index(
     css_classes: list[CssClass],
     index_build_run_at: str,
     inventory_semantics: dict[str, object],
+    corpus_generation: str,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_path.exists():
-        output_path.unlink()
+    """Write the index atomically: build a sibling temporary file, then replace the final path.
 
+    On any failure the temporary file is removed and the previous index stays untouched.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Same folder as the final index, so the final rename stays on one volume.
+    temp_path = output_path.with_name(output_path.name + ".tmp")
+    remove_file_if_present(temp_path)
+
+    try:
+        write_index_rows(
+            temp_path,
+            output_path,
+            source_root,
+            objects,
+            evidences,
+            css_classes,
+            index_build_run_at,
+            inventory_semantics,
+            corpus_generation,
+        )
+        stop_point_for_tests("build:before-publish")
+        try:
+            os.replace(temp_path, output_path)
+        except PermissionError as exc:
+            raise SystemExit(
+                f"Cannot replace the KB Intelligence index at {output_path}: the file is locked by another "
+                f"process or not writable ({exc}). Close any program that holds it open and rebuild. "
+                "The previous index was kept."
+            ) from exc
+    except BaseException:
+        remove_file_if_present(temp_path)
+        raise
+
+
+def remove_file_if_present(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def write_index_rows(
+    database_path: Path,
+    output_path: Path,
+    source_root: Path,
+    objects: list[ObjectInfo],
+    evidences: list[Evidence],
+    css_classes: list[CssClass],
+    index_build_run_at: str,
+    inventory_semantics: dict[str, object],
+    corpus_generation: str,
+) -> None:
+    """Write every index row into database_path; metadata paths are relative to output_path's folder."""
     extractor_signature_hash = compute_extractor_signature_hash()
 
-    conn = sqlite3.connect(output_path)
+    conn = sqlite3.connect(database_path)
     try:
         create_schema(conn)
         conn.executemany(
@@ -4448,7 +4479,11 @@ def write_index(
             [
                 ("last_index_build_run_at", index_build_run_at),
                 ("source_root", portable_source_root(source_root, output_path.parent)),
-                ("schema_version", "5"),
+                # The corpus generation read under the corpus lock; the query compares it with
+                # the corpus state under the same lock.
+                ("corpus_generation", corpus_generation),
+                ("corpus_state_schema_version", CORPUS_STATE_SCHEMA_VERSION),
+                ("schema_version", SCHEMA_VERSION),
                 ("writability_rule_version", WRITABILITY_RULE_VERSION),
                 ("extractor_signature_version", EXTRACTOR_SIGNATURE_VERSION),
                 ("extractor_signature_hash", extractor_signature_hash),
@@ -4747,6 +4782,346 @@ def split_typed_name(value: str) -> tuple[str, str]:
     return object_type, name
 
 
+class ExtractionInputs:
+    """What the extractor calls read: the corpus root and its objects, by type and in scan order."""
+
+    def __init__(self, source_root: Path, objects_by_type: dict[str, dict[str, ObjectInfo]]) -> None:
+        self.source_root = source_root
+        self.objects_by_type = objects_by_type
+        self.objects = [obj for by_name in objects_by_type.values() for obj in by_name.values()]
+
+    def of_type(self, object_type: str) -> dict[str, ObjectInfo]:
+        """The objects of one type, by name."""
+        return self.objects_by_type.get(object_type, {})
+
+    def names(self, object_type: str) -> set[str]:
+        return set(self.of_type(object_type))
+
+    def objects_in(self, object_types: Iterable[str]) -> list[ObjectInfo]:
+        """The objects of these types, in scan order."""
+        return [obj for obj in self.objects if obj.object_type in object_types]
+
+    def by_type(self, object_types: Iterable[str]) -> list[ObjectInfo]:
+        """The objects of these types, one type after the other in the given order."""
+        return [obj for object_type in object_types for obj in self.of_type(object_type).values()]
+
+
+class ExtractorCall(NamedTuple):
+    """The build side of an extractor record: the function, its arguments for a corpus (a function
+    of ExtractionInputs returning positional and keyword arguments), and the position of its
+    evidence among the index rows. A call without a position writes its evidence after every
+    positioned one, in record order."""
+
+    function: Callable[..., Iterable[Evidence]]
+    arguments: Callable[[ExtractionInputs], tuple[tuple[object, ...], dict[str, object]]]
+    evidence_position: int | None = None
+
+
+def _domain_fqfn_by_name(inputs: ExtractionInputs) -> dict[str, str]:
+    return {
+        name.lower(): fqfn
+        for (object_type, name), fqfn in collect_fully_qualified_names({"Domain": inputs.of_type("Domain")}).items()
+        if object_type == "domain"
+    }
+
+
+# The call of each EXTRACTOR_RECORDS entry, by record name. The evidence positions keep the row
+# order of the index (evidence and relation ids), which is not the call order for the formula, menu,
+# classic structure and CSS calls.
+EXTRACTOR_CALLS: dict[str, ExtractorCall] = {
+    "evidence": ExtractorCall(
+        extract_evidence,
+        lambda i: (
+            (i.source_root, i.objects_in(INDEXED_SOURCE_TYPES)),
+            {
+                "procedure_names": i.names("Procedure"),
+                "webpanel_names": i.names("WebPanel"),
+                "data_provider_names": i.names("DataProvider"),
+                "report_names": i.names("Report"),
+                "transaction_names": i.names("Transaction"),
+                "workpanel_names": i.names("WorkPanel"),
+            },
+        ),
+        0,
+    ),
+    "source_for_each_explicit_table": ExtractorCall(
+        extract_source_for_each_explicit_table_evidence,
+        lambda i: ((i.objects_in(FOR_EACH_SOURCE_TYPES),), {"table_names": i.names("Table")}),
+        1,
+    ),
+    "source_for_each_qualified_table_prefix": ExtractorCall(
+        extract_source_for_each_qualified_table_prefix_evidence,
+        lambda i: ((i.objects_in(FOR_EACH_SOURCE_TYPES),), {"table_names": i.names("Table")}),
+        2,
+    ),
+    "source_bc_load_transaction": ExtractorCall(
+        extract_source_bc_load_transaction_evidence,
+        lambda i: ((i.objects_in(BC_LOAD_SOURCE_TYPES),), {"transaction_names": i.names("Transaction")}),
+        3,
+    ),
+    "source_bc_save_transaction": ExtractorCall(
+        extract_source_bc_save_transaction_evidence,
+        lambda i: ((i.objects_in(BC_LOAD_SOURCE_TYPES),), {"transaction_names": i.names("Transaction")}),
+        4,
+    ),
+    "source_bc_delete_transaction": ExtractorCall(
+        extract_source_bc_delete_transaction_evidence,
+        lambda i: ((i.objects_in(BC_LOAD_SOURCE_TYPES),), {"transaction_names": i.names("Transaction")}),
+        5,
+    ),
+    "source_bc_check_transaction": ExtractorCall(
+        extract_source_bc_check_transaction_evidence,
+        lambda i: ((i.objects_in(BC_LOAD_SOURCE_TYPES),), {"transaction_names": i.names("Transaction")}),
+        6,
+    ),
+    "source_simple_bc_insert_update_transaction": ExtractorCall(
+        extract_source_simple_bc_insert_update_transaction_evidence,
+        lambda i: ((i.objects_in(BC_LOAD_SOURCE_TYPES),), {"transaction_names": i.names("Transaction")}),
+        7,
+    ),
+    "source_external_object_method": ExtractorCall(
+        extract_source_external_object_method_evidence,
+        lambda i: ((i.objects_in(INDEXED_SOURCE_TYPES),), {"external_object_names": i.names("ExternalObject")}),
+        8,
+    ),
+    "workwith_action": ExtractorCall(
+        extract_workwith_action_evidence,
+        lambda i: (
+            (i.by_type(WORKWITH_SOURCE_TYPES),),
+            {"procedure_names": i.names("Procedure"), "webpanel_names": i.names("WebPanel")},
+        ),
+        9,
+    ),
+    "workwith_condition": ExtractorCall(
+        extract_workwith_condition_evidence,
+        lambda i: ((i.by_type(WORKWITH_SOURCE_TYPES),), {"procedure_names": i.names("Procedure")}),
+        10,
+    ),
+    "workwith_condition_attribute": ExtractorCall(
+        extract_workwith_condition_attribute_evidence,
+        lambda i: ((i.by_type(WORKWITH_SOURCE_TYPES),), {"procedure_names": i.names("Procedure")}),
+        11,
+    ),
+    "workwith_transaction": ExtractorCall(
+        extract_workwith_transaction_evidence,
+        lambda i: ((i.by_type(WORKWITH_SOURCE_TYPES),), {"transaction_names": i.names("Transaction")}),
+        12,
+    ),
+    "workwith_webpanel_link": ExtractorCall(
+        extract_workwith_webpanel_link_evidence,
+        lambda i: ((i.by_type(WORKWITH_SOURCE_TYPES),), {"webpanel_names": i.names("WebPanel")}),
+        13,
+    ),
+    "workwith_prompt": ExtractorCall(
+        extract_workwith_prompt_evidence,
+        lambda i: ((i.by_type(WORKWITH_SOURCE_TYPES),), {"webpanel_names": i.names("WebPanel")}),
+        14,
+    ),
+    "workwith_for_web_attribute": ExtractorCall(
+        extract_workwith_for_web_attribute_evidence,
+        lambda i: ((i.of_type("WorkWithForWeb").values(),), {"attribute_names": i.names("Attribute")}),
+        15,
+    ),
+    "workwith_sd_attribute": ExtractorCall(
+        extract_workwith_sd_attribute_evidence,
+        lambda i: ((i.of_type("WorkWith").values(),), {"attribute_names": i.names("Attribute")}),
+        16,
+    ),
+    "panel_attribute": ExtractorCall(
+        extract_workwith_sd_attribute_evidence,
+        lambda i: (
+            (i.of_type("Panel").values(),),
+            {
+                "attribute_names": i.names("Attribute"),
+                "relation_kind": "panel_references_attribute",
+                "extractor_rule": "sd_panel_attribute_reference",
+                "role_prefix": "Panel",
+            },
+        ),
+        17,
+    ),
+    "code_attribute": ExtractorCall(
+        extract_code_attribute_evidence,
+        lambda i: (
+            (
+                [
+                    obj
+                    for obj in i.objects
+                    if obj.object_type in CODE_ATTRIBUTE_PART_NAMES or obj.object_type in CLASSIC_CODE_ATTRIBUTE_SECTIONS
+                ],
+            ),
+            {
+                "attribute_names": i.names("Attribute"),
+                "domain_names": i.names("Domain"),
+                "transaction_type_guid": get_transaction_type_guid(GX_TYPE_CATALOG_BY_NAME),
+            },
+        ),
+        18,
+    ),
+    "attcustomtype": ExtractorCall(
+        extract_attcustomtype_evidence,
+        lambda i: ((i.by_type(CUSTOM_TYPE_SOURCE_TYPES),), {}),
+        19,
+    ),
+    "attcustomtype_resolved": ExtractorCall(
+        extract_attcustomtype_resolved_evidence,
+        lambda i: (
+            (i.by_type(CUSTOM_TYPE_SOURCE_TYPES),),
+            {
+                "sdt_names": i.names("SDT"),
+                "domain_names": i.names("Domain"),
+                "external_object_names": i.names("ExternalObject"),
+            },
+        ),
+        20,
+    ),
+    "sdt_item_attcustomtype_resolved_sdt": ExtractorCall(
+        extract_sdt_item_attcustomtype_resolved_sdt_evidence,
+        lambda i: ((i.of_type("SDT").values(),), {"sdt_names": i.names("SDT")}),
+        21,
+    ),
+    "idbasedon_domain": ExtractorCall(
+        extract_idbasedon_domain_evidence,
+        lambda i: (
+            (i.objects_in(IDBASEDON_DOMAIN_SOURCE_TYPES),),
+            {"domain_names": i.names("Domain"), "domain_fqfn_by_name": _domain_fqfn_by_name(i)},
+        ),
+        22,
+    ),
+    "classic_formula": ExtractorCall(
+        extract_classic_formula_evidence,
+        lambda i: (
+            (i.source_root, i.of_type("Attribute")),
+            {"procedure_names": i.names("Procedure"), "domain_names": i.names("Domain")},
+        ),
+        25,
+    ),
+    "attribute_formula_attribute": ExtractorCall(
+        extract_attribute_formula_attribute_evidence,
+        lambda i: (
+            (i.of_type("Attribute").values(),),
+            {"attribute_names": i.names("Attribute"), "domain_names": i.names("Domain")},
+        ),
+        26,
+    ),
+    "classic_menu_option": ExtractorCall(
+        extract_classic_menu_option_evidence,
+        lambda i: (
+            (i.of_type("Menu").values(),),
+            {
+                "names_by_type": {
+                    target_type: i.names(target_type) for target_type, _kind in CLASSIC_MENU_OPTION_TARGETS.values()
+                }
+            },
+        ),
+        24,
+    ),
+    "attribute_formula_call": ExtractorCall(
+        extract_attribute_formula_call_evidence,
+        lambda i: (
+            (i.of_type("Attribute").values(),),
+            {
+                "procedure_names": i.names("Procedure"),
+                "webpanel_names": i.names("WebPanel"),
+                "data_provider_names": i.names("DataProvider"),
+            },
+        ),
+        23,
+    ),
+    "transaction_level_attribute": ExtractorCall(
+        extract_transaction_level_attribute_evidence,
+        lambda i: ((i.of_type("Transaction").values(),), {"attribute_names": i.names("Attribute")}),
+        27,
+    ),
+    "transaction_level_table": ExtractorCall(
+        extract_transaction_level_table_evidence,
+        lambda i: ((i.of_type("Transaction").values(),), {"table_names": i.names("Table")}),
+        28,
+    ),
+    "table_key_attribute": ExtractorCall(
+        extract_table_key_attribute_evidence,
+        lambda i: ((i.of_type("Table").values(),), {"attribute_names": i.names("Attribute")}),
+        29,
+    ),
+    "table_index_member_attribute": ExtractorCall(
+        extract_table_index_member_attribute_evidence,
+        lambda i: ((i.of_type("Table").values(),), {"attribute_names": i.names("Attribute")}),
+        30,
+    ),
+    "classic_table_structure": ExtractorCall(
+        extract_classic_table_structure_evidence,
+        lambda i: ((i.of_type("Table").values(),), {"attribute_names": i.names("Attribute")}),
+        33,
+    ),
+    "classic_transaction_level": ExtractorCall(
+        extract_classic_transaction_level_evidence,
+        lambda i: (
+            (i.of_type("Transaction").values(), i.of_type("Table").values()),
+            {"attribute_names": i.names("Attribute")},
+        ),
+        34,
+    ),
+    "classic_for_each_base_table": ExtractorCall(
+        extract_classic_for_each_base_table_evidence,
+        lambda i: (
+            (
+                i.objects_in(CLASSIC_CODE_ATTRIBUTE_SECTIONS),
+                i.of_type("Table").values(),
+                i.of_type("Transaction").values(),
+                i.of_type("SubTypeGroup").values(),
+            ),
+            {"attribute_names": i.names("Attribute")},
+        ),
+        35,
+    ),
+    "css_layout_usage": ExtractorCall(
+        extract_css_layout_usage_evidence,
+        lambda i: ((i.objects_in(CSS_USAGE_SOURCE_TYPES),), {}),
+        31,
+    ),
+    "css_event_usage": ExtractorCall(
+        extract_css_event_usage_evidence,
+        lambda i: ((i.objects_in(CSS_USAGE_SOURCE_TYPES),), {}),
+        32,
+    ),
+}
+
+
+def _evidence_sort_key(call: ExtractorCall, call_index: int) -> tuple[int, int, int]:
+    if call.evidence_position is None:
+        return (1, 0, call_index)
+    return (0, call.evidence_position, call_index)
+
+
+def evidence_order(
+    records: tuple[ExtractorRecord, ...], calls: dict[str, ExtractorCall]
+) -> list[str]:
+    """The record names in the order their evidence is written."""
+    keyed = sorted(
+        (_evidence_sort_key(calls[record.name], index), record.name) for index, record in enumerate(records)
+    )
+    return [name for _key, name in keyed]
+
+
+def run_extractors(
+    inputs: ExtractionInputs,
+    records: tuple[ExtractorRecord, ...] = EXTRACTOR_RECORDS,
+    calls: dict[str, ExtractorCall] | None = None,
+) -> list[Evidence]:
+    """Run each record's call in record order and return their evidence in index row order."""
+    calls = EXTRACTOR_CALLS if calls is None else calls
+    missing = [record.name for record in records if record.name not in calls]
+    if missing:
+        raise RuntimeError("Extractor records without a call in EXTRACTOR_CALLS: " + ", ".join(missing))
+    results = []
+    for index, record in enumerate(records):
+        call = calls[record.name]
+        args, kwargs = call.arguments(inputs)
+        results.append((_evidence_sort_key(call, index), call.function(*args, **kwargs)))
+    results.sort(key=lambda result: result[0])
+    return [evidence for _key, found in results for evidence in found]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a minimal KB intelligence SQLite index.")
     parser.add_argument("--source-root", required=True, type=Path)
@@ -4783,292 +5158,71 @@ def main() -> int:
         print(json.dumps(build_catalog_override_blocked_result(exc), indent=2, ensure_ascii=False))
         return 2
 
-    objects_by_type, scan_summary = collect_all_objects(source_root)
-    inventory_semantics = validate_inventory_semantics(objects_by_type, scan_summary)
-    procedures = objects_by_type.get("Procedure", {})
-    webpanels = objects_by_type.get("WebPanel", {})
-    data_providers = objects_by_type.get("DataProvider", {})
-    apis = objects_by_type.get("API", {})
-    data_selectors = objects_by_type.get("DataSelector", {})
-    domains = objects_by_type.get("Domain", {})
-    sdts = objects_by_type.get("SDT", {})
-    workwith_objects = [
-        *objects_by_type.get("WorkWith", {}).values(),
-        *objects_by_type.get("WorkWithForWeb", {}).values(),
-    ]
-    transactions = objects_by_type.get("Transaction", {})
-    attributes = objects_by_type.get("Attribute", {})
-    tables = objects_by_type.get("Table", {})
-    external_objects = objects_by_type.get("ExternalObject", {})
-    objects = [obj for by_name in objects_by_type.values() for obj in by_name.values()]
+    # The corpus lock is held from the first corpus read through the index publication and the
+    # validation report, so no sync can change the corpus in between.
+    held = contextlib.ExitStack()
+    try:
+        held.enter_context(corpus_lock_with_retry(source_root))
+    except CorpusLockBusy as exc:
+        print(f"BLOCK: corpus lock busy for {source_root} ({exc}). {corpus_lock_busy_recovery()}", file=sys.stderr)
+        return EXIT_CORPUS_LOCK_BUSY
+    with held:
+        corpus_state = read_corpus_state(source_root)
+        if corpus_state.state != "complete":
+            print(
+                f"BLOCK: corpus state is {corpus_state.state}; the index was not built. "
+                f"{corpus_state_recovery(corpus_state.state)}",
+                file=sys.stderr,
+            )
+            return EXIT_CORPUS_NOT_COMPLETE
+        corpus_generation = str(corpus_state.generation)
 
-    source_evidences = extract_evidence(
-        source_root,
-        [obj for obj in objects if obj.object_type in INDEXED_SOURCE_TYPES],
-        procedure_names=set(procedures),
-        webpanel_names=set(webpanels),
-        data_provider_names=set(data_providers),
-        report_names=set(objects_by_type.get("Report", {})),
-        transaction_names=set(transactions),
-        workpanel_names=set(objects_by_type.get("WorkPanel", {})),
-    )
-    source_for_each_explicit_table_evidences = extract_source_for_each_explicit_table_evidence(
-        [obj for obj in objects if obj.object_type in FOR_EACH_SOURCE_TYPES],
-        table_names=set(tables),
-    )
-    source_for_each_qualified_table_prefix_evidences = extract_source_for_each_qualified_table_prefix_evidence(
-        [obj for obj in objects if obj.object_type in FOR_EACH_SOURCE_TYPES],
-        table_names=set(tables),
-    )
-    source_bc_load_transaction_evidences = extract_source_bc_load_transaction_evidence(
-        [obj for obj in objects if obj.object_type in BC_LOAD_SOURCE_TYPES],
-        transaction_names=set(transactions),
-    )
-    source_bc_save_transaction_evidences = extract_source_bc_save_transaction_evidence(
-        [obj for obj in objects if obj.object_type in BC_LOAD_SOURCE_TYPES],
-        transaction_names=set(transactions),
-    )
-    source_bc_delete_transaction_evidences = extract_source_bc_delete_transaction_evidence(
-        [obj for obj in objects if obj.object_type in BC_LOAD_SOURCE_TYPES],
-        transaction_names=set(transactions),
-    )
-    source_bc_check_transaction_evidences = extract_source_bc_check_transaction_evidence(
-        [obj for obj in objects if obj.object_type in BC_LOAD_SOURCE_TYPES],
-        transaction_names=set(transactions),
-    )
-    source_simple_bc_insert_update_transaction_evidences = (
-        extract_source_simple_bc_insert_update_transaction_evidence(
-            [obj for obj in objects if obj.object_type in BC_LOAD_SOURCE_TYPES],
-            transaction_names=set(transactions),
+        objects_by_type, scan_summary = collect_all_objects(source_root)
+        inventory_semantics = validate_inventory_semantics(objects_by_type, scan_summary)
+        inputs = ExtractionInputs(source_root, objects_by_type)
+        objects = inputs.objects
+        evidences = run_extractors(inputs)
+        css_classes = (
+            collect_legacy_theme_css_classes(objects_by_type.get("ThemeClass", {}).values())
+            + collect_design_system_css_classes(
+                objects_by_type.get("DesignSystem", {}).values(),
+                defining_object_type="DesignSystem",
+                origin="kb-authored",
+                extractor_rule="design_system_scss_selector",
+            )
+            + collect_design_system_css_classes(
+                objects_by_type.get("PackagedModule", {}).values(),
+                defining_object_type="PackagedModule",
+                origin="packaged-module",
+                extractor_rule="packaged_module_scss_selector",
+            )
         )
-    )
-    source_external_object_method_evidences = extract_source_external_object_method_evidence(
-        [obj for obj in objects if obj.object_type in INDEXED_SOURCE_TYPES],
-        external_object_names=set(external_objects),
-    )
-    workwith_evidences = extract_workwith_action_evidence(
-        workwith_objects,
-        procedure_names=set(procedures),
-        webpanel_names=set(webpanels),
-    )
-    workwith_condition_evidences = extract_workwith_condition_evidence(
-        workwith_objects,
-        procedure_names=set(procedures),
-    )
-    workwith_condition_attribute_evidences = extract_workwith_condition_attribute_evidence(
-        workwith_objects,
-        procedure_names=set(procedures),
-    )
-    workwith_transaction_evidences = extract_workwith_transaction_evidence(
-        workwith_objects,
-        transaction_names=set(transactions),
-    )
-    workwith_webpanel_link_evidences = extract_workwith_webpanel_link_evidence(
-        workwith_objects,
-        webpanel_names=set(webpanels),
-    )
-    workwith_prompt_evidences = extract_workwith_prompt_evidence(
-        workwith_objects,
-        webpanel_names=set(webpanels),
-    )
-    workwith_for_web_attribute_evidences = extract_workwith_for_web_attribute_evidence(
-        objects_by_type.get("WorkWithForWeb", {}).values(),
-        attribute_names=set(attributes),
-    )
-    workwith_sd_attribute_evidences = extract_workwith_sd_attribute_evidence(
-        objects_by_type.get("WorkWith", {}).values(),
-        attribute_names=set(attributes),
-    )
-    panel_attribute_evidences = extract_workwith_sd_attribute_evidence(
-        objects_by_type.get("Panel", {}).values(),
-        attribute_names=set(attributes),
-        relation_kind="panel_references_attribute",
-        extractor_rule="sd_panel_attribute_reference",
-        role_prefix="Panel",
-    )
-    code_attribute_evidences = extract_code_attribute_evidence(
-        [
-            obj
-            for obj in objects
-            if obj.object_type in CODE_ATTRIBUTE_PART_NAMES or obj.object_type in CLASSIC_CODE_ATTRIBUTE_SECTIONS
-        ],
-        attribute_names=set(attributes),
-        domain_names=set(domains),
-        transaction_type_guid=get_transaction_type_guid(GX_TYPE_CATALOG_BY_NAME),
-    )
-    relation_scope_objects = [
-        *procedures.values(),
-        *webpanels.values(),
-        *data_providers.values(),
-        *apis.values(),
-        *data_selectors.values(),
-        *domains.values(),
-        *sdts.values(),
-        *workwith_objects,
-        *transactions.values(),
-    ]
-    custom_type_evidences = extract_attcustomtype_evidence(relation_scope_objects)
-    resolved_custom_type_evidences = extract_attcustomtype_resolved_evidence(
-        relation_scope_objects,
-        sdt_names=set(objects_by_type.get("SDT", {})),
-        domain_names=set(objects_by_type.get("Domain", {})),
-        external_object_names=set(external_objects),
-    )
-    sdt_item_attcustomtype_resolved_sdt_evidences = extract_sdt_item_attcustomtype_resolved_sdt_evidence(
-        objects_by_type.get("SDT", {}).values(),
-        sdt_names=set(objects_by_type.get("SDT", {})),
-    )
-    attribute_idbasedon_domain_evidences = extract_idbasedon_domain_evidence(
-        [
-            obj
-            for obj in objects
-            if obj.object_type in IDBASEDON_DOMAIN_SOURCE_TYPES
-        ],
-        domain_names=set(objects_by_type.get("Domain", {})),
-        domain_fqfn_by_name={
-            name.lower(): fqfn
-            for (object_type, name), fqfn in collect_fully_qualified_names(
-                {"Domain": objects_by_type.get("Domain", {})}
-            ).items()
-            if object_type == "domain"
-        },
-    )
-    classic_formula_evidences = extract_classic_formula_evidence(
-        source_root,
-        attributes,
-        procedure_names=set(procedures),
-        domain_names=set(domains),
-    )
-    attribute_formula_attribute_evidences = extract_attribute_formula_attribute_evidence(
-        attributes.values(),
-        attribute_names=set(attributes),
-        domain_names=set(domains),
-    )
-    classic_menu_option_evidences = extract_classic_menu_option_evidence(
-        objects_by_type.get("Menu", {}).values(),
-        names_by_type={
-            target_type: set(objects_by_type.get(target_type, {}))
-            for target_type, _kind in CLASSIC_MENU_OPTION_TARGETS.values()
-        },
-    )
-    attribute_formula_call_evidences = extract_attribute_formula_call_evidence(
-        attributes.values(),
-        procedure_names=set(procedures),
-        webpanel_names=set(webpanels),
-        data_provider_names=set(data_providers),
-    )
-    transaction_level_attribute_evidences = extract_transaction_level_attribute_evidence(
-        transactions.values(),
-        attribute_names=set(attributes),
-    )
-    transaction_level_table_evidences = extract_transaction_level_table_evidence(
-        transactions.values(),
-        table_names=set(tables),
-    )
-    table_key_attribute_evidences = extract_table_key_attribute_evidence(
-        tables.values(),
-        attribute_names=set(attributes),
-    )
-    table_index_member_attribute_evidences = extract_table_index_member_attribute_evidence(
-        tables.values(),
-        attribute_names=set(attributes),
-    )
-    classic_table_structure_evidences = extract_classic_table_structure_evidence(
-        tables.values(),
-        attribute_names=set(attributes),
-    )
-    classic_transaction_level_evidences = extract_classic_transaction_level_evidence(
-        transactions.values(),
-        tables.values(),
-        attribute_names=set(attributes),
-    )
-    classic_for_each_base_table_evidences = extract_classic_for_each_base_table_evidence(
-        [obj for obj in objects if obj.object_type in CLASSIC_CODE_ATTRIBUTE_SECTIONS],
-        tables.values(),
-        transactions.values(),
-        objects_by_type.get("SubTypeGroup", {}).values(),
-        attribute_names=set(attributes),
-    )
-    css_classes = (
-        collect_legacy_theme_css_classes(objects_by_type.get("ThemeClass", {}).values())
-        + collect_design_system_css_classes(
-            objects_by_type.get("DesignSystem", {}).values(),
-            defining_object_type="DesignSystem",
-            origin="kb-authored",
-            extractor_rule="design_system_scss_selector",
+        index_build_run_at = datetime.now(timezone.utc).isoformat()
+        write_index(
+            args.output_path.resolve(),
+            source_root,
+            objects,
+            evidences,
+            css_classes,
+            index_build_run_at,
+            inventory_semantics,
+            corpus_generation,
         )
-        + collect_design_system_css_classes(
-            objects_by_type.get("PackagedModule", {}).values(),
-            defining_object_type="PackagedModule",
-            origin="packaged-module",
-            extractor_rule="packaged_module_scss_selector",
-        )
-    )
-    css_usage_objects = [obj for obj in objects if obj.object_type in CSS_USAGE_SOURCE_TYPES]
-    css_layout_usage_evidences = extract_css_layout_usage_evidence(css_usage_objects)
-    css_event_usage_evidences = extract_css_event_usage_evidence(css_usage_objects)
-    evidences = [
-        *source_evidences,
-        *source_for_each_explicit_table_evidences,
-        *source_for_each_qualified_table_prefix_evidences,
-        *source_bc_load_transaction_evidences,
-        *source_bc_save_transaction_evidences,
-        *source_bc_delete_transaction_evidences,
-        *source_bc_check_transaction_evidences,
-        *source_simple_bc_insert_update_transaction_evidences,
-        *source_external_object_method_evidences,
-        *workwith_evidences,
-        *workwith_condition_evidences,
-        *workwith_condition_attribute_evidences,
-        *workwith_transaction_evidences,
-        *workwith_webpanel_link_evidences,
-        *workwith_prompt_evidences,
-        *workwith_for_web_attribute_evidences,
-        *workwith_sd_attribute_evidences,
-        *panel_attribute_evidences,
-        *code_attribute_evidences,
-        *custom_type_evidences,
-        *resolved_custom_type_evidences,
-        *sdt_item_attcustomtype_resolved_sdt_evidences,
-        *attribute_idbasedon_domain_evidences,
-        *attribute_formula_call_evidences,
-        *classic_menu_option_evidences,
-        *classic_formula_evidences,
-        *attribute_formula_attribute_evidences,
-        *transaction_level_attribute_evidences,
-        *transaction_level_table_evidences,
-        *table_key_attribute_evidences,
-        *table_index_member_attribute_evidences,
-        *css_layout_usage_evidences,
-        *css_event_usage_evidences,
-        *classic_table_structure_evidences,
-        *classic_transaction_level_evidences,
-        *classic_for_each_base_table_evidences,
-    ]
-    index_build_run_at = datetime.now(timezone.utc).isoformat()
-    write_index(
-        args.output_path.resolve(),
-        source_root,
-        objects,
-        evidences,
-        css_classes,
-        index_build_run_at,
-        inventory_semantics,
-    )
 
-    validation_cases_path = args.validation_cases_path.resolve() if args.validation_cases_path else None
-    if validation_cases_path and not validation_cases_path.exists():
-        raise SystemExit(f"ValidationCasesPath not found: {validation_cases_path}")
+        validation_cases_path = args.validation_cases_path.resolve() if args.validation_cases_path else None
+        if validation_cases_path and not validation_cases_path.exists():
+            raise SystemExit(f"ValidationCasesPath not found: {validation_cases_path}")
 
-    report = validation_report(
-        source_root,
-        objects_by_type,
-        evidences,
-        css_classes,
-        validation_cases_path,
-        index_build_run_at,
-        inventory_semantics,
-    )
+        report = validation_report(
+            source_root,
+            objects_by_type,
+            evidences,
+            css_classes,
+            validation_cases_path,
+            index_build_run_at,
+            inventory_semantics,
+        )
+
     if args.validation_report_path:
         report_path = args.validation_report_path.resolve()
         report_path.parent.mkdir(parents=True, exist_ok=True)

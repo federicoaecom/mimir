@@ -80,6 +80,12 @@ $p2 = Join-Path $PSScriptRoot 'Test-PyScriptsParse.ps1'
         throw "the candidate should point out Gamma as missing; message: $($finding.message)"
     }
 
+    # Pin the real orchestrator's discovery seam independently of documentation.
+    $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    Copy-Item -LiteralPath (Join-Path $repo 'tools/Invoke-PrePushMechanicalChecks.ps1') -Destination (Join-Path $tempRoot 'tools/Invoke-PrePushMechanicalChecks.ps1') -Force
+    $actual = & pwsh -NoProfile -File $scriptPath -RootPath $tempRoot -AsJson | ConvertFrom-Json
+    $expected = @('Test-PrePushTraceabilityCoverage.ps1', 'Test-GeneXusUnexpectedCharacter.ps1', 'Test-PrePushNewTokenPropagation.ps1', 'Test-PrePushSharedScriptSkillCoverage.ps1', 'Test-PrePushGateEnumerationParity.ps1', 'Test-PrePushBackendEnumerationParity.ps1')
+    if (@(Compare-Object @($expected | Sort-Object) @($actual.orchestratorGates | Sort-Object)).Count -ne 0 -or @($actual.orchestratorGates).Count -ne 6) { throw "Real gate discovery differs: $($actual.orchestratorGates -join ', ')" }
     Write-Output 'OK: Test-PrePushGateEnumerationParitySelfTest.ps1'
     exit 0
 } finally {

@@ -32,6 +32,7 @@
     -RootPath (subject to -SkipPaths) is scanned, matching prior behavior.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'SkipPaths', Justification = 'Read by Test-IsSkippedSource through dynamic scope.')]
 [CmdletBinding()]
 param(
     [string]$RootPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path,

@@ -32,7 +32,7 @@ function Invoke-CapturedPublicReview {
         [string] $FakeExe,
         [hashtable] $Extra = @{}
     )
-    $args = @{
+    $invokeArgs = @{
         Message = $Prompt
         Model = 'gemini-3.6-flash-high'
         Profile = 'public-review'
@@ -40,14 +40,49 @@ function Invoke-CapturedPublicReview {
         ReceiptPath = $ReceiptPath
         TimeoutSec = $script:DefaultTimeoutSec
     }
-    foreach ($key in $Extra.Keys) { $args[$key] = $Extra[$key] }
+    foreach ($key in $Extra.Keys) { $invokeArgs[$key] = $Extra[$key] }
     $output = $null
     $errorText = $null
-    try { $output = & $script:invokeScript @args } catch { $errorText = $_.Exception.Message }
+    try { $output = & $script:invokeScript @invokeArgs } catch { $errorText = $_.Exception.Message }
     $receipt = if (Test-Path -LiteralPath $ReceiptPath -PathType Leaf) {
         Get-Content -LiteralPath $ReceiptPath -Raw -Encoding utf8 | ConvertFrom-Json
     } else { $null }
     return [pscustomobject]@{ output = $output; error = $errorText; receipt = $receipt }
+}
+
+# Runs Invoke-CapturedPublicReview for each spec (Name, Prompt, ReceiptPath, FakeExe, optional
+# Extra) in a background job, $script:CaseConcurrency calls at a time. Each call is a separate
+# in-process run of the profile with its own receipt and scratch, as the concurrent-pair case
+# below shows the profile supports. Receive-CaseBatch returns the results keyed by Name.
+# $script:CaseConcurrency is 4, divided by the test runner's throttle (MIMIR_TEST_THROTTLE, set
+# only when the runner itself runs files in parallel), so parallel files do not multiply the load.
+$runnerThrottle = 0
+if (-not [int]::TryParse([string]$env:MIMIR_TEST_THROTTLE, [ref]$runnerThrottle) -or $runnerThrottle -lt 1) { $runnerThrottle = 1 }
+$script:CaseConcurrency = if ($runnerThrottle -gt 1) { [int][math]::Max(1, [math]::Floor(4 / $runnerThrottle)) } else { 4 }
+function Start-CaseBatch {
+    param([object[]] $Specs)
+    $definition = ${function:Invoke-CapturedPublicReview}.ToString()
+    $invokePath = $script:invokeScript
+    $defaultTimeout = $script:DefaultTimeoutSec
+    return ($Specs | ForEach-Object -Parallel {
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = 'Stop'
+        $global:invokeScript = $using:invokePath
+        $global:DefaultTimeoutSec = $using:defaultTimeout
+        ${function:Invoke-CapturedPublicReview} = [scriptblock]::Create($using:definition)
+        $spec = $_
+        $extra = if ($spec.ContainsKey('Extra')) { $spec.Extra } else { @{} }
+        [pscustomobject]@{
+            Name = $spec.Name
+            Result = (Invoke-CapturedPublicReview -Prompt $spec.Prompt -ReceiptPath $spec.ReceiptPath -FakeExe $spec.FakeExe -Extra $extra)
+        }
+    } -ThrottleLimit $script:CaseConcurrency -AsJob)
+}
+function Receive-CaseBatch {
+    param($Job)
+    $results = @{}
+    foreach ($item in @(Receive-Job -Job $Job -Wait -AutoRemoveJob)) { $results[$item.Name] = $item.Result }
+    return $results
 }
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('agy-public-review-selftest-' + [guid]::NewGuid().ToString('N'))
@@ -155,6 +190,34 @@ switch ($prompt) {
         Assert-True ($profileDirs -contains $pair) "scratch profile nests '$pair' as parent|child ($($profileDirs -join ', '))"
     }
 
+    # Every case below except the concurrent pair, -Cd and the reparse point runs in one batch of
+    # in-process calls, $script:CaseConcurrency at a time, started here and collected before the
+    # first assertion that needs it. Each call has its own receipt, scratch folder and fake log, so
+    # the cases are independent; the batch overlaps the two timeout cases with the rest.
+    $gitScratch = Join-Path $tempRoot 'git-scratch'; [void][IO.Directory]::CreateDirectory((Join-Path $gitScratch '.git'))
+    $kbScratch = Join-Path $tempRoot 'kb-root'; [void][IO.Directory]::CreateDirectory((Join-Path $kbScratch 'KbObjectsXml'))
+    $caseSpecs = @(
+        @{ Name = 'timeoutQuota'; Prompt = 'TIMEOUT_QUOTA'; ReceiptPath = (Join-Path $tempRoot 'timeout-quota.json'); FakeExe = $fakeCmd; Extra = @{ TimeoutSec=$script:TimeoutQuotaCaseSec } }
+        @{ Name = 'timeout'; Prompt = 'TIMEOUT'; ReceiptPath = (Join-Path $tempRoot 'timeout.json'); FakeExe = $fakeCmd; Extra = @{ TimeoutSec=$script:TimeoutCaseSec } }
+        @{ Name = 'large'; Prompt = ('x' * 30001); ReceiptPath = (Join-Path $tempRoot 'large.json'); FakeExe = $fakeCmd }
+        @{ Name = 'missing'; Prompt = 'X'; ReceiptPath = (Join-Path $tempRoot 'missing.json'); FakeExe = (Join-Path $tempRoot 'missing.exe') }
+        @{ Name = 'auth0'; Prompt = 'AUTH0'; ReceiptPath = (Join-Path $tempRoot 'auth0.json'); FakeExe = $fakeCmd }
+        @{ Name = 'auth1'; Prompt = 'AUTH1'; ReceiptPath = (Join-Path $tempRoot 'auth1.json'); FakeExe = $fakeCmd }
+        @{ Name = 'authQuota'; Prompt = 'AUTH_QUOTA'; ReceiptPath = (Join-Path $tempRoot 'auth-quota.json'); FakeExe = $fakeCmd }
+        @{ Name = 'quota429'; Prompt = 'QUOTA429'; ReceiptPath = (Join-Path $tempRoot 'quota429.json'); FakeExe = $fakeCmd }
+        @{ Name = 'retries'; Prompt = 'RETRIES'; ReceiptPath = (Join-Path $tempRoot 'retries.json'); FakeExe = $fakeCmd }
+        @{ Name = 'errObj'; Prompt = 'ERR_OBJ_QUOTA'; ReceiptPath = (Join-Path $tempRoot 'err-obj.json'); FakeExe = $fakeCmd }
+        @{ Name = 'bad'; Prompt = 'BADJSON'; ReceiptPath = (Join-Path $tempRoot 'bad.json'); FakeExe = $fakeCmd }
+        @{ Name = 'statusError'; Prompt = 'STATUSERROR'; ReceiptPath = (Join-Path $tempRoot 'status.json'); FakeExe = $fakeCmd }
+        @{ Name = 'gitCase'; Prompt = 'X'; ReceiptPath = (Join-Path $tempRoot 'git.json'); FakeExe = $fakeCmd; Extra = @{ ScratchPath=$gitScratch } }
+        @{ Name = 'repoCase'; Prompt = 'X'; ReceiptPath = (Join-Path $tempRoot 'repo.json'); FakeExe = $fakeCmd; Extra = @{ ScratchPath=(Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) } }
+        @{ Name = 'kbCase'; Prompt = 'X'; ReceiptPath = (Join-Path $tempRoot 'kb.json'); FakeExe = $fakeCmd; Extra = @{ ScratchPath=$kbScratch } }
+        @{ Name = 'childCase'; Prompt = 'CHILD'; ReceiptPath = (Join-Path $tempRoot 'child.json'); FakeExe = $fakeCmd }
+        @{ Name = 'degraded'; Prompt = 'DEGRADED'; ReceiptPath = (Join-Path $tempRoot 'degraded.json'); FakeExe = $fakeCmd; Extra = @{ SimulateCleanupFailure='degraded' } }
+        @{ Name = 'failedCleanup'; Prompt = 'FAILED'; ReceiptPath = (Join-Path $tempRoot 'failed.json'); FakeExe = $fakeCmd; Extra = @{ SimulateCleanupFailure='failed' } }
+    )
+    $batchJob = Start-CaseBatch -Specs $caseSpecs
+
     # Concurrent scratch: two simultaneous calls receive a unique, disposable cwd.
     $parallel = 1,2 | ForEach-Object -Parallel {
         $receipt = Join-Path $using:tempRoot ("parallel-$_.receipt.json")
@@ -166,32 +229,33 @@ switch ($prompt) {
     Assert-True ($parallel[0].receipt.ScratchRemoved -and $parallel[1].receipt.ScratchRemoved) 'concurrent scratch is removed in both'
 
     # Inputs and typed failures.
-    $large = Invoke-CapturedPublicReview -Prompt ('x' * 30001) -ReceiptPath (Join-Path $tempRoot 'large.json') -FakeExe $fakeCmd
+    $batch = Receive-CaseBatch -Job $batchJob
+    $large = $batch['large']
     Assert-True ($large.error -match 'reason=inputTooLarge') 'prompt above 30000 is rejected without truncating'
-    $missing = Invoke-CapturedPublicReview -Prompt 'X' -ReceiptPath (Join-Path $tempRoot 'missing.json') -FakeExe (Join-Path $tempRoot 'missing.exe')
+    $missing = $batch['missing']
     Assert-True ($missing.error -match 'reason=cliMissing') 'missing CLI uses reason cliMissing'
-    $auth0 = Invoke-CapturedPublicReview -Prompt 'AUTH0' -ReceiptPath (Join-Path $tempRoot 'auth0.json') -FakeExe $fakeCmd
+    $auth0 = $batch['auth0']
     Assert-True ($auth0.error -match 'reason=unauthenticated') 'interactive authentication with exit 0 uses unauthenticated'
-    $auth1 = Invoke-CapturedPublicReview -Prompt 'AUTH1' -ReceiptPath (Join-Path $tempRoot 'auth1.json') -FakeExe $fakeCmd
+    $auth1 = $batch['auth1']
     Assert-True ($auth1.error -match 'reason=unauthenticated') 'authentication failure with non-zero exit uses unauthenticated'
-    $authQuota = Invoke-CapturedPublicReview -Prompt 'AUTH_QUOTA' -ReceiptPath (Join-Path $tempRoot 'auth-quota.json') -FakeExe $fakeCmd
+    $authQuota = $batch['authQuota']
     Assert-True ($authQuota.error -match 'reason=unauthenticated') 'auth+quota in raw resolves to unauthenticated'
     Assert-True ($authQuota.error -notmatch '(?i)(^|[^0-9])(402|429)([^0-9]|$)|Payment Required|insufficient coding plan balance|quota|rate limit|resource_exhausted|(?:credits?|balance|saldo)\s+exhausted|too many requests|weekly usage limit|limite de uso|sem quota|saldo insuficiente') 'auth+quota Detail does not feed back into the dispatcher probe'
-    $quota429 = Invoke-CapturedPublicReview -Prompt 'QUOTA429' -ReceiptPath (Join-Path $tempRoot 'quota429.json') -FakeExe $fakeCmd
+    $quota429 = $batch['quota429']
     Assert-True ($quota429.error -match 'reason=quota') '429/Individual quota reached becomes reason=quota'
     Assert-True ($quota429.error -match 'quota' -and $quota429.error.Length -le 500) 'quota Detail preserves evidence and stays short'
     Assert-True ($quota429.receipt.Reason -eq 'quota') 'typed receipt records Reason=quota'
-    $retries = Invoke-CapturedPublicReview -Prompt 'RETRIES' -ReceiptPath (Join-Path $tempRoot 'retries.json') -FakeExe $fakeCmd
+    $retries = $batch['retries']
     Assert-True ($retries.error -match 'reason=processFailure' -and $retries.error -notmatch 'reason=quota') 'retries exhausted does NOT become quota'
-    $errObj = Invoke-CapturedPublicReview -Prompt 'ERR_OBJ_QUOTA' -ReceiptPath (Join-Path $tempRoot 'err-obj.json') -FakeExe $fakeCmd
+    $errObj = $batch['errObj']
     Assert-True ($errObj.error -match 'reason=quota') '.error object with rate limit becomes quota'
-    $bad = Invoke-CapturedPublicReview -Prompt 'BADJSON' -ReceiptPath (Join-Path $tempRoot 'bad.json') -FakeExe $fakeCmd
+    $bad = $batch['bad']
     Assert-True ($bad.error -match 'reason=invalidOutput') 'invalid JSON uses invalidOutput'
-    $statusError = Invoke-CapturedPublicReview -Prompt 'STATUSERROR' -ReceiptPath (Join-Path $tempRoot 'status.json') -FakeExe $fakeCmd
+    $statusError = $batch['statusError']
     Assert-True ($statusError.error -match 'reason=processFailure') 'status ERROR uses processFailure'
-    $timeout = Invoke-CapturedPublicReview -Prompt 'TIMEOUT' -ReceiptPath (Join-Path $tempRoot 'timeout.json') -FakeExe $fakeCmd -Extra @{ TimeoutSec=$script:TimeoutCaseSec }
+    $timeout = $batch['timeout']
     Assert-True ($timeout.error -match 'reason=timeout' -and $timeout.error -match "limit of $($script:TimeoutCaseSec)s") 'timeout without quota preserves timeout Detail'
-    $timeoutQuota = Invoke-CapturedPublicReview -Prompt 'TIMEOUT_QUOTA' -ReceiptPath (Join-Path $tempRoot 'timeout-quota.json') -FakeExe $fakeCmd -Extra @{ TimeoutSec=$script:TimeoutQuotaCaseSec }
+    $timeoutQuota = $batch['timeoutQuota']
     Assert-True ($timeoutQuota.error -match 'reason=quota') 'timeout with quota residue promotes to quota'
     # The profile always creates its own scratch cwd: the script declares no -Cd, so a caller cannot choose the cwd.
     Assert-True (-not (Get-Command -Name $script:invokeScript).Parameters.ContainsKey('Cd')) 'the script declares no -Cd parameter'
@@ -199,13 +263,11 @@ switch ($prompt) {
     Assert-True ($null -ne $cdOverride.error -and $null -eq $cdOverride.output) 'binding -Cd is refused before any invocation'
 
     # Workspace: empty and safe was already proven by the success case; now .git, repo root, KB root, and reparse points.
-    $gitScratch = Join-Path $tempRoot 'git-scratch'; [void][IO.Directory]::CreateDirectory((Join-Path $gitScratch '.git'))
-    $gitCase = Invoke-CapturedPublicReview -Prompt 'X' -ReceiptPath (Join-Path $tempRoot 'git.json') -FakeExe $fakeCmd -Extra @{ ScratchPath=$gitScratch }
+    $gitCase = $batch['gitCase']
     Assert-True ($gitCase.error -match 'reason=unsafeWorkspace' -and $gitCase.receipt.Workspace.hasGit) 'scratch with .git is refused'
-    $repoCase = Invoke-CapturedPublicReview -Prompt 'X' -ReceiptPath (Join-Path $tempRoot 'repo.json') -FakeExe $fakeCmd -Extra @{ ScratchPath=(Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) }
+    $repoCase = $batch['repoCase']
     Assert-True ($repoCase.error -match 'reason=unsafeWorkspace' -and $repoCase.receipt.Workspace.insideRepository) 'repository root is refused'
-    $kbScratch = Join-Path $tempRoot 'kb-root'; [void][IO.Directory]::CreateDirectory((Join-Path $kbScratch 'KbObjectsXml'))
-    $kbCase = Invoke-CapturedPublicReview -Prompt 'X' -ReceiptPath (Join-Path $tempRoot 'kb.json') -FakeExe $fakeCmd -Extra @{ ScratchPath=$kbScratch }
+    $kbCase = $batch['kbCase']
     Assert-True ($kbCase.error -match 'reason=unsafeWorkspace' -and $kbCase.receipt.Workspace.insideKbWorkspace) 'KB workspace root is refused'
     $junctionTarget = Join-Path $tempRoot 'junction-target'; [void][IO.Directory]::CreateDirectory($junctionTarget)
     $junctionPath = Join-Path $tempRoot 'junction-scratch'
@@ -221,11 +283,11 @@ switch ($prompt) {
     }
 
     # Descendant process and clean/degraded/failed semantics.
-    $childCase = Invoke-CapturedPublicReview -Prompt 'CHILD' -ReceiptPath (Join-Path $tempRoot 'child.json') -FakeExe $fakeCmd
+    $childCase = $batch['childCase']
     Assert-True ($childCase.output -eq 'CHILD_OK' -and @($childCase.receipt.AliveDescendantsAfterCleanup).Count -eq 0 -and $childCase.receipt.CleanupStatus -ne 'failed') 'observed descendant does not stay alive after cleanup'
-    $degraded = Invoke-CapturedPublicReview -Prompt 'DEGRADED' -ReceiptPath (Join-Path $tempRoot 'degraded.json') -FakeExe $fakeCmd -Extra @{ SimulateCleanupFailure='degraded' }
+    $degraded = $batch['degraded']
     Assert-True ($degraded.output -eq 'OK:DEGRADED' -and $degraded.receipt.CleanupStatus -eq 'degraded' -and $degraded.receipt.Reason -eq 'cleanupIncomplete') 'degraded cleanup preserves the response but does not promote a clean smoke test'
-    $failedCleanup = Invoke-CapturedPublicReview -Prompt 'FAILED' -ReceiptPath (Join-Path $tempRoot 'failed.json') -FakeExe $fakeCmd -Extra @{ SimulateCleanupFailure='failed' }
+    $failedCleanup = $batch['failedCleanup']
     Assert-True ($failedCleanup.error -match 'reason=cleanupIncomplete' -and $failedCleanup.receipt.CleanupStatus -eq 'failed' -and -not $failedCleanup.receipt.ResponseAccepted) 'failed cleanup invalidates acceptance and uses cleanupIncomplete'
 
 } finally {

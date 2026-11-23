@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import html
 import json
 import os
@@ -11,7 +12,6 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
-from typing import NamedTuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -21,19 +21,40 @@ from GeneXusObjectTypeCatalogCore import (  # noqa: E402
     CatalogOverrideDiagnosticError,
     resolve_effective_object_type_catalog_for_query,
 )
+# The engine core shared with Build-KbIntelligenceIndex.py, under the names this engine uses. The
+# coverage tables a reverse-relation answer reports from (what the extractor reads, by type and
+# extractor version) are data in the core too.
+from GeneXusKbIntelligenceCore import (  # noqa: E402
+    ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE,
+    CALL_SOURCE_TYPES_EXTRACTED_SINCE,
+    CLASSIC_FORMULA_END_RE,
+    CLASSIC_FORMULA_FOLDER,
+    CLASSIC_FORMULA_NAME_RE,
+    IMPLICIT_TABLE_NAVIGATION_SOURCE_TYPES,
+    LEVEL_ATTRIBUTE_RE,  # noqa: F401 - re-exported; TestKbIntelligenceCoreSignature.py checks it
+    LEVEL_RE,  # noqa: F401 - re-exported; TestKbIntelligenceCoreSignature.py checks it
+    PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES,
+    PROPERTY_RE,
+    UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES,
+    UNEXTRACTED_CALL_SOURCE_TYPES,
+)
+from GeneXusKbIntelligenceCore import ATTR_RE as XML_ATTR_RE  # noqa: E402
+from GeneXusKbIntelligenceCore import CDATA_RE as CLASSIC_CDATA_RE  # noqa: E402
+from GeneXusKbIntelligenceCore import SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION  # noqa: E402
+from GeneXusKbIntelligenceCore import SOURCE_RE as CLASSIC_FORMULA_SOURCE_RE  # noqa: E402
+# Corpus synchronization state and lock (shared with Build-KbIntelligenceIndex.py).
+from GeneXusCorpusState import (  # noqa: E402
+    EXIT_CORPUS_LOCK_BUSY,
+    EXIT_CORPUS_NOT_COMPLETE,
+    CorpusLockBusy,
+    corpus_lock_busy_recovery,
+    corpus_lock_with_retry,
+    corpus_state_recovery,
+    read_corpus_state,
+    stop_point_for_tests,
+)
 
 
-EXPECTED_SCHEMA_VERSION = "5"
-LEVEL_RE = re.compile(r"<Level\b(?P<attrs>[^>]*)>(?P<body>.*?)</Level>", re.IGNORECASE | re.DOTALL)
-LEVEL_ATTRIBUTE_RE = re.compile(
-    r"<Attribute\b(?P<attrs>[^>]*)>(?P<name>.*?)</Attribute>",
-    re.IGNORECASE | re.DOTALL,
-)
-XML_ATTR_RE = re.compile(r'(?P<name>[A-Za-z_][A-Za-z0-9_]*)="(?P<value>[^"]*)"')
-PROPERTY_RE = re.compile(
-    r"<Property>\s*<Name>(?P<name>.*?)</Name>\s*<Value>(?P<value>.*?)</Value>\s*</Property>",
-    re.IGNORECASE | re.DOTALL,
-)
 INSTANCE_KEY_GUID_PREFIX_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-"
 )
@@ -48,218 +69,9 @@ EXIT_CATALOG_OVERRIDE_BLOCKED = 2
 REVERSE_RELATION_QUERIES = frozenset(
     {"who-uses", "impact-basic", "functional-trace-basic", "object-info"}
 )
-# Types whose objects carry code or bindings that reference other objects (events, a
-# Source part, or the declarative task bindings and conditions of a GXflow Business
-# Process Diagram), but whose references the extractor does not read: none of them is in
-# INDEXED_SOURCE_TYPES of Build-KbIntelligenceIndex.py, and the WorkWithForWeb action/link
-# extractors that also receive WorkWith match only the web Work With XML shape. When the
-# index holds objects of these types, an incoming-relation answer may miss callers.
-# Keep disjoint from INDEXED_SOURCE_TYPES (checked by
-# tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
-UNEXTRACTED_CALL_SOURCE_TYPES = (
-    "BusinessProcessDiagram",
-    "OfflineDatabase",
-    "Panel",
-    "SmartDevicesApplication",
-    "WorkWith",
-)
-# Types whose calls an extractor version first indexed: an index built by an older extractor
-# (extractor_signature_version below the value, or none) reports the type as an unextracted
-# call source. A Work Panel's Rules and Events are read since 20, classic and modern.
-CALL_SOURCE_TYPES_EXTRACTED_SINCE: dict[str, int] = {"WorkPanel": 20}
-class ExtractedPart(NamedTuple):
-    """A part of a partly extracted type and the extractor version that first indexed it."""
-
-    name: str
-    since_version: int
-
-
-class PartialAttributeUseExtraction(NamedTuple):
-    """What a partly extracted type's index holds (extracted) and what no version reads (missing)."""
-
-    extracted: tuple[ExtractedPart, ...]
-    missing: tuple[str, ...]
-
-
-# Types whose attribute uses are extracted only in part: what the index holds and what it
-# misses. "extracted" pairs each indexed part with the extractor_signature_version that first
-# indexed it (index metadata): an index built by an older extractor reports that part as missing,
-# and a type none of whose parts its index holds is reported as not extracted. "missing" lists
-# the parts no extractor version reads. WorkWithForWeb emits workwith_references_attribute from
-# its pattern instance: grid, filter, order and view attributes since 13, the attribute names of
-# filter <condition value="..."> expressions since 14; view captions, view and action
-# parameters, tab condition attributes and <variable> or event code are not read. Procedure,
-# WebPanel, Transaction and DataProvider emit code_references_attribute since 15 from the code
-# Parts the builder selects by type (Procedure Source, Rules and Events, DataProvider Source and
-# Rules): reads, and writes only where the target is unambiguous ("block writes": a
-# statement-start assignment inside for each or new; "rule writes": a Transaction assignment
-# rule; "Transaction item writes": an item's left side when the DataProvider outputs a
-# Transaction). Since 21 the Conditions Part of a Procedure, WebPanel and WorkPanel, and the
-# <Conditions> of a classic object, are read too ("condition reads": a condition only reads).
-# Not read: other assignment targets (ambiguous writes, reported as reads),
-# Procedure Layout and WebForm Parts, the items of an SDT-output DataProvider,
-# Business Component members (&bc.Attribute) and code in a <Source> outside any <Part>. A classic
-# Report (GeneXus 7.5 to 9 export) emits code_references_attribute since 19 from its
-# Layout/Block/CodeBlock/Source, Rules and Events, read like a Procedure's; its layout print
-# blocks are not read. A Work Panel, classic or modern, emits code_references_attribute since 20
-# from its Rules and Events, read like a WebPanel's; its Windows form is not read. The mobile
-# WorkWith emits workwith_references_attribute since 18 from its pattern instance: layout
-# <data attribute>, order, search and break by attributes, and advanced filter attributes; grid
-# conditions, rules, events and captions are not read. A Smart Devices Panel emits
-# panel_references_attribute since 23 from the same pattern instance, read the same way.
-PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES: dict[str, PartialAttributeUseExtraction] = {
-    "DataProvider": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("Source reads", 15),
-            ExtractedPart("rule reads", 15),
-            ExtractedPart("Transaction item writes", 15),
-        ),
-        missing=("SDT output items", "Business Component members", "code outside a Part"),
-    ),
-    "Panel": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("layouts", 23),
-            ExtractedPart("orders", 23),
-            ExtractedPart("search", 23),
-            ExtractedPart("break by", 23),
-            ExtractedPart("filters", 23),
-        ),
-        missing=("grid conditions", "rules", "events", "captions"),
-    ),
-    "Procedure": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("Source reads", 15),
-            ExtractedPart("rule reads", 15),
-            ExtractedPart("block writes", 15),
-            ExtractedPart("condition reads", 21),
-        ),
-        missing=("ambiguous writes", "layout", "Business Component members", "code outside a Part"),
-    ),
-    "Report": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("Source reads", 19),
-            ExtractedPart("rule reads", 19),
-            ExtractedPart("block writes", 19),
-            ExtractedPart("condition reads", 21),
-        ),
-        missing=("ambiguous writes", "layout", "Business Component members"),
-    ),
-    "Transaction": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("rule reads", 15),
-            ExtractedPart("rule writes", 15),
-            ExtractedPart("event reads", 15),
-            ExtractedPart("block writes", 15),
-        ),
-        missing=("ambiguous writes", "WebForm bindings", "Business Component members", "code outside a Part"),
-    ),
-    "WebPanel": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("rule reads", 15),
-            ExtractedPart("event reads", 15),
-            ExtractedPart("block writes", 15),
-            ExtractedPart("condition reads", 21),
-        ),
-        missing=(
-            "ambiguous writes",
-            "WebForm bindings",
-            "Business Component members",
-            "code outside a Part",
-        ),
-    ),
-    "WorkPanel": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("rule reads", 20),
-            ExtractedPart("event reads", 20),
-            ExtractedPart("block writes", 20),
-            ExtractedPart("condition reads", 21),
-        ),
-        missing=(
-            "ambiguous writes",
-            "Windows form bindings",
-            "Business Component members",
-            "code outside a Part",
-        ),
-    ),
-    "WorkWith": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("layouts", 18),
-            ExtractedPart("orders", 18),
-            ExtractedPart("search", 18),
-            ExtractedPart("break by", 18),
-            ExtractedPart("filters", 18),
-        ),
-        missing=("grid conditions", "rules", "events", "captions"),
-    ),
-    "WorkWithForWeb": PartialAttributeUseExtraction(
-        extracted=(
-            ExtractedPart("grids", 13),
-            ExtractedPart("filters", 13),
-            ExtractedPart("orders", 13),
-            ExtractedPart("views", 13),
-            ExtractedPart("filter conditions", 14),
-        ),
-        missing=("captions", "parameters", "tab conditions", "code"),
-    ),
-}
-# Types whose objects can use attributes (code, rules, formulas, conditions, grids, filters,
-# views, layouts, or item types) while the extractor emits no attribute-use relation for any
-# of them. Besides workwith_references_attribute (WorkWithForWeb, WorkWith),
-# panel_references_attribute (Panel, since 23) and
-# code_references_attribute (Procedure, WebPanel, Transaction, DataProvider, Report, WorkPanel, and
-# since 21 Attribute, from its formula: ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE), see
-# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, the relations that target an Attribute are
-# structural: has_level_attribute (Transaction levels), has_key_attribute and
-# has_index_member_attribute (Table keys and indexes). Chosen from the object type catalog: the
-# rest of the Source scope (INDEXED_SOURCE_TYPES: API, DataSelector), SDT
-# (items based on an attribute), DataView and Query (attribute lists), the web pattern
-# WorkWithPlusInstance (grid, filter, order and view attributes), and every type of
-# UNEXTRACTED_CALL_SOURCE_TYPES that is not partly extracted for attribute uses (the mobile
-# WorkWith and the Panel are). Table is left out: its attributes come from Transaction levels and its keys and
-# indexes are extracted. Every UNEXTRACTED_CALL_SOURCE_TYPES type must be here or in
-# PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES, and the two stay disjoint (checked by
-# tests/mimir-lite/Test-KbIntelligenceReverseCoverageSelfTest.ps1).
-UNEXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES = tuple(
-    sorted(
-        (
-            set(UNEXTRACTED_CALL_SOURCE_TYPES)
-            | {
-                "API",
-                "DataSelector",
-                "DataView",
-                "Query",
-                "SDT",
-                "WorkWithPlusInstance",
-            }
-        )
-        - set(PARTIALLY_EXTRACTED_ATTRIBUTE_USE_SOURCE_TYPES)
-    )
-)
-# Types whose attribute uses an extractor version first indexed in full: an index built by an
-# older extractor (extractor_signature_version below the value, or none) reports the type as not
-# extracted for attribute uses. An Attribute's formula (the modern Formula property and the classic
-# Formula block named after it) is read since 21.
-ATTRIBUTE_USE_SOURCE_TYPES_EXTRACTED_SINCE: dict[str, int] = {"Attribute": 21}
 COVERAGE_SCOPE_CALLS = "calls"
 COVERAGE_SCOPE_ATTRIBUTE_REFERENCES = "attribute_references"
 COVERAGE_SCOPE_TABLE_NAVIGATION = "table_navigation"
-# Types whose objects can navigate a table with no extracted relation: a grid or form (Web Panel,
-# Work Panel, Transaction, the Work With and Smart Devices Panel patterns) navigates the table of
-# its attributes, and a for each or Data Provider group that names no table navigates the base
-# table GeneXus infers (a modern one is never related; a classic for each is related only when one
-# table fits, see navigates_inferred_table). The index relates a table only to the for each blocks
-# that name it or its prefix, to inferred classic base tables, and to Transaction levels.
-IMPLICIT_TABLE_NAVIGATION_SOURCE_TYPES = (
-    "DataProvider",
-    "Panel",
-    "Procedure",
-    "Report",
-    "Transaction",
-    "WebPanel",
-    "WorkPanel",
-    "WorkWith",
-    "WorkWithForWeb",
-)
 _CATALOG_TYPES_CACHE: dict[tuple[str | None, str | None, str], dict[str, dict[str, object]]] = {}
 
 
@@ -444,6 +256,120 @@ def resolve_source_root(conn: sqlite3.Connection, stored_source_root: str) -> Pa
     return Path(os.path.normpath(index_folder / source_root))
 
 
+CORPUS_VERDICT_KEYS = (
+    "corpus_state",
+    "corpus_generation",
+    "index_corpus_generation",
+    "corpus_generation_match",
+    "corpus_block_reason",
+)
+_REBUILD_RECOVERY = (
+    "Rebuild the index from the complete corpus (Build-KbIntelligenceIndex). "
+    "See the sync workflow (workflows/sync.md)."
+)
+
+
+class CorpusCheckBlocked(Exception):
+    """The corpus does not back this index: carries the JSON envelope and the exit code."""
+
+    def __init__(self, envelope: dict[str, object], exit_code: int) -> None:
+        super().__init__(str(envelope.get("message")))
+        self.envelope = envelope
+        self.exit_code = exit_code
+
+
+def _corpus_verdict(conn: sqlite3.Connection, held: contextlib.ExitStack) -> tuple[dict[str, object], Path | None, str | None, str | None]:
+    """Verdict, resolved corpus root, message and recovery; takes the corpus lock into held."""
+    metadata = metadata_map(conn)
+    index_generation = metadata.get("corpus_generation") or None
+    verdict: dict[str, object] = {
+        "corpus_state": None,
+        "corpus_generation": None,
+        "index_corpus_generation": index_generation,
+        "corpus_generation_match": False,
+        "corpus_block_reason": None,
+    }
+    stored_source_root = metadata.get("source_root")
+    if not stored_source_root:
+        verdict["corpus_state"] = "unknown"
+        verdict["corpus_block_reason"] = "index-generation-missing"
+        return verdict, None, "Index metadata does not record source_root, so its corpus cannot be checked.", _REBUILD_RECOVERY
+    corpus_root = resolve_source_root(conn, stored_source_root)
+    try:
+        if not corpus_root.is_dir():
+            raise FileNotFoundError(str(corpus_root))
+        held.enter_context(corpus_lock_with_retry(corpus_root, shared=True))
+        stop_point_for_tests("query:after-lock")
+    except (FileNotFoundError, NotADirectoryError):
+        verdict["corpus_state"] = "unknown"
+        verdict["corpus_block_reason"] = "corpus-unknown"
+        message = (
+            f"Corpus folder not found (resolved_source_root: {corpus_root}). The corpus must be moved or "
+            "copied together with the index, with the same relative layout."
+        )
+        recovery = "Place the corpus beside the index with the same relative layout, or rebuild the index. " + _REBUILD_RECOVERY
+        return verdict, corpus_root, message, recovery
+    except CorpusLockBusy as exc:
+        verdict["corpus_block_reason"] = "corpus-lock-busy"
+        message = f"Corpus lock still busy after retrying for about 5 seconds: {corpus_root} ({exc})."
+        return verdict, corpus_root, message, corpus_lock_busy_recovery(shared=True)
+    state = read_corpus_state(corpus_root)
+    verdict["corpus_state"] = state.state
+    verdict["corpus_generation"] = state.generation
+    if state.state != "complete":
+        verdict["corpus_block_reason"] = f"corpus-{state.state}"
+        message = f"Corpus state is {state.state}: the corpus cannot back an index."
+        return verdict, corpus_root, message, corpus_state_recovery(state.state)
+    if index_generation is None:
+        verdict["corpus_block_reason"] = "index-generation-missing"
+        message = "The index records no corpus generation (it was built before corpus generations were recorded)."
+        return verdict, corpus_root, message, _REBUILD_RECOVERY
+    if index_generation != state.generation:
+        verdict["corpus_block_reason"] = "index-generation-mismatch"
+        message = (
+            f"The corpus changed since the index was built (index generation {index_generation}, "
+            f"corpus generation {state.generation})."
+        )
+        return verdict, corpus_root, message, _REBUILD_RECOVERY
+    verdict["corpus_generation_match"] = True
+    return verdict, corpus_root, None, None
+
+
+@contextlib.contextmanager
+def corpus_generation_check(conn: sqlite3.Connection, query: str, enforce: bool = True):
+    """Check the corpus state and generation against the index under the corpus lock.
+
+    The corpus is metadata.source_root resolved against the index folder. The lock is taken with
+    a bounded retry (about 5 s) and held until the connection closes: this context closes conn on
+    exit. Yields the verdict (CORPUS_VERDICT_KEYS; corpus_block_reason is None when the index
+    matches). With enforce, a failed check raises CorpusCheckBlocked before yielding, with a JSON
+    envelope and exit 13 for a busy lock, 12 otherwise. Without enforce, a busy lock is reported
+    and the context yields without holding it.
+    """
+    with contextlib.ExitStack() as held:
+        verdict, corpus_root, message, recovery = _corpus_verdict(conn, held)
+        reason = verdict["corpus_block_reason"]
+        if enforce and reason is not None:
+            envelope: dict[str, object] = {
+                "query": query,
+                "status": "BLOCKED",
+                "blocked": True,
+                "reason": reason,
+                "message": message,
+                "recovery": recovery,
+                "resolved_source_root": str(corpus_root) if corpus_root is not None else None,
+                "corpus_state": verdict["corpus_state"],
+                "corpus_generation": verdict["corpus_generation"],
+                "index_corpus_generation": verdict["index_corpus_generation"],
+            }
+            exit_code = EXIT_CORPUS_LOCK_BUSY if reason == "corpus-lock-busy" else EXIT_CORPUS_NOT_COMPLETE
+            raise CorpusCheckBlocked(envelope, exit_code)
+        try:
+            yield verdict
+        finally:
+            conn.close()
+
+
 def resolve_index_file(conn: sqlite3.Connection, file_path: object) -> Path:
     path = Path(str(file_path))
     if path.is_absolute():
@@ -610,16 +536,12 @@ def object_info(conn: sqlite3.Connection, object_type: str, object_name: str) ->
 
 # A classic formula (GeneXus 9 and earlier exports) is its own object in the corpus folder Formula,
 # named after the attribute it computes: <Formula><Name>Attr</Name>...<Source>expression</Source>.
-# The builder reads the same file for formula relations; it is not an indexed object.
-CLASSIC_FORMULA_FOLDER = "Formula"
-CLASSIC_FORMULA_NAME_RE = re.compile(r"<Formula\b[^>]*>\s*<Name>(?P<name>[^<]*)</Name>", re.IGNORECASE)
-CLASSIC_FORMULA_END_RE = re.compile(r"</Formula>", re.IGNORECASE)
-CLASSIC_FORMULA_SOURCE_RE = re.compile(r"<Source\b[^>]*>(?P<body>.*?)</Source>", re.IGNORECASE | re.DOTALL)
+# The builder reads the same file for formula relations; it is not an indexed object. The folder,
+# the name, end, and <Source> patterns, and CDATA unwrapping come from GeneXusKbIntelligenceCore.py.
 # A vertical formula names its function in <Type> (SUM, COUNT, AVERAGE, MAX, MIN, FIND) and its
 # argument in <Source>: <Type>SUM</Type><Source>Attr</Source> is sum(Attr). An empty <Type> is a
 # horizontal formula whose <Source> is the whole expression.
 CLASSIC_FORMULA_TYPE_RE = re.compile(r"<Type>(?P<type>[^<]*)</Type>", re.IGNORECASE)
-CLASSIC_CDATA_RE = re.compile(r"^\s*<!\[CDATA\[(?P<body>.*)\]\]>\s*$", re.DOTALL)
 
 
 def classic_formula_expression(conn: sqlite3.Connection, attribute_name: str) -> str | None:
@@ -1632,6 +1554,10 @@ def format_result_text(result: dict[str, object]) -> str:
         lines.append(
             f"resolved_source_root: {resolved_source_root if resolved_source_root is not None else '(not recorded)'}"
         )
+        for key in CORPUS_VERDICT_KEYS:
+            if key in result:
+                value = result[key]
+                lines.append(f"{key}: {json.dumps(value) if isinstance(value, bool) or value is None else value}")
         if isinstance(metadata, dict):
             for key in sorted(metadata):
                 if key == "last_index_build_run_at":
@@ -1990,72 +1916,78 @@ def main() -> int:
     conn = sqlite3.connect(args.index_path)
     try:
         validate_schema_version(conn)
-        if args.query == "index-metadata":
-            result = index_metadata(conn)
-        elif args.query == "object-info":
-            if not args.object_type or not args.object_name:
-                raise SystemExit("object-info requires --object-type and --object-name.")
-            result = object_info(conn, args.object_type, args.object_name)
-        elif args.query == "attribute-info":
-            if not args.object_name:
-                raise SystemExit("attribute-info requires --object-name.")
-            result = attribute_info(conn, args.object_name)
-        elif args.query == "search-objects":
-            if not args.object_name and not args.instance_key:
-                raise SystemExit("search-objects requires --object-name or --instance-key.")
-            instance_filter = classify_instance_filter(args.instance_key) if args.instance_key else None
-            result = search_objects(conn, args.object_name, args.object_type, args.limit, generated_filter_from_args(args), instance_filter)
-        elif args.query == "list-by-type":
-            if not args.object_type:
-                raise SystemExit("list-by-type requires --object-type.")
-            result = list_by_type(conn, args.object_type, args.limit, generated_filter_from_args(args))
-        elif args.query == "transaction-attributes":
-            if not args.object_name:
-                raise SystemExit("transaction-attributes requires --object-name.")
-            result = transaction_attributes(conn, args.object_name)
-        elif args.query == "transaction-writable-attributes":
-            if not args.object_name:
-                raise SystemExit("transaction-writable-attributes requires --object-name.")
-            result = transaction_writable_attributes(conn, args.object_name)
-        elif args.query == "who-uses":
-            if not args.object_type or not args.object_name:
-                raise SystemExit("who-uses requires --object-type and --object-name.")
-            result = who_uses(conn, args.object_type, args.object_name, args.limit)
-        elif args.query == "what-uses":
-            if not args.object_type or not args.object_name:
-                raise SystemExit("what-uses requires --object-type and --object-name.")
-            result = what_uses(conn, args.object_type, args.object_name, args.limit)
-        elif args.query == "impact-basic":
-            if not args.object_type or not args.object_name:
-                raise SystemExit("impact-basic requires --object-type and --object-name.")
-            result = impact_basic(conn, args.object_type, args.object_name, args.limit)
-        elif args.query == "functional-trace-basic":
-            if not args.object_type or not args.object_name:
-                raise SystemExit("functional-trace-basic requires --object-type and --object-name.")
-            result = functional_trace_basic(conn, args.object_type, args.object_name, args.limit)
-        elif args.query == "css-classes":
-            result = css_classes(
-                conn,
-                args.object_name,
-                args.model,
-                args.origin,
-                args.include_imported,
-                args.limit,
-            )
-        elif args.query == "css-class-usage":
-            result = css_class_usage(conn, args.object_name, args.limit)
-        else:
-            result = show_evidence(
-                conn,
-                args.relation_id,
-                args.source_type,
-                args.source_name,
-                args.target_type,
-                args.target_name,
-                args.limit,
-            )
-        if args.query in REVERSE_RELATION_QUERIES:
-            result["coverage"] = reverse_relation_coverage(conn, args.object_type)
+        try:
+            with corpus_generation_check(conn, args.query, enforce=args.query != "index-metadata") as corpus_verdict:
+                if args.query == "index-metadata":
+                    result = index_metadata(conn)
+                    result.update(corpus_verdict)
+                elif args.query == "object-info":
+                    if not args.object_type or not args.object_name:
+                        raise SystemExit("object-info requires --object-type and --object-name.")
+                    result = object_info(conn, args.object_type, args.object_name)
+                elif args.query == "attribute-info":
+                    if not args.object_name:
+                        raise SystemExit("attribute-info requires --object-name.")
+                    result = attribute_info(conn, args.object_name)
+                elif args.query == "search-objects":
+                    if not args.object_name and not args.instance_key:
+                        raise SystemExit("search-objects requires --object-name or --instance-key.")
+                    instance_filter = classify_instance_filter(args.instance_key) if args.instance_key else None
+                    result = search_objects(conn, args.object_name, args.object_type, args.limit, generated_filter_from_args(args), instance_filter)
+                elif args.query == "list-by-type":
+                    if not args.object_type:
+                        raise SystemExit("list-by-type requires --object-type.")
+                    result = list_by_type(conn, args.object_type, args.limit, generated_filter_from_args(args))
+                elif args.query == "transaction-attributes":
+                    if not args.object_name:
+                        raise SystemExit("transaction-attributes requires --object-name.")
+                    result = transaction_attributes(conn, args.object_name)
+                elif args.query == "transaction-writable-attributes":
+                    if not args.object_name:
+                        raise SystemExit("transaction-writable-attributes requires --object-name.")
+                    result = transaction_writable_attributes(conn, args.object_name)
+                elif args.query == "who-uses":
+                    if not args.object_type or not args.object_name:
+                        raise SystemExit("who-uses requires --object-type and --object-name.")
+                    result = who_uses(conn, args.object_type, args.object_name, args.limit)
+                elif args.query == "what-uses":
+                    if not args.object_type or not args.object_name:
+                        raise SystemExit("what-uses requires --object-type and --object-name.")
+                    result = what_uses(conn, args.object_type, args.object_name, args.limit)
+                elif args.query == "impact-basic":
+                    if not args.object_type or not args.object_name:
+                        raise SystemExit("impact-basic requires --object-type and --object-name.")
+                    result = impact_basic(conn, args.object_type, args.object_name, args.limit)
+                elif args.query == "functional-trace-basic":
+                    if not args.object_type or not args.object_name:
+                        raise SystemExit("functional-trace-basic requires --object-type and --object-name.")
+                    result = functional_trace_basic(conn, args.object_type, args.object_name, args.limit)
+                elif args.query == "css-classes":
+                    result = css_classes(
+                        conn,
+                        args.object_name,
+                        args.model,
+                        args.origin,
+                        args.include_imported,
+                        args.limit,
+                    )
+                elif args.query == "css-class-usage":
+                    result = css_class_usage(conn, args.object_name, args.limit)
+                else:
+                    result = show_evidence(
+                        conn,
+                        args.relation_id,
+                        args.source_type,
+                        args.source_name,
+                        args.target_type,
+                        args.target_name,
+                        args.limit,
+                    )
+                if args.query in REVERSE_RELATION_QUERIES:
+                    result["coverage"] = reverse_relation_coverage(conn, args.object_type)
+        except CorpusCheckBlocked as blocked:
+            print(json.dumps(blocked.envelope, indent=2, ensure_ascii=False))
+            return blocked.exit_code
     finally:
         conn.close()
 

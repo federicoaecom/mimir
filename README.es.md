@@ -11,7 +11,7 @@ Mimir Lite es una skill de agente que lee y entiende una Base de Conocimiento (K
 
 ## Estado
 
-Versión actual: `1.1.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
+Versión actual: `1.2.0`; la primera versión pública fue `0.1.0` (ver [`CHANGELOG.md`](CHANGELOG.md)). Distribuido bajo la [licencia MIT](LICENSE.md); los autores figuran en [`AUTHORS.md`](AUTHORS.md).
 
 ## Soporte
 
@@ -237,7 +237,7 @@ $audit = pwsh -NoProfile -File skills/mimir-lite/scripts/Test-MimirSkillsRegistr
 ($audit.tools | Where-Object name -eq 'ClaudeCode').skills | Select-Object name, status, linkType
 ```
 
-**3. Primera ejecución contra el fixture sintético.** Construye el índice SQLite derivado a partir de `tests/fixtures/sample-kb/` en una carpeta temporal (no se escribe nada dentro del repositorio) y consulta quién usa la tabla `Customer`. La construcción necesita Python (ver [Requisitos](#requisitos)) e imprime un reporte de validación en JSON; la consulta imprime un resultado corto.
+**3. Primera ejecución contra el fixture sintético.** Construye el índice SQLite derivado a partir de `tests/fixtures/sample-kb/` en una carpeta temporal (lo único que escribe dentro del repositorio es el archivo de bloqueo `tests/fixtures/sample-kb/.mimir-sync.lock`, ignorado por git) y consulta quién usa la tabla `Customer`. La construcción necesita Python (ver [Requisitos](#requisitos)) e imprime un reporte de validación en JSON; la consulta imprime un resultado corto.
 
 ```powershell
 $work = Join-Path ([IO.Path]::GetTempPath()) 'mimir-quickstart'
@@ -296,7 +296,7 @@ Todos los comandos se ejecutan desde la raíz del repositorio con `pwsh` 7.4+ (7
 
 | Comando | Qué verifica |
 |---|---|
-| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1` | Ejecuta cada `*SelfTest.ps1` y cada `Test*.py` de Python bajo `tests/` (agregar `-AsJson` para un reporte estructurado) |
+| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1` | Ejecuta cada `*SelfTest.ps1` y cada `Test*.py` de Python bajo `tests/` (agregar `-AsJson` para un reporte estructurado; `-ThrottleLimit <n>` ejecuta n archivos a la vez, 1 por defecto; 2 es el valor probado) |
 | `pwsh -NoProfile -File tools/Test-TextEncoding.ps1` | Los archivos de texto versionados son UTF-8 sin BOM, con finales de línea LF |
 | `pwsh -NoProfile -File tools/Test-PsScriptsParse.ps1` | Cada `*.ps1` bajo `skills/`, `tools/`, `tests/` parsea sin errores |
 | `pwsh -NoProfile -File tools/Test-PyScriptsParse.ps1` | Cada `*.py` bajo las mismas raíces parsea sin errores (sin generar bytecode) |

@@ -32,6 +32,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $scriptDir = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'skills/mimir-lite/scripts')
 . (Join-Path $scriptDir 'Utf8NoBomEncodingSupport.ps1')
@@ -112,6 +113,7 @@ try {
 
     $indexPath = Join-Path $tempRoot 'KbWorkspace/KbIntelligence/kb-intelligence.sqlite'
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $indexPath) -Force)
+    Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
     & $buildScript -SourceRoot $kbObjectsPath -OutputPath $indexPath | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Build-KbIntelligenceIndex failed; exit $LASTEXITCODE"
@@ -176,8 +178,9 @@ try {
         Add-Failure "[who-uses/Attribute:CustNo/text] the note should contain '$expectedNoteSegment'; got '$($note -join ' | ')'"
     }
 
-    # An index built before the counter (no metadata key) lists none.
-    $oldIndexPath = Join-Path $tempRoot 'old/kb-intelligence.sqlite'
+    # An index built before the counter (no metadata key) lists none. The copy stays beside the
+    # index, so its source_root still reaches the corpus the query checks.
+    $oldIndexPath = Join-Path $tempRoot 'KbWorkspace/KbIntelligence/old-kb-intelligence.sqlite'
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $oldIndexPath) -Force)
     Copy-Item -LiteralPath $indexPath -Destination $oldIndexPath
     $dropScript = Join-Path $tempRoot 'drop.py'

@@ -76,6 +76,7 @@
 .EXAMPLE
     .\Resolve-LlmDelegateAuthorization.ps1 -Model openai/gpt-5.4 -PayloadSensitivity public
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidAssignmentToAutomaticVariable', 'Profile', Justification = 'Public -Profile parameter that callers pass by name.')]
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string] $Model,

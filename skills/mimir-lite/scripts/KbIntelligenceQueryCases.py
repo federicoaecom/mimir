@@ -268,35 +268,42 @@ def main() -> int:
     cases: list[dict[str, Any]] = []
     conn = sqlite3.connect(args.index_path)
     try:
-        for raw_case in raw_cases.get("cases", []):
-            query = raw_case.get("query")
-            if query == "impact-basic":
-                case_result = validate_impact_basic(query_engine, conn, raw_case)
-            elif query == "functional-trace-basic":
-                case_result = validate_functional_trace_basic(query_engine, conn, raw_case)
-            elif query == "object-info":
-                case_result = validate_object_info(query_engine, conn, raw_case)
-            elif query == "attribute-info":
-                case_result = validate_attribute_info(query_engine, conn, raw_case)
-            elif query == "transaction-attributes":
-                case_result = validate_transaction_attribute_query(
-                    query_engine,
-                    conn,
-                    raw_case,
-                    writable_only=False,
-                )
-            elif query == "transaction-writable-attributes":
-                case_result = validate_transaction_attribute_query(
-                    query_engine,
-                    conn,
-                    raw_case,
-                    writable_only=True,
-                )
-            else:
-                case_result = dict(raw_case)
-                case_result["status"] = "failed"
-                case_result["failures"] = [f"Unsupported query validation: {query}"]
-            cases.append(case_result)
+        # The same corpus generation check as the query engine, under the corpus lock held
+        # until the connection closes.
+        try:
+            with query_engine.corpus_generation_check(conn, "validation-cases"):
+                for raw_case in raw_cases.get("cases", []):
+                    query = raw_case.get("query")
+                    if query == "impact-basic":
+                        case_result = validate_impact_basic(query_engine, conn, raw_case)
+                    elif query == "functional-trace-basic":
+                        case_result = validate_functional_trace_basic(query_engine, conn, raw_case)
+                    elif query == "object-info":
+                        case_result = validate_object_info(query_engine, conn, raw_case)
+                    elif query == "attribute-info":
+                        case_result = validate_attribute_info(query_engine, conn, raw_case)
+                    elif query == "transaction-attributes":
+                        case_result = validate_transaction_attribute_query(
+                            query_engine,
+                            conn,
+                            raw_case,
+                            writable_only=False,
+                        )
+                    elif query == "transaction-writable-attributes":
+                        case_result = validate_transaction_attribute_query(
+                            query_engine,
+                            conn,
+                            raw_case,
+                            writable_only=True,
+                        )
+                    else:
+                        case_result = dict(raw_case)
+                        case_result["status"] = "failed"
+                        case_result["failures"] = [f"Unsupported query validation: {query}"]
+                    cases.append(case_result)
+        except query_engine.CorpusCheckBlocked as blocked:
+            print(json.dumps(blocked.envelope, indent=2, ensure_ascii=False))
+            return blocked.exit_code
     finally:
         conn.close()
 

@@ -4,14 +4,16 @@
 Inventories objects actually present in import_file.xml or a GeneXus .xpz package.
 
 .DESCRIPTION
-Reads a GeneXus envelope with an <ExportFile> root (direct XML or inner XML inside a .xpz),
+Reads a GeneXus envelope with an <ExportFile> root (direct XML, a folder with one immediate XML,
+or one valid XML entry at any depth in an .xpz or XML .zip),
 or a GeneXus 7.0 and earlier .xpw text export (a .xpw file, or a .zip of .xpw files) translated
 in memory into the classic ExportFile XML, lists the objects under <Objects> and top-level attributes under <Attributes>, maps type
 GUIDs via the shared catalog when possible, and reports unknown types for the sync pre-scan.
 
 .PARAMETER InputPath
-Path of import_file.xml, an equivalent XML with an <ExportFile> root, a .xpz package, a .xpw
-text export, or a .zip of .xpw files (a zip mixing .xpw and .xml entries is blocked).
+Path of an XML with an <ExportFile> root, a folder containing one immediate XML, an .xpz
+or XML .zip, a .xpw text export, or a .zip of .xpw files. XML archives require exactly one parseable ExportFile
+entry; other XML files are ignored, and a zip mixing .xpw and .xml is blocked.
 
 .PARAMETER CatalogPath
 Optional path to gx-object-type-catalog.json.
@@ -88,6 +90,12 @@ if (-not (Test-Path -LiteralPath $xpwExportSupport -PathType Leaf)) {
 }
 . $xpwExportSupport
 
+$packageReaderSupport = Join-Path $PSScriptRoot 'GeneXusPackageReaderSupport.ps1'
+if (-not (Test-Path -LiteralPath $packageReaderSupport -PathType Leaf)) {
+    throw "BLOCK: support script not found: $packageReaderSupport"
+}
+. $packageReaderSupport
+
 function Get-IdentityKey {
     param(
         [string]$TypeName,
@@ -104,7 +112,11 @@ function Get-IdentityKey {
 function Get-ExportFileXmlDocument {
     param([string]$Path)
 
-    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    try { $resolvedPath = Resolve-GeneXusPackageInputPath -Path $Path }
+    catch {
+        if (Test-Path -LiteralPath $Path -PathType Container) { throw "BLOCK: $($_.Exception.Message)" }
+        throw
+    }
     $extension = [System.IO.Path]::GetExtension($resolvedPath).ToLowerInvariant()
 
     # GeneXus 7.0 and earlier .xpw (a file, or a .zip of .xpw files): translated in memory. A zip
@@ -141,49 +153,12 @@ function Get-ExportFileXmlDocument {
     }
 
     if ($extension -eq '.xpz' -or $extension -eq '.zip') {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $candidates = [System.Collections.Generic.List[System.Xml.XmlDocument]]::new()
-        $candidateNames = [System.Collections.Generic.List[string]]::new()
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($resolvedPath)
-        try {
-            foreach ($entry in @($zip.Entries | Where-Object { $_.FullName -match '\.xml$' } | Sort-Object FullName)) {
-                # Encoding-aware read: Load(stream) honors the prolog's encoding attribute
-                # (legacy GeneXus 9 export is iso-8859-1). The previous StreamReader(UTF-8)+ReadToEnd+
-                # LoadXml pair assumed UTF-8 and corrupted Latin-1 accents. Multi-candidate loop
-                # + try/catch continue + ExportFile selection + fail-closed >1 preserved.
-                $candidateDoc = New-Object System.Xml.XmlDocument
-                $entryStream = $entry.Open()
-                try {
-                    $candidateDoc.PreserveWhitespace = $true
-                    $candidateDoc.Load($entryStream)
-                } catch {
-                    continue
-                } finally {
-                    $entryStream.Dispose()
-                }
-
-                if ($candidateDoc.DocumentElement.LocalName -eq 'ExportFile') {
-                    $candidates.Add($candidateDoc) | Out-Null
-                    $candidateNames.Add($entry.FullName) | Out-Null
-                }
-            }
-        } finally {
-            $zip.Dispose()
-        }
-
-        if ($candidates.Count -eq 0) {
-            throw "BLOCK: .xpz package has no XML with an ExportFile root: $resolvedPath"
-        }
-        if ($candidates.Count -gt 1) {
-            $names = ($candidateNames -join ', ')
-            throw ("BLOCK: .xpz package contains {0} ambiguous ExportFile candidates ({1}); provide the extracted XML instead." -f $candidates.Count, $names)
-        }
-
+        $archive = Read-GeneXusPackageArchiveXml -Path $resolvedPath
         return [pscustomobject]@{
-            Document     = $candidates[0]
+            Document     = $archive.Document
             ResolvedPath = $resolvedPath
             InputKind    = 'xpz'
-            InnerXmlName = $candidateNames[0]
+            InnerXmlName = $archive.EntryName
             IsXpw        = $false
         }
     }
@@ -268,7 +243,7 @@ function Get-ObjectsByTypeMap {
     return $map
 }
 
-if (-not (Test-Path -LiteralPath $InputPath -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath $InputPath)) {
     throw "BLOCK: InputPath not found: $InputPath"
 }
 

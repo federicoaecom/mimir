@@ -16,17 +16,7 @@ if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) 
 }
 . $utf8NoBomEncodingSupportPath
 
-function Format-MdCell {
-    param([AllowNull()][object]$Value)
-
-    if ($null -eq $Value) { return "" }
-
-    $text = [string]$Value
-    $text = $text -replace '\r?\n', '<br/>'
-    $text = $text -replace '\|', '\|'
-    $text = $text -replace '\t', ' '
-    return $text.Trim()
-}
+. (Join-Path $PSScriptRoot 'MimirMarkdownCellSupport.ps1')
 
 function Add-MarkdownTable {
     param(
@@ -35,15 +25,15 @@ function Add-MarkdownTable {
         [object[]]$Rows
     )
 
-    [void]$Builder.AppendLine(('| ' + (($Headers | ForEach-Object { Format-MdCell $_ }) -join ' | ') + ' |'))
+    [void]$Builder.AppendLine(('| ' + (($Headers | ForEach-Object { Format-MdCell $_ -ReplaceTabs }) -join ' | ') + ' |'))
     [void]$Builder.AppendLine(('| ' + (($Headers | ForEach-Object { '---' }) -join ' | ') + ' |'))
 
     foreach ($row in $Rows) {
         $cells = foreach ($header in $Headers) {
             if ($row -is [System.Collections.IDictionary]) {
-                Format-MdCell $row[$header]
+                Format-MdCell $row[$header] -ReplaceTabs
             } else {
-                Format-MdCell $row.$header
+                Format-MdCell $row.$header -ReplaceTabs
             }
         }
         [void]$Builder.AppendLine(('| ' + ($cells -join ' | ') + ' |'))
@@ -121,7 +111,11 @@ if (-not (Test-Path -LiteralPath $outputDir)) {
 }
 
 $resolvedSourceRoot = (Resolve-Path -LiteralPath $SourceRoot).ProviderPath
-$allFiles = Get-ChildItem -LiteralPath $resolvedSourceRoot -Recurse -File | Sort-Object FullName
+# Files named .mimir-* are the sync engine's own (the corpus lock, the corpus state, an
+# interrupted write's leftover sibling), never exported objects.
+$allFiles = Get-ChildItem -LiteralPath $resolvedSourceRoot -Recurse -File |
+    Where-Object { -not $_.Name.StartsWith('.mimir-', [System.StringComparison]::Ordinal) } |
+    Sort-Object FullName
 # The Module column names the user container an object belongs to: type ...0008 (catalog
 # "Folder"; the IDE shows it under "Module/Folder"), by parentType or moduleGuid, matched by
 # type GUID rather than corpus folder, because folder names vary across KBs. Type ...0006

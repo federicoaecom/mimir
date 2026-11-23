@@ -18,6 +18,17 @@ Shared fixtures for the `tests/` suite.
   `tests/mimir-lite/Test-KbIntelligenceSampleKbSelfTest.ps1`, it is fully
   self-contained: the test builds its own index from `sample-kb/` into a temp
   directory and needs no external KB or machine-specific path.
+- `sample-kb/.mimir-sync-state.json` marks the fixture as a completely
+  synchronized corpus (`schemaVersion` 1, state `complete`, the fixed
+  generation `5a3b0c0de5a3b0c0de5a3b0c0de5a3b0`, a zero package hash), the
+  shape the XPZ sync writes, so the index builder and query accept it and
+  record or compare that generation. The builder and the query take the corpus
+  lock, which creates `.mimir-sync.lock` in the corpus: tests build from and
+  query a scratch copy of `sample-kb/`, never the checked-in folder (the root
+  `.gitignore` ignores a stray lock file). Tests that write their own corpus
+  mark it complete with `Set-TestCorpusStateComplete`
+  (`tests/mimir-lite/CorpusStateTestSupport.ps1`) or `write_corpus_state`
+  (`tests/mimir-lite/_corpus_state_support.py`).
 - `sample-kb/Panel/InvoiceSummaryMobile.xml` is a mobile `Panel` whose events
   call `CalculateInvoiceTotal`. The index does not extract `Panel` calls, so it
   makes every reverse-relation answer over `sample-kb` report incomplete
@@ -29,7 +40,10 @@ Shared fixtures for the `tests/` suite.
   writes a fake command-line tool whose logic is a PowerShell body
   (`<name>.body.ps1`) behind a launcher: `<name>.cmd` on Windows, an
   executable extensionless `#!/bin/sh` script elsewhere. Arguments, stdin,
-  stdout, stderr and the exit code pass through on every OS. Self-test:
+  stdout, stderr and the exit code pass through on every OS. The optional
+  `-ProbeOutput @{ '--version' = '<line>' }` makes the launcher answer a lone
+  probe argument itself, without starting pwsh, for tests that do not test the
+  probe. Self-test:
   `tests/Test-FakeCliSupportSelfTest.ps1`.
 
 ## Python on PATH
@@ -52,3 +66,17 @@ Shared fixtures for the `tests/` suite.
     starting pwsh is not enough: pwsh puts its own install folder (`$PSHOME`)
     in front of PATH at startup, so the child sets PATH itself before running
     the script.
+
+## Shared assertions
+
+- `AssertSupport.ps1` provides `Assert-True`, `Assert-Equal`, `Assert-Match`,
+  `Assert-NotMatch` and `Assert-Contains`. Each throws on failure with a
+  message that starts with `ASSERT FAILED: `; comparisons are case-sensitive
+  and `Assert-Contains` is ordinal. A test that reports every case wraps each
+  one in `Invoke-AssertCase -Name -Body` and ends with `Complete-AssertRun`,
+  which throws `BLOCK: <n> of <m> case(s) failed` when any case failed.
+  Self-test: `tests/Test-AssertSupportSelfTest.ps1`.
+- `local-assert-baseline.txt` lists the files that still define their own
+  `Assert*` functions. `tests/Test-LocalAssertGuardSelfTest.ps1` fails when
+  any other file under `tests/` or `tools/` defines one, and when an entry no
+  longer does.

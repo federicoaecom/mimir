@@ -55,6 +55,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $scriptDir = Join-Path $repoRoot 'skills/mimir-lite/scripts'
@@ -88,6 +89,7 @@ function Invoke-Query {
 
 function New-Index {
     param([string]$CorpusRoot, [string]$IndexPath)
+    Set-TestCorpusStateComplete -CorpusRoot $CorpusRoot
     & $buildScript -SourceRoot $CorpusRoot -OutputPath $IndexPath | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Build-KbIntelligenceIndex failed for $CorpusRoot; exit $LASTEXITCODE"

@@ -116,7 +116,13 @@ switch ($mode) {
 '{"type":"result","subtype":"success","is_error":false}'
 exit 0
 '@
-    $fakeExe = New-FakeCli -Directory $TempRoot -Name 'claude' -PwshBody $body.Replace('__ARGS_FILE__', $argsFile.Replace("'", "''"))
+    # The adapter probes --version and --help before every run; the launcher answers both itself
+    # (the same lines as the body) so each case starts one pwsh instead of three.
+    $probeOutput = @{
+        '--version' = '2.1.118'
+        '--help' = '--model --print --output-format --no-session-persistence --permission-mode --tools'
+    }
+    $fakeExe = New-FakeCli -Directory $TempRoot -Name 'claude' -PwshBody $body.Replace('__ARGS_FILE__', $argsFile.Replace("'", "''")) -ProbeOutput $probeOutput
     [pscustomobject]@{ Exe = $fakeExe; ArgsFile = $argsFile }
 }
 
@@ -728,7 +734,7 @@ try {
         -CircuitRoot (Join-Path $tmp 'circuit-timeout') -TimeoutSec 1
     Assert-True ($timeout.sidecar.technicalStatus -eq 'timeout') 'timeout: technicalStatus should be timeout.'
     Assert-True ($timeout.sidecar.cancelRequested -eq $true) 'timeout: cancelRequested=true expected.'
-    Assert-True ($timeout.sidecar.processIdentity.startTimeUtc -ne $null) 'timeout: real StartTime should be captured.'
+    Assert-True ($null -ne $timeout.sidecar.processIdentity.startTimeUtc) 'timeout: real StartTime should be captured.'
     Assert-True ($timeout.sidecar.acceptanceRejectionReason -eq 'timeout') 'normal timeout must not become cancelled.'
     Assert-True ($timeout.sidecar.processIdentityVerified -eq $true) 'timeout: real identity should be verifiable on the normal path.'
     Assert-True ($timeout.sidecar.cancelIssued -eq $true) 'timeout: process with verifiable identity should receive cancellation.'

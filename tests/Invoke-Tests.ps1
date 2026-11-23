@@ -34,13 +34,28 @@ Emit a single JSON report to stdout instead of the human-readable table.
 Entries that did not pass (Fail or Timeout) also carry `StdOut` and `StdErr`,
 each bounded to its last 4000 characters; passing entries stay compact and
 carry neither.
+
+.PARAMETER ThrottleLimit
+How many test files run at the same time. Default 1: one after another,
+exactly as before. Above 1, files run with `ForEach-Object -Parallel`; each
+child gets its own `TEMP`, `TMP` and `TMPDIR` under one scratch folder for
+the run (in the system temporary folder, removed at the end), the files named
+in `$RunAloneNames` run one at a time after the parallel batch, and results
+are sorted by path, so the report has the same order and shape as with 1.
+Each child of the parallel batch also gets `MIMIR_TEST_THROTTLE=<n>` (the
+throttle), so a test that runs its own cases concurrently can divide its
+in-file concurrency by it; it is not set with 1, nor for a run-alone child.
+2 is the tested value; higher values can cause timeouts on machines short of
+memory.
 #>
 [CmdletBinding()]
 param(
     [string[]]$Root = @('tests'),
     [string[]]$ExcludeName = @(),
     [int]$TimeoutSeconds = 300,
-    [switch]$AsJson
+    [switch]$AsJson,
+    [ValidateRange(1, 64)]
+    [int]$ThrottleLimit = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,7 +124,9 @@ function Invoke-OneTest {
         [System.IO.FileInfo]$File,
         [string]$RepoRoot,
         [int]$TimeoutSeconds,
-        [object]$Python
+        [object]$Python,
+        # Environment variables set for this child only (the parallel mode's own TEMP folders).
+        [hashtable]$Environment = $null
     )
 
     $isPython = $File.Extension -ieq '.py'
@@ -132,6 +149,9 @@ function Invoke-OneTest {
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    if ($null -ne $Environment) {
+        foreach ($name in $Environment.Keys) { $psi.Environment[$name] = [string]$Environment[$name] }
+    }
 
     if ($isPython) {
         $psi.FileName = $Python.Source
@@ -206,9 +226,61 @@ if (@($toRun | Where-Object { $_.Extension -ieq '.py' }).Count -gt 0) {
     $python = Resolve-PythonInterpreter
 }
 
+# Files that must not run beside other tests in parallel mode, by leaf name, each with its reason.
+# They run one at a time after the parallel batch (with their own TEMP folders too).
+$RunAloneNames = @(
+    # Its fixtures assume a fresh pwsh starts well within a 10 s per-test timeout, and it starts
+    # nested runner runs of its own (throttle 2 included); sibling CPU load can turn a pass into a Timeout.
+    'Test-InvokeTestsSelfTest.ps1'
+)
+
 $results = [System.Collections.Generic.List[object]]::new()
-foreach ($file in $toRun) {
-    $results.Add((Invoke-OneTest -File $file -RepoRoot $RepoRoot -TimeoutSeconds $TimeoutSeconds -Python $python))
+if ($ThrottleLimit -le 1) {
+    foreach ($file in $toRun) {
+        $results.Add((Invoke-OneTest -File $file -RepoRoot $RepoRoot -TimeoutSeconds $TimeoutSeconds -Python $python))
+    }
+} else {
+    $runAloneSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$RunAloneNames, [System.StringComparer]::OrdinalIgnoreCase)
+    $scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('mimir-invoke-tests-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $scratchRoot -Force | Out-Null
+    try {
+        # One work item per file, each with its own TEMP folder under the run's scratch folder.
+        $work = for ($i = 0; $i -lt $toRun.Count; $i++) {
+            $childTemp = Join-Path $scratchRoot ('{0:D4}' -f $i)
+            New-Item -ItemType Directory -Path $childTemp -Force | Out-Null
+            [pscustomobject]@{
+                File        = $toRun[$i]
+                Environment = @{ TEMP = $childTemp; TMP = $childTemp; TMPDIR = $childTemp }
+            }
+        }
+        $parallelWork = @($work | Where-Object { -not $runAloneSet.Contains($_.File.Name) })
+        $aloneWork = @($work | Where-Object { $runAloneSet.Contains($_.File.Name) })
+        # The parallel batch's children learn the throttle, so a test that runs work concurrently
+        # inside its own file can divide it; a run-alone child runs by itself and does not get it.
+        foreach ($item in $parallelWork) { $item.Environment['MIMIR_TEST_THROTTLE'] = [string]$ThrottleLimit }
+
+        # A parallel runspace does not see this script's functions or variables: pass the
+        # function's text and the values it reads.
+        $invokeOneTestText = ${function:Invoke-OneTest}.ToString()
+        $collected = [System.Collections.Generic.List[object]]::new()
+        if ($parallelWork.Count -gt 0) {
+            $parallelResults = $parallelWork | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+                $PythonNotFoundMessage = $using:PythonNotFoundMessage
+                ${function:Invoke-OneTest} = [scriptblock]::Create($using:invokeOneTestText)
+                Invoke-OneTest -File $_.File -RepoRoot $using:RepoRoot -TimeoutSeconds $using:TimeoutSeconds -Python $using:python -Environment $_.Environment
+            }
+            foreach ($r in @($parallelResults)) { $collected.Add($r) }
+        }
+        foreach ($item in $aloneWork) {
+            $collected.Add((Invoke-OneTest -File $item.File -RepoRoot $RepoRoot -TimeoutSeconds $TimeoutSeconds -Python $python -Environment $item.Environment))
+        }
+        # Same order as the sequential run, which follows the files sorted by full path.
+        $orderByPath = @{}
+        for ($i = 0; $i -lt $toRun.Count; $i++) { $orderByPath[$toRun[$i].FullName] = $i }
+        foreach ($r in @($collected | Sort-Object { $orderByPath[$_.Path] })) { $results.Add($r) }
+    } finally {
+        Remove-Item -LiteralPath $scratchRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # Clean up any __pycache__ directory created by this run.

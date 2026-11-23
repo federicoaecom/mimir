@@ -11,7 +11,7 @@ Mimir Lite is an agent skill that reads and understands a GeneXus Knowledge Base
 
 ## Status
 
-Current release: `1.1.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
+Current release: `1.2.0`; the first public release was `0.1.0` (see [`CHANGELOG.md`](CHANGELOG.md)). Licensed under the [MIT License](LICENSE.md); the authors are listed in [`AUTHORS.md`](AUTHORS.md).
 
 ## Support
 
@@ -237,7 +237,7 @@ $audit = pwsh -NoProfile -File skills/mimir-lite/scripts/Test-MimirSkillsRegistr
 ($audit.tools | Where-Object name -eq 'ClaudeCode').skills | Select-Object name, status, linkType
 ```
 
-**3. First run against the synthetic fixture.** This builds the derived SQLite index from `tests/fixtures/sample-kb/` into a temporary folder (nothing is written inside the repository) and asks who uses the `Customer` table. The build needs Python (see [Requirements](#requirements)) and prints a JSON validation report; the query prints a short result.
+**3. First run against the synthetic fixture.** This builds the derived SQLite index from `tests/fixtures/sample-kb/` into a temporary folder (the only file it writes inside the repository is the git-ignored lock file `tests/fixtures/sample-kb/.mimir-sync.lock`) and asks who uses the `Customer` table. The build needs Python (see [Requirements](#requirements)) and prints a JSON validation report; the query prints a short result.
 
 ```powershell
 $work = Join-Path ([IO.Path]::GetTempPath()) 'mimir-quickstart'
@@ -296,7 +296,7 @@ All commands run from the repository root with `pwsh` 7.4+ (7.4.6+ on Linux and 
 
 | Command | What it checks |
 |---|---|
-| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1` | Runs every `*SelfTest.ps1` and Python `Test*.py` under `tests/` (add `-AsJson` for a structured report) |
+| `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/Invoke-Tests.ps1` | Runs every `*SelfTest.ps1` and Python `Test*.py` under `tests/` (add `-AsJson` for a structured report; `-ThrottleLimit <n>` runs n files at a time, default 1; 2 is the tested value) |
 | `pwsh -NoProfile -File tools/Test-TextEncoding.ps1` | Tracked text files are UTF-8 without BOM, LF line endings |
 | `pwsh -NoProfile -File tools/Test-PsScriptsParse.ps1` | Every `*.ps1` under `skills/`, `tools/`, `tests/` parses cleanly |
 | `pwsh -NoProfile -File tools/Test-PyScriptsParse.ps1` | Every `*.py` under the same roots parses cleanly (no bytecode written) |

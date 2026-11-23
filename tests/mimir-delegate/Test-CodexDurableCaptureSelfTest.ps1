@@ -406,7 +406,6 @@ exit 1
     $probeLines = [System.IO.File]::ReadAllLines($probeMd)
     $units = [System.Collections.Generic.List[object]]::new()
     $buf = [System.Collections.Generic.List[string]]::new()
-    $startU = 1
     for ($pi = 0; $pi -lt $probeLines.Count; $pi++) {
         $pl = $probeLines[$pi]
         if ([string]::IsNullOrWhiteSpace($pl)) {
@@ -422,7 +421,6 @@ exit 1
                 $buf.Clear()
             }
         }
-        if ($buf.Count -eq 0) { $startU = $pi + 1 }
         $buf.Add($pl)
     }
     if ($buf.Count -gt 0) { $units.Add([pscustomobject]@{ RawLines = @($buf) }) }

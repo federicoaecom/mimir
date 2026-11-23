@@ -23,6 +23,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $scriptDir = Join-Path $repoRoot 'skills/mimir-lite/scripts'
@@ -128,6 +129,7 @@ Write-Fixture 'WorkPanel' 'ModernFilterWk' (New-ModernXml -Type $workPanelGuid -
 
 $sqlitePath = Join-Path $kbIntelDir 'kb-intelligence.sqlite'
 $validationPath = Join-Path $kbIntelDir 'kb-intelligence-validation.json'
+Set-TestCorpusStateComplete -CorpusRoot $kbObjectsPath
 & $buildScript -SourceRoot $kbObjectsPath -OutputPath $sqlitePath -ValidationReportPath $validationPath `
     -FailOnValidationFailure -KbWorkspaceRoot $kbWorkspaceRoot
 Assert-True ($LASTEXITCODE -eq 0) "Build-KbIntelligenceIndex should complete; exit $LASTEXITCODE"

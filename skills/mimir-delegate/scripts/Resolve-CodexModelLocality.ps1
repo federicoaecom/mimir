@@ -55,6 +55,7 @@
 .EXAMPLE
     .\Resolve-CodexModelLocality.ps1 -Model qwen2.5-coder:7b -Profile ollama-launch
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidAssignmentToAutomaticVariable', 'Profile', Justification = 'Public -Profile parameter that callers pass by name.')]
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string] $Model,

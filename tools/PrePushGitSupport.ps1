@@ -6,6 +6,29 @@ Set-StrictMode -Version Latest
 # malformed bytes instead of silently replacing them), and returns the lines
 # with blank lines preserved so paired `git diff --check` diagnostics stay intact.
 
+function Invoke-RepoGit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $output = & git -C $RepositoryRoot @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    $lines = @()
+    if ($null -ne $output) {
+        $lines = @($output | ForEach-Object { $_.ToString() })
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines    = $lines
+        Text     = ($lines -join [Environment]::NewLine)
+    }
+}
+
 function ConvertFrom-PrePushGitOutputText {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
     if ($Text.Length -eq 0) { return @() }

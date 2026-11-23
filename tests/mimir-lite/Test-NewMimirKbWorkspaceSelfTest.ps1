@@ -134,10 +134,17 @@ try {
         $gitignore = [System.IO.File]::ReadAllText((Join-Path $wsA '.gitignore'))
         foreach ($rule in @('Temp/*', '!Temp/.gitkeep', 'IdeXpzExports/*', '!IdeXpzExports/.gitkeep',
                 'KbIntelligence/kb-intelligence.sqlite', 'KbIntelligence/kb-intelligence-validation.json',
+                'KbIntelligence/kb-intelligence.sqlite.tmp',
+                'KbObjectsXml/.mimir-sync.lock', 'KbObjectsXml/.mimir-sync-state-*.tmp', 'KbObjectsXml/**/.mimir-xml-*.tmp',
                 '.claude/skills/', '.agents/skills/')) {
             Assert-True ($gitignore -match "(?m)^$([regex]::Escape($rule))$") "(a) .gitignore must carry '$rule'"
         }
-        Assert-True ($gitignore -notmatch '(?m)^KbObjectsXml') "(a) .gitignore must never ignore KbObjectsXml"
+        # The corpus and its synchronization state are committed: the only rules under
+        # KbObjectsXml are the sync's lock and temporary files.
+        $corpusRules = @([regex]::Matches($gitignore, '(?m)^!?/?KbObjectsXml.*$') | ForEach-Object { $_.Value })
+        $allowedCorpusRules = @('KbObjectsXml/.mimir-sync.lock', 'KbObjectsXml/.mimir-sync-state-*.tmp', 'KbObjectsXml/**/.mimir-xml-*.tmp')
+        Assert-True (@($corpusRules | Where-Object { $_ -notin $allowedCorpusRules }).Count -eq 0) "(a) .gitignore must never ignore KbObjectsXml or its XML; rules: $($corpusRules -join ', ')"
+        Assert-True ($gitignore -notmatch '(?m)^[^#\r\n]*mimir-sync-state\.json') "(a) .gitignore must not ignore the corpus state file .mimir-sync-state.json"
 
         $siblingPatterns = $siblingBaseNames | ForEach-Object { '(?<![A-Za-z0-9_-])' + [regex]::Escape($_) + '\.ps1' }
         foreach ($file in Get-ChildItem -LiteralPath $wsA -Recurse -File -Force) {

@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Validates the 10 methodological scenarios of the advisory backend-parity gate:
-      1. Faithful extraction from the dispatcher's source of truth ($AdapterScript via AST).
+      1. Faithful extraction from the registry used by the dispatcher.
       2. Complete enumeration on a single line (pass, no finding).
       3. Complete enumeration broken across multiple lines by paragraph wrap (pass).
       4. Proper subset on a single line and across multiple lines (warn / finding).
@@ -49,19 +49,25 @@ function Write-TempFile {
 
 try {
     # -----------------------------------------------------------------------------------
-    # Fixture: synthetic dispatcher with 6 canonical backends
+    # Fixture: synthetic registry with 6 canonical backends
     # -----------------------------------------------------------------------------------
-    $dispatcher = @'
-$AdapterScript = @{
-    'opencode'    = 'Invoke-OpenCode.ps1'
-    'codex'       = 'Invoke-Codex.ps1'
-    'claude-code' = 'Invoke-ClaudeCodeAsync.ps1'
-    'copilot'     = 'Invoke-Copilot.ps1'
-    'gemini'      = 'Invoke-Gemini.ps1'
-    'antigravity' = 'Invoke-Antigravity.ps1'
-}
+    $registry = @'
+@{ Backends = @(
+    @{ Name = 'opencode'; Adapter = 'Invoke-OpenCode.ps1'; ExeParam = 'OpenCodeExe'; ContentionKeys = @('agent'); TimeoutSec = 1200; CdCapable = $false }
+    @{ Name = 'codex'; Adapter = 'Invoke-Codex.ps1'; ExeParam = 'CodexExe'; ContentionKeys = @(); TimeoutSec = 1200; CdCapable = $true }
+    @{ Name = 'claude-code'; Adapter = 'Invoke-ClaudeCodeAsync.ps1'; ExeParam = 'ClaudeExe'; ContentionKeys = @('permissionmode', 'tools', 'sidecarpath', 'retentionmode', 'tempdir', 'circuitstateroot', 'claudeexe', 'message', 'messagepath'); TimeoutSec = 1200; CdCapable = $true }
+    @{ Name = 'copilot'; Adapter = 'Invoke-Copilot.ps1'; ExeParam = 'CopilotExe'; ContentionKeys = @(); TimeoutSec = 1200; CdCapable = $true }
+    @{ Name = 'gemini'; Adapter = 'Invoke-Gemini.ps1'; ExeParam = 'GeminiExe'; ContentionKeys = @('approvalmode'); TimeoutSec = 1200; CdCapable = $true }
+    @{ Name = 'antigravity'; Adapter = 'Invoke-Antigravity.ps1'; ExeParam = 'AntigravityExe'; ContentionKeys = @('mode', 'agent', 'approvalmode', 'profile', 'cd', 'scratchpath', 'simulatecleanupfailure', 'receiptpath', 'antigravityexe', 'message', 'messagepath'); TimeoutSec = 1200; CdCapable = $false }
+) }
 '@
-    Write-TempFile -RelativePath 'skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1' -Content $dispatcher
+    $registryRel = 'skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1'
+    Write-TempFile -RelativePath $registryRel -Content $registry
+    $actual = Import-PowerShellDataFile -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) $registryRel)
+    $expected = Import-PowerShellDataFile -LiteralPath (Join-Path $tempRoot $registryRel)
+    if (($actual.Backends | ConvertTo-Json -Compress -Depth 5) -ne ($expected.Backends | ConvertTo-Json -Compress -Depth 5)) {
+        throw 'The six backend records or their canonical order differ from the retained metadata.'
+    }
 
     # -----------------------------------------------------------------------------------
     # Test documents covering scenarios 2 through 7
@@ -141,18 +147,8 @@ Slice by stdin-based axis: only opencode, codex and claude-code.
     # -----------------------------------------------------------------------------------
     # Scenario 9: simulation of a new backend in the dispatcher without a doc update
     # -----------------------------------------------------------------------------------
-    $dispatcherWithNew = @'
-$AdapterScript = @{
-    'opencode'    = 'Invoke-OpenCode.ps1'
-    'codex'       = 'Invoke-Codex.ps1'
-    'claude-code' = 'Invoke-ClaudeCodeAsync.ps1'
-    'copilot'     = 'Invoke-Copilot.ps1'
-    'gemini'      = 'Invoke-Gemini.ps1'
-    'antigravity' = 'Invoke-Antigravity.ps1'
-    'future-llm'  = 'Invoke-FutureLlm.ps1'
-}
-'@
-    Write-TempFile -RelativePath 'skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1' -Content $dispatcherWithNew
+    $registryWithNew = $registry.Replace(') }', "    @{ Name = 'future-llm'; Adapter = 'Invoke-FutureLlm.ps1'; ExeParam = 'FutureExe'; ContentionKeys = @(); TimeoutSec = 1200; CdCapable = `$false }`n) }")
+    Write-TempFile -RelativePath $registryRel -Content $registryWithNew
 
     # A doc that previously had all 6 (complete) now has 6 of 7 -> should become a finding!
     $docWith6 = @'
@@ -195,6 +191,21 @@ Delegation panel supports opencode, codex and claude-code as an initial subset.
     }
     if ($result10.findings[0].path -notlike 'skills/mimir-lite/references/delegate-note.md:*') {
         throw "Scenario 10: finding should point at the skills/mimir-lite doc; got $($result10.findings[0].path)"
+    }
+
+    # Missing, malformed, and structurally invalid registries must never yield a passing result.
+    $missingRoot = Join-Path $tempRoot 'missing-registry'
+    [void](New-Item -ItemType Directory -Path $missingRoot -Force)
+    $missingOutput = & pwsh -NoProfile -File $scriptPath -RootPath $missingRoot -AsJson 2>&1
+    if ($LASTEXITCODE -eq 0 -or (($missingOutput | Out-String) -notmatch 'LlmDelegateBackendRegistry')) {
+        throw 'Missing registry must fail closed and identify the registry.'
+    }
+    foreach ($invalidRegistry in @('@{ Backends = @(', $registry.Replace("Name = 'codex'", "Name = 'opencode'"), $registry.Replace("ExeParam = 'OpenCodeExe'", 'ExeParam = 123'))) {
+        Write-TempFile -RelativePath $registryRel -Content $invalidRegistry
+        $invalidOutput = & pwsh -NoProfile -File $scriptPath -RootPath $tempRoot -AsJson 2>&1
+        if ($LASTEXITCODE -eq 0 -or [string]::IsNullOrWhiteSpace(($invalidOutput | Out-String))) {
+            throw 'Invalid registry must fail closed with a diagnostic.'
+        }
     }
 
     Write-Output 'OK: Test-PrePushBackendEnumerationParitySelfTest.ps1'

@@ -2,8 +2,9 @@
 <#
 .SYNOPSIS
   Shared engine for the KbIntelligence index gate (the gate a KB workspace's local
-  Test-*KbIndexGate.ps1 wrapper calls): validates structure, freshness, semantic
-  inventory and the extractor signature of the index derived from a KB workspace.
+  Test-*KbIndexGate.ps1 wrapper calls): validates structure, the corpus generation
+  verdict, semantic inventory and the extractor signature of the index derived from a
+  KB workspace.
 
 .DESCRIPTION
   A shared engine, symmetric to Test-MimirSetupAudit.ps1: it receives the KB paths as
@@ -13,9 +14,16 @@
     1. KB workspace structure (STRUCTURE_OK via the local structure wrapper);
     2. index folder + kb-intelligence.sqlite present;
     3. local query wrapper present;
-    4. index-metadata with last_index_build_run_at and inventory_validation_status;
-    5. kb-source-metadata.md with last_xpz_materialization_run_at;
-    6. freshness: last_index_build_run_at >= last_xpz_materialization_run_at;
+    4. index-metadata with last_index_build_run_at and inventory_validation_status; a
+       failing query blocks with its own exit code and stderr;
+    5. kb-source-metadata.md present;
+    6. corpus generation verdict from index-metadata: blocks unless
+       corpus_generation_match is true, naming corpus_block_reason (corpus-incomplete,
+       corpus-unknown, corpus-invalid, corpus-lock-busy, index-generation-missing,
+       index-generation-mismatch) and its recovery. The gate takes no lock itself: the
+       query reads the corpus state under the corpus lock. last_index_build_run_at and
+       last_xpz_materialization_run_at are reported as information only, never as proof
+       of freshness;
     7. inventory_validation_status literally OK;
     8. extractor signature (version/hash in the SQLite metadata) against the
        current engine via GeneXusKbIntelligenceExtractorContract.ps1.
@@ -33,7 +41,9 @@
     - -AsJson: structured contract -- object { status: OK|BLOCK, reason,
       extractor_signature_version, extractor_signature_hash,
       inventory_validation_status, last_index_build_run_at,
-      last_xpz_materialization_run_at }. NEVER throws under -AsJson: a block
+      last_xpz_materialization_run_at, corpus_state, corpus_generation,
+      index_corpus_generation, corpus_generation_match, corpus_block_reason }
+      (fields appear once the step that reads them has run). NEVER throws under -AsJson: a block
       becomes { status: BLOCK, reason } + exit 1, for callers that need a
       structured verdict.
 
@@ -139,27 +149,68 @@ if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) { Fail-Gate "$Index
 # 3. query wrapper
 if (-not (Test-Path -LiteralPath $QueryWrapperPath -PathType Leaf)) { Fail-Gate 'local query wrapper missing' }
 
-# 4. index-metadata
-$indexMetadata = & $QueryWrapperPath -Query index-metadata -Format text
-$indexMetadataText = ($indexMetadata | Out-String)
-if ([string]::IsNullOrWhiteSpace($indexMetadataText) -or ($indexMetadataText -notmatch 'last_index_build_run_at')) { Fail-Gate 'index-metadata missing or without last_index_build_run_at' }
+# 4. index-metadata. The query's stderr is captured so a failure reports its real cause.
+$global:LASTEXITCODE = $null
+$indexMetadataRaw = @(& $QueryWrapperPath -Query index-metadata -Format text 2>&1)
+$indexMetadataExit = if ($LASTEXITCODE -is [int]) { $LASTEXITCODE } else { 0 }
+$indexMetadataText = (@($indexMetadataRaw | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] }) | Out-String)
+$indexMetadataError = (@($indexMetadataRaw | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join ' | ')
+if ($indexMetadataExit -ne 0 -or [string]::IsNullOrWhiteSpace($indexMetadataText)) {
+  $cause = if ($indexMetadataError) {
+    $indexMetadataError
+  } elseif (-not [string]::IsNullOrWhiteSpace($indexMetadataText)) {
+    $indexMetadataText.Trim() -replace '\r?\n', ' | '
+  } else {
+    'the query printed nothing'
+  }
+  Fail-Gate "index-metadata query failed (exit $indexMetadataExit): $cause"
+}
+if ($indexMetadataText -notmatch 'last_index_build_run_at') { Fail-Gate 'index-metadata missing or without last_index_build_run_at' }
 if ($indexMetadataText -notmatch 'inventory_validation_status') { Fail-Gate 'index-metadata missing or without inventory_validation_status' }
 
-# 5. kb-source-metadata
+# 5. kb-source-metadata (its materialization date is information, not a freshness proof)
 if (-not (Test-Path -LiteralPath $sourceMetadata -PathType Leaf)) { Fail-Gate "$MetadataFileName missing" }
-$sourceMaterialization = Select-String -LiteralPath $sourceMetadata -Pattern 'last_xpz_materialization_run_at' -SimpleMatch
-if (-not $sourceMaterialization) { Fail-Gate "$MetadataFileName without last_xpz_materialization_run_at" }
+$indexMatch = [regex]::Match($indexMetadataText, '(?m)^last_index_build_run_at\s*[:=]\s*(?<value>\S+)')
+$out['last_index_build_run_at'] = if ($indexMatch.Success) { $indexMatch.Groups['value'].Value } else { $null }
+$sourceMaterialization = Select-String -LiteralPath $sourceMetadata -Pattern 'last_xpz_materialization_run_at' -SimpleMatch | Select-Object -First 1
+$sourceMatch = if ($sourceMaterialization) { [regex]::Match($sourceMaterialization.Line, 'last_xpz_materialization_run_at\s*[:=]\s*(?<value>\S+)') } else { $null }
+$out['last_xpz_materialization_run_at'] = if ($sourceMatch -and $sourceMatch.Success) { $sourceMatch.Groups['value'].Value } else { $null }
 
-# 6. freshness
-$indexMatch = [regex]::Match($indexMetadataText, 'last_index_build_run_at\s*[:=]\s*(?<value>\S+)')
-$sourceMatch = [regex]::Match($sourceMaterialization.Line, 'last_xpz_materialization_run_at\s*[:=]\s*(?<value>\S+)')
-if (-not $indexMatch.Success) { Fail-Gate 'index-metadata without a parseable value for last_index_build_run_at' }
-if (-not $sourceMatch.Success) { Fail-Gate "$MetadataFileName without a parseable value for last_xpz_materialization_run_at" }
-$lastIndexBuild = [datetimeoffset]::Parse($indexMatch.Groups['value'].Value)
-$lastXpzMaterialization = [datetimeoffset]::Parse($sourceMatch.Groups['value'].Value)
-$out['last_index_build_run_at'] = $indexMatch.Groups['value'].Value
-$out['last_xpz_materialization_run_at'] = $sourceMatch.Groups['value'].Value
-if ($lastIndexBuild -lt $lastXpzMaterialization) { Fail-Gate 'index is stale relative to last_xpz_materialization_run_at' }
+# 6. corpus generation verdict, read by index-metadata under the corpus lock (the gate
+#    itself takes no lock).
+function Get-IndexMetadataValue {
+  param([string]$Key)
+  $match = [regex]::Match($indexMetadataText, "(?m)^$([regex]::Escape($Key))[ \t]*:[ \t]*(?<value>\S*)[ \t]*\r?$")
+  if (-not $match.Success) { return $null }
+  return $match.Groups['value'].Value
+}
+$matchValue = Get-IndexMetadataValue 'corpus_generation_match'
+if ($null -eq $matchValue) {
+  Fail-Gate 'index-metadata does not report corpus_generation_match: the shared Mimir Lite checkout predates corpus generations; update it, then rebuild the index'
+}
+foreach ($key in @('corpus_state', 'corpus_generation', 'index_corpus_generation', 'corpus_block_reason')) {
+  $value = Get-IndexMetadataValue $key
+  $out[$key] = if ([string]::IsNullOrEmpty($value) -or $value -eq 'null') { $null } else { $value }
+}
+$out['corpus_generation_match'] = ($matchValue -eq 'true')
+if (-not $out['corpus_generation_match']) {
+  $blockReason = if ($out['corpus_block_reason']) { $out['corpus_block_reason'] } else { 'unknown' }
+  # Only an incomplete corpus can name a package to re-run (when the sync reported one); an unknown
+  # or invalid state is recovered by a verified -FullSnapshot sync alone.
+  $notAFix = 'deleting or editing the state file is not a fix'
+  $incompleteRecovery = "re-run the sync of the package that left it incomplete (when the sync reported one), or run a verified -FullSnapshot sync of a full KB export; then rebuild the index; $notAFix"
+  $snapshotRecovery = "run a verified -FullSnapshot sync of a full KB export, then rebuild the index; $notAFix"
+  $recovery = switch ($blockReason) {
+    'corpus-incomplete' { "the corpus is incomplete (a sync failed or was interrupted): $incompleteRecovery" }
+    'corpus-unknown' { "the corpus records no synchronization state, or its folder is missing beside the index: $snapshotRecovery (an existing workspace migrates once, see the setup update workflow)" }
+    'corpus-invalid' { "the corpus state file cannot be read: $snapshotRecovery" }
+    'corpus-lock-busy' { 'another process (an XPZ sync or an index build) holds the corpus lock: wait for it to finish and run the gate again' }
+    'index-generation-missing' { 'the index records no corpus generation (built before generations were recorded): rebuild the index from the complete corpus' }
+    'index-generation-mismatch' { 'the corpus changed since the index was built: rebuild the index from the complete corpus' }
+    default { 'the index is not backed by a complete corpus: complete the sync, then rebuild the index' }
+  }
+  Fail-Gate "corpus generation check failed ($blockReason): $recovery"
+}
 
 # 7. semantic inventory
 $inventoryStatusMatch = [regex]::Match($indexMetadataText, 'inventory_validation_status\s*[:=]\s*(?<value>\S+)')
@@ -180,6 +231,7 @@ $out['inventory_validation_status'] = 'OK'
 if ($AsJson) {
   [pscustomobject]$out | ConvertTo-Json -Depth 4
 } else {
+  ('corpus_generation: {0}' -f $out['corpus_generation'])
   ('extractor_signature_version: {0}' -f $extractorCheck.stored.extractor_signature_version)
   ('extractor_signature_hash: {0}' -f $extractorCheck.stored.extractor_signature_hash)
   'inventory_validation_status: OK'

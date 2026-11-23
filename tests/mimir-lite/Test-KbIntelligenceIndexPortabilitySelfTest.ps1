@@ -12,8 +12,9 @@
       read indexed XML from disk through source_root (attribute-info, transaction-attributes,
       transaction-writable-attributes) still work, and index-metadata reports the resolved root,
       in JSON and in the text output line (resolved_source_root: <path>);
-    - when only the .sqlite file is copied (no corpus beside it), the file-backed queries fail with
-      a message that names the resolved_source_root they looked under;
+    - when only the .sqlite file is copied (no corpus beside it), queries block with exit 12 and a
+      JSON envelope (reason corpus-unknown) whose message names the resolved_source_root they
+      looked under;
     - an index without a recorded source_root prints "resolved_source_root: (not recorded)" in
       the text output;
     - an index built with a relative -SourceRoot and -OutputPath stores the same relative
@@ -165,6 +166,11 @@ try {
         throw "Build-KbIntelligenceIndex failed; exit $LASTEXITCODE. Output: $(($buildOutput | Select-Object -Last 5) -join ' | ')"
     }
 
+    # --- A successful build is written atomically and leaves no temporary file beside the index ---
+    if (Test-Path -LiteralPath "$originalIndex.tmp") {
+        $failures.Add("a successful build should leave no temporary file; found '$originalIndex.tmp'")
+    }
+
     # --- The stored source_root is relative to the index folder, with '/' separators ---
     $metadata = Invoke-IndexQuery -IndexPath $originalIndex -QueryArguments @('-Query', 'index-metadata')
     if ($metadata.ExitCode -ne 0) {
@@ -222,9 +228,12 @@ try {
     $sqliteOnly = Invoke-IndexQuery -IndexPath $sqliteOnlyIndex -QueryArguments @('-Query', 'attribute-info', '-ObjectName', 'InvoiceTotal')
     $expectedMissingRoot = Join-Path (Get-RealPath -Path (Join-Path $tempRoot 'sqlite-only')) 'KbObjectsXml'
     $pathComparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
-    $namesMissingRoot = $sqliteOnly.Text.IndexOf("resolved_source_root: $expectedMissingRoot", $pathComparison) -ge 0
-    if ($sqliteOnly.ExitCode -eq 0 -or $sqliteOnly.Text -notmatch 'Indexed XML file not found' -or -not $namesMissingRoot -or $sqliteOnly.Text -notmatch 'together with the index') {
-        $failures.Add("a .sqlite copied without its corpus should fail naming 'resolved_source_root: $expectedMissingRoot' and saying the corpus moves together with the index; exit $($sqliteOnly.ExitCode): $($sqliteOnly.Text)")
+    # The corpus check blocks before any XML read: exit 12 and a JSON envelope (reason corpus-unknown).
+    $sqliteOnlyEnvelope = try { $sqliteOnly.Text | ConvertFrom-Json } catch { $null }
+    $sqliteOnlyMessage = if ($null -ne $sqliteOnlyEnvelope) { [string]$sqliteOnlyEnvelope.message } else { '' }
+    $namesMissingRoot = $sqliteOnlyMessage.IndexOf("resolved_source_root: $expectedMissingRoot", $pathComparison) -ge 0
+    if ($sqliteOnly.ExitCode -ne 12 -or $null -eq $sqliteOnlyEnvelope -or $sqliteOnlyEnvelope.reason -cne 'corpus-unknown' -or -not $namesMissingRoot -or $sqliteOnlyMessage -notmatch 'together with the index') {
+        $failures.Add("a .sqlite copied without its corpus should block with exit 12, reason corpus-unknown, naming 'resolved_source_root: $expectedMissingRoot' and saying the corpus moves together with the index; exit $($sqliteOnly.ExitCode): $($sqliteOnly.Text)")
     }
 
     # --- An index without a recorded source_root prints "(not recorded)" in the text output ---

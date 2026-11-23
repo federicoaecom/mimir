@@ -49,6 +49,7 @@ $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 
 . (Join-Path $PSScriptRoot 'CopilotCliSupport.ps1')
+. (Join-Path $PSScriptRoot 'DelegateCliProcessSupport.ps1')
 
 # Prompt: inline (-Message) or from file (-MessagePath, UTF-8). Read BEFORE the size guard.
 if ($PSCmdlet.ParameterSetName -eq 'FromFile') {
@@ -74,7 +75,8 @@ $workDir = if ($Cd) { (Resolve-Path -LiteralPath $Cd).Path } else { (Get-Locatio
 $out = New-TemporaryFile
 $err = New-TemporaryFile
 $req = New-TemporaryFile
-$runner = [System.IO.Path]::ChangeExtension((New-TemporaryFile).FullName, '.ps1')
+# Build the runner path without creating a file: New-TemporaryFile would leave an empty .tmp behind.
+$runner = Join-Path ([System.IO.Path]::GetTempPath()) ('mimir-delegate-runner-' + [guid]::NewGuid().ToString('N') + '.ps1')
 $request = [ordered]@{
     exe = $exe
     prompt = $Message
@@ -105,12 +107,14 @@ exit $LASTEXITCODE
 '@ | Set-Content -LiteralPath $runner -Encoding utf8
 
 try {
-    $p = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $runner, '-RequestPath', $req.FullName) `
-        -WorkingDirectory $workDir -NoNewWindow -PassThru
-    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
-        try { $p.Kill() } catch { }
+    $p = Invoke-DelegateCliProcess -Executable 'pwsh' -Arguments @('-NoProfile', '-File', $runner, '-RequestPath', $req.FullName) `
+        -WorkingDirectory $workDir -TimeoutSeconds $TimeoutSec
+    # The runner's own diagnostics used to inherit stderr; they are distinct from the CLI's redirected stderr file.
+    if ($p.Stderr) { [Console]::Error.Write($p.Stderr) }
+    if ($p.State -eq [DelegateCliProcessState]::TimedOut) {
         throw "BLOCK: Copilot CLI exceeded ${TimeoutSec}s and was terminated."
     }
+    if ($p.State -eq [DelegateCliProcessState]::StartFailed) { throw $p.Reason }
 
     $stdoutText = Get-Content -LiteralPath $out.FullName -Raw -Encoding utf8 -ErrorAction SilentlyContinue
     $stderrText = Get-Content -LiteralPath $err.FullName -Raw -Encoding utf8 -ErrorAction SilentlyContinue

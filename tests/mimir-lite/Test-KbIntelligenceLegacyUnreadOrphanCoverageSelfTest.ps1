@@ -18,6 +18,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CorpusStateTestSupport.ps1')
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $scriptDir = Join-Path $repoRoot 'skills/mimir-lite/scripts'
@@ -55,6 +56,7 @@ EndEvent]]></Events></Prompt>'), $enc)
     $intel = Join-Path $Root 'KbIntelligence'
     [void](New-Item -ItemType Directory -Path $intel -Force)
     $sqlite = Join-Path $intel 'kb-intelligence.sqlite'
+    Set-TestCorpusStateComplete -CorpusRoot $objects
     & $buildScript -SourceRoot $objects -OutputPath $sqlite -ValidationReportPath (Join-Path $intel 'validation.json') `
         -FailOnValidationFailure -KbWorkspaceRoot $Root | Out-Null
     Assert-True ($LASTEXITCODE -eq 0) "Build-KbIntelligenceIndex should complete for $Root; exit $LASTEXITCODE"
@@ -91,8 +93,9 @@ Assert-True ($noteLines.Count -eq 1 -and $noteLines[0].Contains('Prompt (1)')) "
 $coverageB = Invoke-Coverage -IndexPath $indexB -WorkspaceRoot $rootB -Type 'Procedure' -Name 'PrcTarget'
 Assert-True ($coverageB.complete -eq $true -and @($coverageB.unextracted_source_types).Count -eq 0) "who-uses Procedure PrcTarget on KB B should be complete; got $($coverageB | ConvertTo-Json -Compress -Depth 4)"
 
-# Rule: an index without the metadata key lists no Prompt.
-$oldIndex = Join-Path $tempRoot 'old.sqlite'
+# Rule: an index without the metadata key lists no Prompt. The copy stays beside the index, so
+# its source_root still reaches the corpus the query checks.
+$oldIndex = Join-Path (Split-Path -Parent $indexA) 'old-kb-intelligence.sqlite'
 Copy-Item -LiteralPath $indexA -Destination $oldIndex
 $patchPath = Join-Path $tempRoot 'drop-key.py'
 [System.IO.File]::WriteAllText($patchPath, @'

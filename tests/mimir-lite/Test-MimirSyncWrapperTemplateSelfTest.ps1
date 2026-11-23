@@ -13,6 +13,10 @@
       (b) a package with an object type the catalog does not map: the wrapper's pre-scan
           blocks before materializing, and its error names the type GUID with the type name
           and package from the package's Dependencies block, the count, and the object name.
+      (c) a sync over a corpus with XML and no recorded state leaves it incomplete, so the
+          chained rebuild exits 12: the wrapper says the corpus is not complete, carries the
+          builder's recovery, and does not claim the materialization completed.
+      (d) a rebuild that exits 13 (corpus lock busy): the wrapper says the lock was busy.
     No real KB; the packages are written inline. Requires Python 3.8+ for the index rebuild,
     like the other index self-tests.
 #>
@@ -115,6 +119,35 @@ try {
     Assert-True ($outputB -match 'Pre-scan blocked') "(b) wrapper error must say the pre-scan blocked; output=$outputB"
     Assert-True ($outputB -match [regex]::Escape("$unknownGuid type=`"Sample Type`" package=`"SampleBL`" [1] names=NewThing")) "(b) wrapper error must name the GUID, type name, package, count, and object name; output=$outputB"
     Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $wsB 'KbObjectsXml') -Recurse -File -Filter '*.xml').Count -eq 0) '(b) a blocked pre-scan must not materialize any XML'
+
+    # (c) Corpus not complete: the rebuild refuses with exit 12 and the wrapper explains why.
+    [System.IO.File]::Delete((Join-Path $wsA 'KbObjectsXml/.mimir-sync-state.json'))
+    $packageC = Join-Path $wsA 'IdeXpzExports/package-c.xml'
+    [System.IO.File]::WriteAllText($packageC, @"
+<?xml version="1.0" encoding="utf-8"?>
+<ExportFile>
+  <Objects />
+  <Attributes>
+    <Attribute lastUpdate="2026-02-01T00:00:00.0000000Z" guid="33333333-3333-3333-3333-333333333333" name="CustomerCity" description="Customer city"><Part type="$attributeTypePart" /></Attribute>
+  </Attributes>
+</ExportFile>
+"@, $utf8)
+    $runC = Invoke-ChildSeparated -Path $wrapperA -Arguments @('-InputPath', $packageC, '-NoGitSummary')
+    Assert-True ($runC.ExitCode -ne 0) "(c) wrapper must fail when the rebuild refuses an incomplete corpus; exit=$($runC.ExitCode)"
+    Assert-True ($runC.StdErr -match 'corpus is not complete' -and $runC.StdErr -match 'exit 12') "(c) wrapper must say the corpus is not complete (exit 12); stderr=$($runC.StdErr)"
+    Assert-True ($runC.StdErr -match 'FullSnapshot') "(c) wrapper must carry the builder's recovery; stderr=$($runC.StdErr)"
+    Assert-True ($runC.StdErr -notmatch 'materialization completed') "(c) wrapper must not claim the materialization completed; stderr=$($runC.StdErr)"
+
+    # (d) Corpus lock busy: a rebuild that exits 13 gets its own message.
+    [System.IO.File]::WriteAllText((Join-Path $wsA 'scripts/Rebuild-SampleKbIntelligenceIndex.ps1'), @'
+param([string]$SharedSkillsRoot, [string]$ValidationCasesPath, [switch]$FailOnValidationFailure)
+[Console]::Error.WriteLine('BLOCK: corpus lock busy for the corpus (held). Wait for it to finish and run the command again.')
+exit 13
+'@, $utf8)
+    $runD = Invoke-ChildSeparated -Path $wrapperA -Arguments @('-InputPath', $packageC, '-NoGitSummary')
+    Assert-True ($runD.ExitCode -ne 0) "(d) wrapper must fail when the rebuild reports a busy lock; exit=$($runD.ExitCode)"
+    Assert-True ($runD.StdErr -match 'corpus lock' -and $runD.StdErr -match 'exit 13' -and $runD.StdErr -match 'run the command again') "(d) wrapper must say the corpus lock was busy (exit 13) with the builder's detail; stderr=$($runD.StdErr)"
+    Assert-True ($runD.StdErr -notmatch 'materialization completed') "(d) wrapper must not claim the materialization completed; stderr=$($runD.StdErr)"
 } finally {
     if (Test-Path -LiteralPath $tempRoot -PathType Container) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force

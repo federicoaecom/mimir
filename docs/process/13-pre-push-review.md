@@ -92,7 +92,7 @@ The orchestrator projects `candidateCount`, `classCounts`, `truncated`, `truncat
 Closed enumerations are also checked by advisory gates:
 
 - [`tools/Test-PrePushGateEnumerationParity.ps1`](../../tools/Test-PrePushGateEnumerationParity.ps1) derives the current advisory gate set from the orchestrator.
-- [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) derives the delegation backend set from `$AdapterScript` in [`skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1`](../../skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1).
+- [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) derives the delegation backend set from the data-only [`LlmDelegateBackendRegistry.psd1`](../../skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1) used by the panel dispatcher.
 
 Use `<!-- backend-parity: ignore -->` only for intentional dated or per-axis subsets, such as a measurement note, incident record, or comparison of two named backends. Do not mark live contracts such as dispatcher branches, capability matrices, gate sets, or adapter enumerations. When unsure, triage the warning instead of silencing it.
 
@@ -195,13 +195,13 @@ The pre-push routine is not complete until the semantic phase has been executed 
 | [`tools/Invoke-PrePushMechanicalChecks.ps1`](../../tools/Invoke-PrePushMechanicalChecks.ps1) | Mechanical orchestrator: git context, parse gates, `git diff --check`, advisory warnings, and push readiness. |
 | [`tools/Build-PrePushReviewDossier.ps1`](../../tools/Build-PrePushReviewDossier.ps1) | Builds the raw-git + mechanical-diagnostic dossier for reinforced `semantic-only` reviewers. |
 | [`tools/Test-PsScriptsParse.ps1`](../../tools/Test-PsScriptsParse.ps1) | Parses PowerShell files under `skills/`, `tools/`, `tests/`, plus `*.example.ps1`. |
-| [`tools/Test-PyScriptsParse.ps1`](../../tools/Test-PyScriptsParse.ps1) | Parses Python files under `skills/`, `tools/`, and `tests/` with `ast.parse`, without bytecode. |
+| [`tools/Test-PyScriptsParse.ps1`](../../tools/Test-PyScriptsParse.ps1) | Parses Python files under `skills/`, `tools/`, and `tests/` with `ast.parse` and the Python 3.8 grammar (the minimum), without bytecode. |
 | [`tools/Test-PrePushTraceabilityCoverage.ps1`](../../tools/Test-PrePushTraceabilityCoverage.ps1) | Advisory traceability and engine/doc parity candidates, including `09-script-inventory.md` pointer-index risks. |
 | [`tools/Test-GeneXusUnexpectedCharacter.ps1`](../../tools/Test-GeneXusUnexpectedCharacter.ps1) | Advisory unexpected-Unicode detection over added `.md` / `.ps1` diff lines. |
 | [`tools/Test-PrePushNewTokenPropagation.ps1`](../../tools/Test-PrePushNewTokenPropagation.ps1) | Advisory new-token propagation candidates from co-located diff transitions. |
 | [`tools/Test-PrePushSharedScriptSkillCoverage.ps1`](../../tools/Test-PrePushSharedScriptSkillCoverage.ps1) | Advisory candidates for shared scripts whose documenting skills/workflows were not touched. |
 | [`tools/Test-PrePushGateEnumerationParity.ps1`](../../tools/Test-PrePushGateEnumerationParity.ps1) | Advisory gate-enumeration parity against the orchestrator’s current advisory gates. |
-| [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) | Advisory backend-enumeration parity against `$AdapterScript` in the panel dispatcher. |
+| [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) | Advisory backend-enumeration parity against the panel dispatcher's data-only registry. |
 
 ## Mirrors in other documents
 

@@ -42,6 +42,8 @@
     Emits structured diagnostic in JSON.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'BaseRef', Justification = 'Accepted for the common gate contract.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ChangedFiles', Justification = 'Accepted for the common gate contract.')]
 [CmdletBinding()]
 param(
     [string]$RootPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path,

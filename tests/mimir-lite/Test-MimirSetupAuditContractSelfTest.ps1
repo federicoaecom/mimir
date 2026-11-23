@@ -185,7 +185,8 @@ foreach ($field in @('last_xpz_materialization_run_at', 'kb_name', 'source_guid'
   [System.IO.File]::WriteAllText($metadataCheckPath, $metadataCheck, $utf8NoBom)
 
   # Supply a structurally valid synthetic index to the real index-gate engine. The
-  # query stub carries the current extractor signature, freshness, and semantic OK.
+  # query stub carries the current extractor signature, a matching corpus generation
+  # verdict, and semantic OK.
   $signatureContractPath = Join-Path $scriptsRoot 'GeneXusKbIntelligenceExtractorContract.ps1'
   . $signatureContractPath
   $signature = Get-GeneXusKbIntelligenceExpectedExtractorSignature
@@ -194,6 +195,11 @@ foreach ($field in @('last_xpz_materialization_run_at', 'kb_name', 'source_guid'
 param([string]`$Query, [string]`$Format)
 if (`$Query -ne 'index-metadata' -or `$Format -ne 'text') { throw 'Unexpected query for the synthetic index gate.' }
 'last_index_build_run_at: $timestamp'
+'corpus_state: complete'
+'corpus_generation: 0123456789abcdef0123456789abcdef'
+'index_corpus_generation: 0123456789abcdef0123456789abcdef'
+'corpus_generation_match: true'
+'corpus_block_reason: null'
 'inventory_validation_status: OK'
 'extractor_signature_version: $($signature.extractor_signature_version)'
 'extractor_signature_hash: $($signature.extractor_signature_hash)'

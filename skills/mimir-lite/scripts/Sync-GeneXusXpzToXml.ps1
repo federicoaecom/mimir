@@ -5,17 +5,18 @@
 Extracts and verifies objects exported from a GeneXus XPZ/XML package.
 
 .DESCRIPTION
-Reads a GeneXus package exported from an .xpz file, an .xml file,
+Reads a GeneXus package exported from an .xpz or XML .zip file, an .xml file,
 or a folder containing that XML, or a GeneXus 7.0 and earlier text export (a .xpw file, or a
 .zip of .xpw files, translated in memory into the classic legacy XML), materializes the exported objects into a
 directory tree by type, and can verify whether the package was correctly
 reflected at the destination.
 
 .PARAMETER InputPath
-Path to an .xpz, to the exported package's XML, to the folder that contains
-that XML, to a .xpw text export, or to a .zip of .xpw files (for example the 1997 layout,
-an objects file and an attributes file, merged into one export). A zip that mixes .xpw and
-.xml entries fails closed; a .zip with no .xpw entry is unsupported, as before.
+Path to an .xpz or XML .zip, an exported XML, a folder containing exactly one immediate
+XML, a .xpw text export, or a .zip of .xpw files. XML archives require exactly one parseable
+ExportFile XML at any depth; other XML entries are ignored. Archive XML is read without extraction;
+a .zip mixing .xpw and .xml entries fails closed. For archive XML, PackageXmlPath is null and
+PackageXmlEntry is the entry name; direct XML and XPW inputs retain their existing path semantics.
 
 .PARAMETER DestinationRoot
 Root of the tree of XMLs individualized by type.
@@ -48,6 +49,10 @@ Optional path to gx-object-type-catalog.override.json (local stopgap; not silent
 
 .PARAMETER KbWorkspaceRoot
 Root of the KB workspace; when provided, resolves the override at scripts/gx-object-type-catalog.override.json.
+
+.PARAMETER GuidCleanupContractVersion
+For workspace writes, declare version 1 only after removing independent wrapper GUID cleanup.
+VerifyOnly and standalone calls without KbWorkspaceRoot do not require a declaration.
 
 .PARAMETER DiscoveryReportPath
 When the package has an unknown type GUID, writes a JSON triage report before failing.
@@ -97,10 +102,16 @@ param(
 
     [string]$DiscoveryReportPath = "",
 
-    [switch]$BlockCrossFlowDataSource
+    [switch]$BlockCrossFlowDataSource,
+
+    [int]$GuidCleanupContractVersion = 0
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if (-not $VerifyOnly -and -not [string]::IsNullOrWhiteSpace($KbWorkspaceRoot) -and $GuidCleanupContractVersion -ne 1) {
+    throw 'BLOCK: workspace sync requires -GuidCleanupContractVersion 1. Update the local sync wrapper to the current template and remove independent GUID cleanup before retrying.'
+}
 
 $utf8NoBomEncodingSupportPath = Join-Path (Split-Path -Parent $PSCommandPath) 'Utf8NoBomEncodingSupport.ps1'
 if (-not (Test-Path -LiteralPath $utf8NoBomEncodingSupportPath -PathType Leaf)) {
@@ -139,36 +150,45 @@ if (-not (Test-Path -LiteralPath $xpwExportSupportScript -PathType Leaf)) {
 }
 . $xpwExportSupportScript
 
-function New-TempDirectory {
-    $tempBase = [System.IO.Path]::GetTempPath()
-    $tempName = "gx-xpz-" + [System.Guid]::NewGuid().ToString("N")
-    $tempPath = Join-Path $tempBase $tempName
-    [System.IO.Directory]::CreateDirectory($tempPath) | Out-Null
-    return $tempPath
+$packageReaderSupport = Join-Path $PSScriptRoot 'GeneXusPackageReaderSupport.ps1'
+if (-not (Test-Path -LiteralPath $packageReaderSupport -PathType Leaf)) {
+    throw "Required support script not found: $packageReaderSupport"
+}
+. $packageReaderSupport
+
+foreach ($corpusSupportName in @('GeneXusCorpusLockSupport.ps1', 'GeneXusCorpusStateSupport.ps1')) {
+    $corpusSupportScript = Join-Path $PSScriptRoot $corpusSupportName
+    if (-not (Test-Path -LiteralPath $corpusSupportScript -PathType Leaf)) {
+        throw "Required support script not found: $corpusSupportScript"
+    }
+    . $corpusSupportScript
+}
+
+# Corpus state context of a non-VerifyOnly run, set once the corpus lock is held. The first
+# mutation (the kb-source-metadata.md update, a GUID rename or removal, or an XML write) calls
+# Enter-CorpusMutation, which persists 'incomplete' before anything changes.
+$script:corpusStateContext = $null
+
+function Enter-CorpusMutation {
+    $context = $script:corpusStateContext
+    if ($null -eq $context -or $context.MarkedIncomplete) { return }
+    $recovery = Get-GeneXusCorpusRecoveryPackageSha256 -PreviousState $context.PreviousState -PackageSha256 $context.PackageSha256
+    [void](Write-GeneXusCorpusSyncState -CorpusRoot $context.Root -State 'incomplete' -PackageSha256 $context.PackageSha256 -RecoveryPackageSha256 $recovery)
+    $context.MarkedIncomplete = $true
+    Invoke-GeneXusTestStopPoint -Point 'sync:after-mark-incomplete'
 }
 
 function Resolve-PackageXmlPath {
     param([string]$RawInputPath)
 
-    $resolved = (Resolve-Path -LiteralPath $RawInputPath).Path
-
-    if (Test-Path -LiteralPath $resolved -PathType Container) {
-        $xmlFiles = @(Get-ChildItem -LiteralPath $resolved -Filter *.xml -File)
-        if ($xmlFiles.Count -ne 1) {
-            throw "Expected exactly one XML file inside folder '$resolved', found $($xmlFiles.Count)."
-        }
-        return @{
-            XmlPath = $xmlFiles[0].FullName
-            TempPath = $null
-            XpwDocument = $null
-        }
-    }
+    $resolved = Resolve-GeneXusPackageInputPath -Path $RawInputPath
 
     if ($resolved.ToLowerInvariant().EndsWith(".xml")) {
         return @{
             XmlPath = $resolved
-            TempPath = $null
+            XmlEntry = $null
             XpwDocument = $null
+            ArchiveDocument = $null
         }
     }
 
@@ -178,8 +198,9 @@ function Resolve-PackageXmlPath {
     if (Test-GeneXusXpwInputPath -Path $resolved) {
         return @{
             XmlPath = $resolved
-            TempPath = $null
+            XmlEntry = $null
             XpwDocument = (Read-GeneXusXpwExportFile -Path $resolved)
+            ArchiveDocument = $null
         }
     }
 
@@ -188,29 +209,24 @@ function Resolve-PackageXmlPath {
         if ($null -ne $xpwZip) {
             return @{
                 XmlPath = $resolved
-                TempPath = $null
+                XmlEntry = $null
                 XpwDocument = $xpwZip.Document
+                ArchiveDocument = $null
             }
         }
     }
 
-    if ($resolved.ToLowerInvariant().EndsWith(".xpz")) {
-        $tempPath = New-TempDirectory
-        $zipPath = Join-Path $tempPath "package.zip"
-        Copy-Item -LiteralPath $resolved -Destination $zipPath
-        Expand-Archive -LiteralPath $zipPath -DestinationPath $tempPath -Force
-        $xmlFiles = @(Get-ChildItem -LiteralPath $tempPath -Filter *.xml -File)
-        if ($xmlFiles.Count -ne 1) {
-            throw "Expected exactly one XML file inside XPZ '$resolved', found $($xmlFiles.Count)."
-        }
+    if ($resolved.ToLowerInvariant().EndsWith(".xpz") -or $resolved.ToLowerInvariant().EndsWith(".zip")) {
+        $archive = Read-GeneXusPackageArchiveXml -Path $resolved
         return @{
-            XmlPath = $xmlFiles[0].FullName
-            TempPath = $tempPath
+            XmlPath = $null
+            XmlEntry = $archive.EntryName
             XpwDocument = $null
+            ArchiveDocument = $archive.Document
         }
     }
 
-    throw "Unsupported InputPath '$resolved'. Use a folder, .xml, .xpz, .xpw, or a .zip of .xpw files."
+    throw "Unsupported InputPath '$resolved'. Use a folder, .xml, .xpz, .xpw, or .zip."
 }
 
 function Convert-ExpectedItemsToComparison {
@@ -506,6 +522,7 @@ function Write-ItemToDestination {
 
     $folderPath = Join-Path $Root $Item.FolderType
     if (-not (Test-Path -LiteralPath $folderPath)) {
+        Enter-CorpusMutation
         New-Item -ItemType Directory -Path $folderPath | Out-Null
     }
 
@@ -517,7 +534,8 @@ function Write-ItemToDestination {
 
     if (Test-Path -LiteralPath $filePath) {
         $existing = Get-Content -LiteralPath $filePath -Raw
-        if ($existing -eq $xmlText) {
+        # Ordinal comparison: PowerShell's -eq ignores case, which would hide a case-only change.
+        if ([string]::Equals($existing, $xmlText, [System.StringComparison]::Ordinal)) {
             $status = "unchanged"
         } else {
             $existingLastUpdate = Get-LastUpdateInfoFromFile -FilePath $filePath
@@ -530,7 +548,24 @@ function Write-ItemToDestination {
     }
 
     if ($status -eq "created" -or $status -eq "updated") {
-        [System.IO.File]::WriteAllText($filePath, $xmlText, (Get-Utf8NoBomEncoding))
+        Enter-CorpusMutation
+        # Acquire a non-XML sibling exclusively; never remove a name we did not create.
+        $tempPath = Join-Path $folderPath ('.mimir-xml-' + [guid]::NewGuid().ToString('N') + '.tmp')
+        $owned = $false
+        try {
+            $stream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $owned = $true
+            try {
+                $bytes = (Get-Utf8NoBomEncoding).GetBytes($xmlText)
+                $stream.Write($bytes, 0, $bytes.Length)
+            } finally {
+                $stream.Dispose()
+            }
+            [System.IO.File]::Move($tempPath, $filePath, $true)
+            $owned = $false
+        } finally {
+            if ($owned) { [System.IO.File]::Delete($tempPath) }
+        }
     }
 
     return [pscustomobject]@{
@@ -747,6 +782,33 @@ function Test-IsMeaningfulGuid {
     return $true
 }
 
+function Get-CrossTypeGuidCollisions {
+    param([string]$Root, [System.Collections.Generic.List[string]]$Warnings)
+
+    $groups = [System.Collections.Generic.SortedDictionary[string,object]]::new([System.StringComparer]::Ordinal)
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return ,@() }
+    $paths = [string[]]@(Get-ChildItem -LiteralPath $Root -Recurse -Filter *.xml -File | ForEach-Object { $_.FullName })
+    [Array]::Sort($paths, [System.StringComparer]::Ordinal)
+    foreach ($path in $paths) {
+        try { $details = Get-LogicalNameFromExtractedFile -FilePath $path }
+        catch {
+            $Warnings.Add("GUID collision observation skipped unreadable XML '$path'.") | Out-Null
+            continue
+        }
+        if (-not (Test-IsMeaningfulGuid -Guid $details.Guid)) { continue }
+        $key = $details.Guid.Trim().ToLowerInvariant()
+        if (-not $groups.ContainsKey($key)) { $groups[$key] = [System.Collections.Generic.List[object]]::new() }
+        $groups[$key].Add([pscustomobject]@{ FolderType = [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($path)); LogicalName = $details.LogicalName; FilePath = $path })
+    }
+    $result = [System.Collections.Generic.List[object]]::new()
+    foreach ($key in $groups.Keys) {
+        $types = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($file in $groups[$key]) { [void]$types.Add($file.FolderType) }
+        if ($types.Count -gt 1) { $result.Add([pscustomobject]@{ Guid = $key; Files = @($groups[$key].ToArray()) }) }
+    }
+    return ,($result.ToArray())
+}
+
 function Resolve-GuidAwareRenames {
     <#
         Reconciles the XML corpus with the package by stable identity (root node GUID),
@@ -774,6 +836,7 @@ function Resolve-GuidAwareRenames {
         [object[]]$Items,
         [string]$Root,
         [System.Collections.Generic.List[string]]$Warnings,
+        [System.Collections.Generic.List[object]]$RemovedFiles,
         [bool]$Apply,
         [string[]]$FolderTypes,
         [bool]$FailSoft = $false
@@ -865,6 +928,7 @@ function Resolve-GuidAwareRenames {
                     # On NTFS, names that differ only in case point to the same
                     # file; renaming via an intermediate step effects the case change.
                     $tempPath = Join-Path $folderPath ($item.NormalizedName + ".gxcasetmp")
+                    Enter-CorpusMutation
                     Move-Item -LiteralPath $oldPath -Destination $tempPath
                     Move-Item -LiteralPath $tempPath -Destination $newPath
                     $action = "renamed"
@@ -878,7 +942,9 @@ function Resolve-GuidAwareRenames {
                     if ($newPathGuid -eq $guidKey) {
                         # True orphan: the target is already the SAME object (same GUID), a leftover
                         # from a previous materialization; remove the old-named file.
+                        Enter-CorpusMutation
                         Remove-Item -LiteralPath $oldPath -Force
+                        $RemovedFiles.Add([pscustomobject]@{ Guid = $guidKey; FolderType = $item.FolderType; FilePath = $oldPath })
                         $action = "orphan-removed"
                     } else {
                         # Collision: the target belongs to a different object (different GUID).
@@ -886,6 +952,7 @@ function Resolve-GuidAwareRenames {
                         throw "Name collision in the corpus: '$($item.NormalizedName).xml' in '$($item.FolderType)' already exists with a different GUID ('$newPathGuid') than the renamed item (GUID '$guidKey', '$($existing.FileBaseName)' -> '$($item.NormalizedName)'). GUID rename aborted to preserve the existing file."
                     }
                 } else {
+                    Enter-CorpusMutation
                     Move-Item -LiteralPath $oldPath -Destination $newPath
                     $action = "renamed"
                 }
@@ -914,6 +981,7 @@ function Resolve-GuidAwareRenames {
             NewName = $item.LogicalName
             NewFileBaseName = $item.NormalizedName
             Action = $action
+            RemovedFilePath = if ($action -eq 'orphan-removed') { $oldPath } else { $null }
         }) | Out-Null
     }
 
@@ -933,6 +1001,10 @@ function Write-Report {
 $package = $null
 $metadataResult = $null
 $warnings = New-Object System.Collections.Generic.List[string]
+$guidRemovedFiles = [System.Collections.Generic.List[object]]::new()
+$resultEmitted = $false
+$corpusLock = $null
+$corpusPublished = $false
 try {
     $package = Resolve-PackageXmlPath -RawInputPath $InputPath
     # Encoding-aware read: XmlDocument.Load honors the prolog's encoding attribute. Legacy
@@ -944,6 +1016,8 @@ try {
     $isXpwSource = ($null -ne $package.XpwDocument)
     if ($isXpwSource) {
         $packageXml = $package.XpwDocument
+    } elseif ($null -ne $package.ArchiveDocument) {
+        $packageXml = $package.ArchiveDocument
     } else {
         $packageXml = New-Object System.Xml.XmlDocument
         $packageXml.PreserveWhitespace = $true
@@ -962,6 +1036,34 @@ try {
     $crossFlowCollisions = @()
     if (Test-GeneXusMixedExportFilePackage -XmlDocument $packageXml) {
         throw "BLOCK: MIXED export package (legacy <GXObject> and modern <Objects>/<Attributes> elements in the same ExportFile); out of scope for the legacy export engine. Export the formats separately. No metadata was written."
+    }
+
+    # Corpus lock: taken here, held for the rest of the run, released in finally. A sync first
+    # creates a missing corpus folder (a standalone first sync); -VerifyOnly never creates it, and
+    # with no corpus folder it has nothing to lock or read. The path is resolved once, so the lock,
+    # the state file, and every write name the same folder.
+    $DestinationRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DestinationRoot)
+    if (-not $VerifyOnly) { [void][System.IO.Directory]::CreateDirectory($DestinationRoot) }
+    $previousCorpusState = [pscustomobject]@{ State = 'unknown'; Generation = $null; PackageSha256 = $null; RecoveryPackageSha256 = $null }
+    if ([System.IO.Directory]::Exists($DestinationRoot)) {
+        try {
+            $corpusLock = Enter-GeneXusCorpusLock -CorpusRoot $DestinationRoot
+        } catch {
+            throw "BLOCK: the corpus is locked by another process (a sync, an index build, or an index query), or could not be locked: '$DestinationRoot'. Wait for it to finish and retry. No metadata or XML was written. Detail: $($_.Exception.Message)"
+        }
+        $previousCorpusState = Get-GeneXusCorpusSyncState -CorpusRoot $DestinationRoot
+    }
+    # Empty base: no state file and no XML when the lock was taken (the folder was just created, or
+    # holds only .mimir-* files). A verified first sync over it may publish a generation.
+    $corpusEmptyBase = ($previousCorpusState.State -eq 'unknown') -and (Test-GeneXusCorpusEmpty -CorpusRoot $DestinationRoot)
+    if (-not $VerifyOnly) {
+        $packageHashPath = if (Test-Path -LiteralPath $InputPath -PathType Leaf) { $InputPath } else { $package.XmlPath }
+        $script:corpusStateContext = [pscustomobject]@{
+            Root = $DestinationRoot
+            PackageSha256 = Get-GeneXusCorpusPackageSha256 -Path $packageHashPath
+            PreviousState = $previousCorpusState
+            MarkedIncomplete = $false
+        }
     }
 
     if ($isXpwSource -or (Test-GeneXusLegacyExportFilePackage -XmlDocument $packageXml)) {
@@ -983,6 +1085,7 @@ try {
             # modern branch's write below (after profile classification) — never both
             # in the same run, since the legacy/modern branches are disjoint by profile.
             $sourceExportFormat = if ($isXpwSource) { 'xpw' } else { 'xml' }
+            Enter-CorpusMutation
             $metadataResult = Update-MimirKbSourceMetadataFromSync -XmlDocument $packageXml -SourceXpzPath $InputPath -MetadataPath $KbMetadataPath -IsLegacyExport $true -SourceExportFormat $sourceExportFormat
             [Console]::Error.WriteLine("KbMetadataPath updated: $KbMetadataPath ($($metadataResult.WriteMode))")
             if ($metadataResult.Warnings.Count -gt 0) {
@@ -1021,6 +1124,7 @@ try {
         if ($KbMetadataPath -and -not $VerifyOnly) {
             # METADATA WRITE (modern): post-catalog/unknown/Convert/detection.
             # Mutually exclusive with the legacy branch's write above.
+            Enter-CorpusMutation
             $metadataResult = Update-MimirKbSourceMetadataFromSync -XmlDocument $packageXml -SourceXpzPath $InputPath -MetadataPath $KbMetadataPath -SourceExportFormat 'xml'
             [Console]::Error.WriteLine("KbMetadataPath updated: $KbMetadataPath ($($metadataResult.WriteMode))")
             if ($metadataResult.Warnings.Count -gt 0) {
@@ -1044,7 +1148,7 @@ try {
 
     $renameResults = @()
     if ($FullSnapshot) {
-        $renameResults = Resolve-GuidAwareRenames -Items $items -Root $DestinationRoot -Warnings $warnings -Apply (-not [bool]$VerifyOnly)
+        $renameResults = Resolve-GuidAwareRenames -Items $items -Root $DestinationRoot -Warnings $warnings -RemovedFiles $guidRemovedFiles -Apply (-not [bool]$VerifyOnly)
     } else {
         # Delta (incremental) package: an item whose target file does not exist yet may be a
         # same-GUID rename of a file already in the corpus. Reconcile only those candidates,
@@ -1058,7 +1162,7 @@ try {
             -not (Test-Path -LiteralPath (Resolve-ItemDestinationPath -Root $DestinationRoot -FolderType $_.FolderType -NormalizedName $_.NormalizedName))
         })
         if ($renameCandidates.Count -gt 0) {
-            $renameResults = Resolve-GuidAwareRenames -Items $renameCandidates -Root $DestinationRoot -Warnings $warnings -Apply (-not [bool]$VerifyOnly) -FolderTypes @($renameCandidates | ForEach-Object { $_.FolderType }) -FailSoft $true
+            $renameResults = Resolve-GuidAwareRenames -Items $renameCandidates -Root $DestinationRoot -Warnings $warnings -RemovedFiles $guidRemovedFiles -Apply (-not [bool]$VerifyOnly) -FolderTypes @($renameCandidates | ForEach-Object { $_.FolderType }) -FailSoft $true
         }
     }
 
@@ -1115,13 +1219,24 @@ try {
         foreach ($item in $writeItems) {
             $itemCrossFlow = $crossFlowKeys.Contains("$($item.FolderType)|$($item.NormalizedName)")
             $writeResults += Write-ItemToDestination -Item $item -Root $DestinationRoot -CrossFlowCollision $itemCrossFlow
+            Invoke-GeneXusTestStopPoint -Point "sync:after-xml:$(@($writeResults).Count)"
         }
     }
 
+    # Observe the extant corpus, including objects absent from a delta. This never chooses a winner.
+    $guidCollisions = Get-CrossTypeGuidCollisions -Root $DestinationRoot -Warnings $warnings
     $verification = Test-PackageMaterialization -Items $items -Root $DestinationRoot
     $fullSnapshotResult = $null
     if ($FullSnapshot) {
         $fullSnapshotResult = Get-FullSnapshotComparison -Items $items -Root $DestinationRoot
+    }
+    # The success decision, known before any output. The throws below keep their places and
+    # messages: before the JSON when files were removed, after it otherwise.
+    $verificationFailure = $null
+    if ($verification.Missing.Count -gt 0 -or $verification.Mismatch.Count -gt 0) {
+        $verificationFailure = "Verification failed after materialization. Missing=$($verification.Missing.Count), Mismatch=$($verification.Mismatch.Count)."
+    } elseif ($null -ne $fullSnapshotResult -and ($fullSnapshotResult.MissingKeys.Count -gt 0 -or $fullSnapshotResult.ExtraKeys.Count -gt 0)) {
+        $verificationFailure = "Full snapshot verification failed. Missing=$($fullSnapshotResult.MissingKeys.Count), Extra=$($fullSnapshotResult.ExtraKeys.Count)."
     }
 
     $createdCount = @($writeResults | Where-Object { $_.Status -eq "created" }).Count
@@ -1176,6 +1291,7 @@ try {
         Kind = "mimir-sync-result"
         InputPath = (Resolve-Path -LiteralPath $InputPath).Path
         PackageXmlPath = $package.XmlPath
+        PackageXmlEntry = $package.XmlEntry
         VerifyOnly = [bool]$VerifyOnly
         FullSnapshot = [bool]$FullSnapshot
         LegacyFormatDetected = [bool]$LegacyFormatDetected
@@ -1213,6 +1329,8 @@ try {
         ExpectedMissingNames = $expectedMissingNames
         AdditionalOfficialNames = $additionalOfficialNames
         CrossFlowCollisions = @($crossFlowCollisions)
+        CrossTypeGuidCollisions = @($guidCollisions)
+        GuidRemovedFiles = @($guidRemovedFiles)
     }
 
     $overrideReminder = $null
@@ -1240,6 +1358,56 @@ try {
         CatalogOverrideReminder = $overrideReminder
     }
 
+    # When a removal has occurred, failures must produce one failed envelope rather than
+    # a success-shaped summary followed by an exception.
+    if ($guidRemovedFiles.Count -gt 0 -and $verificationFailure) {
+        throw $verificationFailure
+    }
+
+    # Corpus state: a verified run publishes a new generation only over a complete corpus, over
+    # one this same package left incomplete, over an empty base (no state file and no XML when the
+    # run started), or as a verified -FullSnapshot; any other run leaves
+    # the corpus incomplete, recording an unknown or unreadable state as incomplete. -VerifyOnly
+    # only reports the state it read.
+    $corpusContext = $script:corpusStateContext
+    $corpusOutcome = [pscustomobject]@{ State = $previousCorpusState.State; Generation = $previousCorpusState.Generation; Published = $false; Note = $null }
+    if ($VerifyOnly) {
+        $corpusOutcome.Note = 'VerifyOnly reads the corpus state and never writes it.'
+    } elseif ($verificationFailure) {
+        if ($corpusContext.MarkedIncomplete) {
+            $corpusOutcome.State = 'incomplete'
+            $corpusOutcome.Generation = $null
+            $corpusRecovery = Get-GeneXusCorpusRecoveryText -RecoveryPackageSha256 (Get-GeneXusCorpusRecoveryPackageSha256 -PreviousState $previousCorpusState -PackageSha256 $corpusContext.PackageSha256)
+            $corpusOutcome.Note = "Verification failed; the corpus stays incomplete. $corpusRecovery"
+        } else {
+            $corpusOutcome.Note = 'Verification failed; nothing was changed and no generation was published.'
+        }
+    } else {
+        $decision = Test-GeneXusCorpusPublication -PreviousState $previousCorpusState -PackageSha256 $corpusContext.PackageSha256 -VerifiedFullSnapshot ([bool]$FullSnapshot) -EmptyBase $corpusEmptyBase -MarkedIncomplete $corpusContext.MarkedIncomplete
+        if ($decision.Allowed) {
+            Invoke-GeneXusTestStopPoint -Point 'sync:before-publish'
+            $written = Write-GeneXusCorpusSyncState -CorpusRoot $DestinationRoot -State 'complete' -PackageSha256 $corpusContext.PackageSha256 -Generation (New-GeneXusCorpusGeneration)
+            $corpusOutcome.State = 'complete'
+            $corpusOutcome.Generation = $written.Generation
+            $corpusOutcome.Published = $true
+            $corpusPublished = $true
+        } else {
+            if (-not $corpusContext.MarkedIncomplete -and $previousCorpusState.State -ne 'incomplete') {
+                [void](Write-GeneXusCorpusSyncState -CorpusRoot $DestinationRoot -State 'incomplete' -PackageSha256 $corpusContext.PackageSha256 -RecoveryPackageSha256 $null)
+            }
+            $corpusOutcome.State = 'incomplete'
+            $corpusOutcome.Generation = $null
+            $corpusOutcome.Note = $decision.Note
+        }
+    }
+    $summary | Add-Member -NotePropertyName CorpusState -NotePropertyValue $corpusOutcome.State
+    $summary | Add-Member -NotePropertyName CorpusGeneration -NotePropertyValue $corpusOutcome.Generation
+    $summary | Add-Member -NotePropertyName CorpusStatePublished -NotePropertyValue $corpusOutcome.Published
+    $summary | Add-Member -NotePropertyName CorpusStateNote -NotePropertyValue $corpusOutcome.Note
+    if (-not $VerifyOnly -and -not $corpusOutcome.Published) {
+        [Console]::Error.WriteLine("CORPUS STATE: $($corpusOutcome.State). $($corpusOutcome.Note)")
+    }
+
     if ($ReportPath) {
         Write-Report -Path $ReportPath -Payload $report
     }
@@ -1253,9 +1421,10 @@ try {
     # stdout: Write-Host leaks into the stdout captured from a child process (pwsh -File),
     # contaminating the JSON. See skills/mimir-lite/workflows/sync.md (output contract).
     $summary | ConvertTo-Json -Depth 8 -Compress | Write-Output
+    $resultEmitted = $true
 
     $humanSummary = $summary |
-        Select-Object -Property * -ExcludeProperty CreatedNames, UpdatedNames, UnchangedNames, SkippedOlderLastUpdateNames, RepeatedInExportNames, RenamedByGuidItems, ExpectedReturnedNames, ExpectedMissingNames, AdditionalOfficialNames, Warnings |
+        Select-Object -Property * -ExcludeProperty CreatedNames, UpdatedNames, UnchangedNames, SkippedOlderLastUpdateNames, RepeatedInExportNames, RenamedByGuidItems, ExpectedReturnedNames, ExpectedMissingNames, AdditionalOfficialNames, CrossTypeGuidCollisions, GuidRemovedFiles, Warnings |
         Format-List | Out-String
     [Console]::Error.WriteLine($humanSummary)
 
@@ -1265,19 +1434,34 @@ try {
         [Console]::Error.WriteLine($expectedSummary)
     }
 
-    if ($verification.Missing.Count -gt 0 -or $verification.Mismatch.Count -gt 0) {
-        throw "Verification failed after materialization. Missing=$($verification.Missing.Count), Mismatch=$($verification.Mismatch.Count)."
-    }
-
-    if ($null -ne $fullSnapshotResult -and ($fullSnapshotResult.MissingKeys.Count -gt 0 -or $fullSnapshotResult.ExtraKeys.Count -gt 0)) {
-        throw "Full snapshot verification failed. Missing=$($fullSnapshotResult.MissingKeys.Count), Extra=$($fullSnapshotResult.ExtraKeys.Count)."
+    if ($verificationFailure) {
+        throw $verificationFailure
     }
 
     if ($ReportPath -and -not $KeepReport -and (Test-Path -LiteralPath $ReportPath)) {
         Remove-Item -LiteralPath $ReportPath -Force
     }
-} finally {
-    if ($null -ne $package -and $null -ne $package.TempPath -and (Test-Path -LiteralPath $package.TempPath)) {
-        Remove-Item -LiteralPath $package.TempPath -Recurse -Force
+} catch {
+    if ($guidRemovedFiles.Count -gt 0 -and -not $resultEmitted) {
+        $failedSummary = [pscustomobject]@{
+            SchemaVersion = 1
+            Kind = 'mimir-sync-result'
+            Status = 'failed'
+            Error = $_.Exception.Message
+            GuidRemovedFiles = @($guidRemovedFiles.ToArray())
+        }
+        $failedSummary | ConvertTo-Json -Depth 8 -Compress | Write-Output
+        if ($ReportPath) {
+            try { Write-Report -Path $ReportPath -Payload ([pscustomobject]@{ Summary = $failedSummary }) }
+            catch { [Console]::Error.WriteLine("Failed to write failure report: $($_.Exception.Message)") }
+        }
     }
+    if ($null -ne $script:corpusStateContext -and $script:corpusStateContext.MarkedIncomplete -and -not $corpusPublished) {
+        $failedRecoveryPackage = Get-GeneXusCorpusRecoveryPackageSha256 -PreviousState $script:corpusStateContext.PreviousState -PackageSha256 $script:corpusStateContext.PackageSha256
+        $failedRecovery = if ($failedRecoveryPackage) { 're-run the same package or run a verified -FullSnapshot sync of a full KB export' } else { 'run a verified -FullSnapshot sync of a full KB export, the only run that can complete it' }
+        [Console]::Error.WriteLine("CORPUS STATE: incomplete ($($script:corpusStateContext.Root)). Fix the cause, then $failedRecovery. Deleting the state file does not complete the corpus.")
+    }
+    throw
+} finally {
+    if ($null -ne $corpusLock) { Exit-GeneXusCorpusLock -Lock $corpusLock }
 }

@@ -100,6 +100,14 @@ exit 7
             "Argument-based adapter '$name' should close the CLI's stdin in the runner with '`$null | & ([string]`$req.exe)' (regression of the headless-stdin fix)."
     }
 
+    # Copilot must route its runner through the shared lifecycle, which closes runner stdin.
+    $copilotText = [IO.File]::ReadAllText((Join-Path $scriptsDir 'Invoke-Copilot.ps1'))
+    $processText = [IO.File]::ReadAllText((Join-Path $scriptsDir 'DelegateCliProcessSupport.ps1'))
+    Assert-True ($copilotText -match 'Invoke-DelegateCliProcess\b') 'Copilot must use the shared process lifecycle.'
+    $geminiText = [IO.File]::ReadAllText((Join-Path $scriptsDir 'Invoke-Gemini.ps1'))
+    Assert-True ($geminiText -match 'Invoke-DelegateCliProcess\b') 'Gemini must use the shared process lifecycle.'
+    Assert-True ($processText -match '\$process\.StandardInput\.Close\(\)') 'The shared lifecycle must close runner stdin.'
+
     # stdin-based: prompt via -RedirectStandardInput (file); does NOT close stdin with "$null | & ...".
     $stdinBased = @(
         'Invoke-Codex.ps1'

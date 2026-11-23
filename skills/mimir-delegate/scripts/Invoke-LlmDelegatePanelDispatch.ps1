@@ -118,55 +118,21 @@ try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catc
 
 $MaxInlineManuscriptChars = 30000
 
-# Adapter per backend; exe-override parameter (test only) per backend.
-$AdapterScript = @{
-    'opencode'    = 'Invoke-OpenCode.ps1'
-    'codex'       = 'Invoke-Codex.ps1'
-    'claude-code' = 'Invoke-ClaudeCodeAsync.ps1'
-    'copilot'     = 'Invoke-Copilot.ps1'
-    'gemini'      = 'Invoke-Gemini.ps1'
-    'antigravity' = 'Invoke-Antigravity.ps1'
-}
-$ExeParam = @{
-    'opencode'    = 'OpenCodeExe'
-    'codex'       = 'CodexExe'
-    'claude-code' = 'ClaudeExe'
-    'copilot'     = 'CopilotExe'
-    'gemini'      = 'GeminiExe'
-    'antigravity' = 'AntigravityExe'
-}
-# Containment/internal keys refused (securityBlockedArgs) per backend. gemini.approvalMode is conditional.
-$ContentionKeys = @{
-    'claude-code' = @(
-        'permissionmode', 'tools',
-        'sidecarpath', 'retentionmode', 'tempdir', 'circuitstateroot', 'claudeexe',
-        'message', 'messagepath'
-    )
-    'opencode'    = @('agent')
-    'gemini'      = @('approvalmode')
-    'antigravity' = @(
-        'mode', 'agent', 'approvalmode', 'profile', 'cd', 'scratchpath', 'simulatecleanupfailure', 'receiptpath',
-        'antigravityexe', 'message', 'messagepath'
-    )
-    'codex'       = @()
-    'copilot'     = @()
-}
-$AdapterDefaultTimeoutSec = @{
-    # An agentic review (reading the repo) can be long; the uniform synchronous default is 1200s.
-    'opencode'    = 1200
-    'codex'       = 1200
-    'claude-code' = 1200
-    'copilot'     = 1200
-    'gemini'      = 1200
-    'antigravity' = 1200
-}
-$AdapterCdCapable = @{
-    'opencode'    = $false # contract: opencode never receives -Cd
-    'codex'       = $true
-    'claude-code' = $true
-    'copilot'     = $true
-    'gemini'      = $true
-    'antigravity' = $false # public-review creates its own scratch; never inherits the dispatcher cwd
+# Registry metadata does not grant authorization; the separate gate remains authoritative.
+. (Join-Path $PSScriptRoot 'LlmDelegateBackendRegistrySupport.ps1')
+$registry = @(Get-LlmDelegateBackendRegistry)
+$AdapterScript = @{}
+$ExeParam = @{}
+$ContentionKeys = @{}
+$AdapterDefaultTimeoutSec = @{}
+$AdapterCdCapable = @{}
+foreach ($backendData in $registry) {
+    $name = $backendData.Name
+    $AdapterScript[$name] = $backendData.Adapter
+    $ExeParam[$name] = $backendData.ExeParam
+    $ContentionKeys[$name] = $backendData.ContentionKeys
+    $AdapterDefaultTimeoutSec[$name] = $backendData.TimeoutSec
+    $AdapterCdCapable[$name] = $backendData.CdCapable
 }
 
 function Get-Prop {

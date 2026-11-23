@@ -278,8 +278,8 @@ function Get-ClaudeCodeModelEntries {
         )) {
         if (-not (Test-Path -LiteralPath $source.path -PathType Leaf)) { continue }
         $raw = Get-Content -LiteralPath $source.path -Raw -Encoding utf8
-        $matches = [regex]::Matches($raw, '(?i)\b(claude-[a-z0-9][a-z0-9\-]*|opus)\b')
-        foreach ($m in $matches) {
+        $modelMatches = [regex]::Matches($raw, '(?i)\b(claude-[a-z0-9][a-z0-9\-]*|opus)\b')
+        foreach ($m in $modelMatches) {
             $model = $m.Groups[1].Value
             try {
                 $res = (& $claudeResolver -Model $model) | ConvertFrom-Json

@@ -231,6 +231,13 @@ foreach ($exampleFile in Get-ChildItem -LiteralPath $SkillsExamplesPath -Filter 
             if ($exampleText -match 'ConvertFrom-Json' -and $localText -notmatch 'ConvertFrom-Json') {
                 $customized.Add(('{0}(reason=consumes_legacy_text_stdout)' -f $standardLocalName))
             }
+            # A conservative textual migration signal, not a proof that arbitrary custom
+            # wrappers are safe: inspect customized wrappers before approving a migration.
+            if ($exampleText -match '(?m)^\s*GuidCleanupContractVersion\s*=\s*1\s*$' -and
+                ($localText -notmatch '(?m)^\s*GuidCleanupContractVersion\s*=\s*1\s*$' -or
+                 $localText -match '(?i)\bRemove-RenamedObjectResidue\b')) {
+                $customized.Add(('{0}(reason=guid_cleanup_contract)' -f $standardLocalName))
+            }
         }
 
         $localTextForEngineExit = [System.IO.File]::ReadAllText($standardPath)

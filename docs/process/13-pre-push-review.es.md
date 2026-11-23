@@ -92,7 +92,7 @@ El orquestador proyecta `candidateCount`, `classCounts`, `truncated`, `truncated
 Las enumeraciones cerradas también tienen verificaciones consultivas:
 
 - [`tools/Test-PrePushGateEnumerationParity.ps1`](../../tools/Test-PrePushGateEnumerationParity.ps1) deriva el conjunto actual de verificaciones consultivas desde el orquestador.
-- [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) deriva el conjunto de backends de delegación desde `$AdapterScript` en [`skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1`](../../skills/mimir-delegate/scripts/Invoke-LlmDelegatePanelDispatch.ps1).
+- [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) deriva el conjunto de backends de delegación desde el registro de datos [`LlmDelegateBackendRegistry.psd1`](../../skills/mimir-delegate/scripts/LlmDelegateBackendRegistry.psd1) usado por el dispatcher del panel.
 
 Use `<!-- backend-parity: ignore -->` solo para subconjuntos intencionales, fechados por fecha o por eje, como una medición, registro de incidente o comparación de dos backends específicos. No lo use en contratos vivos como ramas del dispatcher, matrices de capacidad, conjuntos de verificaciones o enumeraciones de adapters. Ante la duda, haga triaje de la advertencia en lugar de silenciarla.
 
@@ -195,13 +195,13 @@ La rutina pre-push no está completa hasta que la fase semántica haya sido ejec
 | [`tools/Invoke-PrePushMechanicalChecks.ps1`](../../tools/Invoke-PrePushMechanicalChecks.ps1) | Orquestador mecánico: contexto git, compuertas de parse, `git diff --check`, advertencias consultivas y push readiness. |
 | [`tools/Build-PrePushReviewDossier.ps1`](../../tools/Build-PrePushReviewDossier.ps1) | Construye el dossier de git bruto + diagnóstico mecánico para revisores reforzados `semantic-only`. |
 | [`tools/Test-PsScriptsParse.ps1`](../../tools/Test-PsScriptsParse.ps1) | Parsea archivos PowerShell bajo `skills/`, `tools/`, `tests/`, más `*.example.ps1`. |
-| [`tools/Test-PyScriptsParse.ps1`](../../tools/Test-PyScriptsParse.ps1) | Parsea archivos Python bajo `skills/`, `tools/` y `tests/` con `ast.parse`, sin bytecode. |
+| [`tools/Test-PyScriptsParse.ps1`](../../tools/Test-PyScriptsParse.ps1) | Parsea archivos Python bajo `skills/`, `tools/` y `tests/` con `ast.parse` y la gramática de Python 3.8 (la versión mínima), sin bytecode. |
 | [`tools/Test-PrePushTraceabilityCoverage.ps1`](../../tools/Test-PrePushTraceabilityCoverage.ps1) | Candidatos consultivos de trazabilidad y paridad motor/doc, incluidos riesgos del índice de punteros `09-script-inventory.md`. |
 | [`tools/Test-GeneXusUnexpectedCharacter.ps1`](../../tools/Test-GeneXusUnexpectedCharacter.ps1) | Detección consultiva de Unicode inesperado en líneas añadidas `.md` / `.ps1`. |
 | [`tools/Test-PrePushNewTokenPropagation.ps1`](../../tools/Test-PrePushNewTokenPropagation.ps1) | Candidatos consultivos de propagación de términos nuevos a partir de transiciones co-localizadas en el diff. |
 | [`tools/Test-PrePushSharedScriptSkillCoverage.ps1`](../../tools/Test-PrePushSharedScriptSkillCoverage.ps1) | Candidatos consultivos de scripts compartidos cuyos documentos de skill/workflow no fueron tocados. |
 | [`tools/Test-PrePushGateEnumerationParity.ps1`](../../tools/Test-PrePushGateEnumerationParity.ps1) | Paridad consultiva de enumeración de verificaciones frente a las verificaciones consultivas actuales del orquestador. |
-| [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) | Paridad consultiva de enumeración de backends frente a `$AdapterScript` en el dispatcher del panel. |
+| [`tools/Test-PrePushBackendEnumerationParity.ps1`](../../tools/Test-PrePushBackendEnumerationParity.ps1) | Paridad consultiva de enumeración de backends frente al registro de datos del dispatcher del panel. |
 
 ## Reflejos en otros documentos
 

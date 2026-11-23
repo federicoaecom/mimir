@@ -42,7 +42,9 @@ requires it.
 - `Temp`: temporary files and disposable reports.
 - `IdeXpzExports`: inbox for `.xpz` files exported from the GeneXus IDE.
 - `KbObjectsXml`: official materialized snapshot; read-only for agents
-  outside the official sync flow.
+  outside the official sync flow. Its synchronization state
+  (`.mimir-sync-state.json`) is committed with the XML; the sync's lock and
+  temporary files (`.mimir-*`) are ignored.
 - `KbIntelligence`: derived, regenerable index.
 
 ## Operational state
@@ -59,8 +61,11 @@ authoritative source. To learn the current state, use:
 - `last_index_build_run_at`: `metadata` table of the SQLite index at
   `KbIntelligence\kb-intelligence.sqlite`, exposed by
   `Query-<KbName>KbIntelligence.ps1 -Query index-metadata`.
-- Operational index freshness gate:
-  `Test-<KbName>KbIndexGate.ps1` - returns `GATE_OK` or `BLOCK: <reason>`.
+- Operational index gate:
+  `Test-<KbName>KbIndexGate.ps1` - returns `GATE_OK` only when the corpus is
+  completely synchronized and the index was built from its current
+  synchronization generation, or `BLOCK: <reason>`. The timestamps above are
+  information only.
 
 Do not record literal timestamps (`last_xpz_materialization_run_at`,
 `last_index_build_run_at`) in this section, in other sections of this
@@ -99,9 +104,10 @@ Expected wrappers:
   `KbIntelligence\kb-intelligence.sqlite`.
 - `Query-<KbName>KbIntelligence.ps1`: queries the derived index, including
   `index-metadata`.
-- `Test-<KbName>KbIndexGate.ps1`: freshness gate - checks structure, SQLite, and
-  timestamps and returns `GATE_OK` or throws `BLOCK: <reason>`; it must be the
-  single execution point of the gate.
+- `Test-<KbName>KbIndexGate.ps1`: index gate - checks structure, SQLite, the
+  corpus generation verdict of `index-metadata`, semantic inventory, and the
+  extractor signature, and returns `GATE_OK` or throws `BLOCK: <reason>`; it
+  must be the single execution point of the gate.
 - `Get-<KbName>KbMetadata.ps1`: reads key fields of `kb-source-metadata.md`
   without inline regex in callers; exposes at least
   `last_xpz_materialization_run_at`, `kb_name`, and `source_guid`.
@@ -172,7 +178,14 @@ Mimir Lite **find** workflow. The gate is the only entry point to the index:
    pwsh -NoProfile -File "<WorkspaceRoot>/scripts/Test-<KbName>KbIndexGate.ps1"
    ```
    - `GATE_OK` -> proceed with the **find** workflow.
-   - `BLOCK: <reason>` -> end the query and offer an index rebuild.
+   - `BLOCK: <reason>` -> end the query and relay the recovery the reason
+     names: an incomplete, unknown, or invalid corpus needs the sync completed
+     (re-run the package that left it incomplete, or a verified `-FullSnapshot`
+     sync of a full KB export) and then an index rebuild; a generation mismatch
+     or missing generation needs an index rebuild; a busy corpus lock needs a
+     wait and a new run of the gate.
+   - An index query that exits `12` or `13` is blocked the same way, never an
+     empty answer.
 3. Never access `KbIntelligence\kb-intelligence.sqlite` directly by any tool -
    Python, sqlite3, inline PowerShell, Bash, or any other means.
 4. Never compensate for a blocked gate with a manual read of SQLite, validation
@@ -192,6 +205,8 @@ Mimir Lite **find** workflow. The gate is the only entry point to the index:
   import GeneXus objects from here.
 - `KbObjectsXml` is the official materialized snapshot; `KbIntelligence` is
   only a derived, regenerable layer.
-- `last_xpz_materialization_run_at` must exist in `kb-source-metadata.md`.
-- `last_index_build_run_at`, in SQLite, must be equal to or later than
-  `last_xpz_materialization_run_at` before broad triage.
+- Before broad triage, the index gate must confirm that the corpus is
+  complete and that the index was built from its current synchronization
+  generation; dates are never proof that the index is current.
+- Never delete or edit `KbObjectsXml/.mimir-sync-state.json` to get past a
+  block: complete the sync and rebuild the index instead.

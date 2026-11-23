@@ -44,6 +44,7 @@
     Emit a single JSON report to stdout instead of the human-readable list.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'SkipPaths', Justification = 'Read by Test-IsSkippedSource through dynamic scope.')]
 [CmdletBinding()]
 param(
     [string]$RootPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path,

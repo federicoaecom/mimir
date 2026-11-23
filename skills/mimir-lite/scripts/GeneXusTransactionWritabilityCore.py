@@ -9,6 +9,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+# Sibling module (same folder): the corpus text reader shared with the KB Intelligence engines.
+from GeneXusKbIntelligenceCore import read_text
+
 WRITABILITY_RULE_VERSION = "1"
 
 LEVEL_OPEN_RE = re.compile(
@@ -73,10 +76,6 @@ class _TransactionLevelEntry:
     name: str
     pk_attrs: list[str]
     non_key_attrs: set[str]
-
-
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8-sig", errors="replace")
 
 
 def get_transaction_type_guid(catalog_types: dict[str, dict[str, object]]) -> str:

@@ -85,6 +85,9 @@ Term mappings used across the documentation. Add a term here before translating 
 | best effort | mejor esfuerzo | Platform support level: same code paths as a tested platform, but nothing runs there (macOS). |
 | not supported yet | todavía sin soporte | A platform with known gaps; no platform has this level today. |
 | fake CLI | CLI simulada | A test stand-in for an external CLI (`tests/fixtures/FakeCliSupport.ps1`); never a real backend. |
+| self-test | autoprueba | A PowerShell test script named `Test-*SelfTest.ps1`, run by `tests/Invoke-Tests.ps1`. |
+| unit test | prueba unitaria | A Python `unittest` file named `Test*.py` that calls an engine function directly. |
+| parse / parsing | parsear / parseo | Reading source text into a structure (`ast.parse`, the PowerShell parser, the build's extractors). |
 | symbolic link | enlace simbólico | A symlink: on Windows `New-Item -ItemType SymbolicLink`, which needs Developer Mode or an elevated shell; on Linux and macOS `ln -s`, with no special rights. |
 | junction / directory junction | junction / junction de directorio | A Windows directory junction (`New-Item -ItemType Junction`); kept in English, needs no special rights. |
 | agent session | sesión de agente | One run of an agent tool; tools load skills when a session starts. |

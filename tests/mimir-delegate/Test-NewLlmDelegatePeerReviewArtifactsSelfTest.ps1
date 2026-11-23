@@ -43,8 +43,7 @@ $ledgerRoot = Join-Path $tmp 'ledger'
 function Invoke-Preparer {
     param(
         [hashtable] $ArgsHashtable,
-        [switch] $NoRoundId,
-        [switch] $FromFile
+        [switch] $NoRoundId
     )
     $rid = if ($ArgsHashtable.ContainsKey('RoundId')) { $ArgsHashtable['RoundId'] } else { [guid]::NewGuid().ToString('N') }
     # Sanitize rid for use in file paths in the harness (avoids .. \ /)
