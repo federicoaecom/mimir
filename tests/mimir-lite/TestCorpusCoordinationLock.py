@@ -11,6 +11,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 # The parent can isolate fixtures on a selected filesystem without changing TEMP.
 TEST_ROOT = os.environ.get('MIMIR_LOCK_TEST_ROOT')
+# The fork probes fork a multi-threaded process on purpose; Python 3.12+ warns about it on stderr.
+FORK_PROBE = [sys.executable, '-B', '-W', 'ignore:This process:DeprecationWarning']
 
 
 class CorpusLockTests(unittest.TestCase):
@@ -231,7 +233,7 @@ assert unblocked and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0, (unbl
 assert held == [True] and os.WIFEXITED(resumed) and os.WEXITSTATUS(resumed) == 5, (held, resumed)
 print('verified')
 """
-        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.corpus)],
+        result = subprocess.run(FORK_PROBE + ['-c', code, str(SCRIPTS), str(self.corpus)],
                                 capture_output=True, text=True, timeout=120)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual('verified\n', result.stdout); self.assertEqual('', result.stderr)
@@ -284,7 +286,7 @@ with corpus_lock(sys.argv[2]):
     pass
 print('verified')
 """
-        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.corpus), event],
+        result = subprocess.run(FORK_PROBE + ['-c', code, str(SCRIPTS), str(self.corpus), event],
                                 capture_output=True, text=True, timeout=20)
         if result.stdout == 'preloaded\n':
             self.skipTest('fcntl is already imported at interpreter startup')
@@ -343,7 +345,7 @@ try:
             os.write(report_w, b'body %d' % lock_descriptors())
             os.read(release_r, 1)
             os._exit(3)
-        result = subprocess.run([sys.executable, '-B', '-c', contender, sys.argv[1], sys.argv[2]],
+        result = subprocess.run([sys.executable, '-B', '-W', 'ignore:This process:DeprecationWarning', '-c', contender, sys.argv[1], sys.argv[2]],
                                 capture_output=True, text=True, timeout=10)
         held = result.returncode != 0 and result.stdout == '' and 'BlockingIOError' in result.stderr
 except BaseException as error:
@@ -363,7 +365,7 @@ assert reports == [b'rejected 0'], reports
 assert held and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0, (held, status)
 print('verified')
 """
-        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.corpus)],
+        result = subprocess.run(FORK_PROBE + ['-c', code, str(SCRIPTS), str(self.corpus)],
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual('verified\n', result.stdout)
@@ -409,7 +411,7 @@ os.close(write_fd)
 _, status = os.waitpid(pid, 0)
 sys.exit(os.waitstatus_to_exitcode(status) if hasattr(os, 'waitstatus_to_exitcode') else status >> 8)
 """
-        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.corpus)],
+        result = subprocess.run(FORK_PROBE + ['-c', code, str(SCRIPTS), str(self.corpus)],
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual('acquired', result.stdout.strip())
@@ -430,7 +432,7 @@ def probe(blocked):
     code = ("import sys; sys.path.insert(0, sys.argv[1]); "
             "from GeneXusCorpusLock import corpus_lock; "
             "c=corpus_lock(sys.argv[2]); c.__enter__(); c.__exit__(None,None,None); print('acquired')")
-    result = subprocess.run([sys.executable, '-B', '-c', code, sys.argv[1], sys.argv[2]],
+    result = subprocess.run([sys.executable, '-B', '-W', 'ignore:This process:DeprecationWarning', '-c', code, sys.argv[1], sys.argv[2]],
                             capture_output=True, text=True, timeout=5)
     if blocked:
         assert result.returncode != 0 and result.stdout == '' and result.stderr, result
@@ -483,7 +485,7 @@ finally:
     os.close(parent_read)
     os.close(parent_write)
 """
-        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.corpus)],
+        result = subprocess.run(FORK_PROBE + ['-c', code, str(SCRIPTS), str(self.corpus)],
                                 capture_output=True, text=True, timeout=20)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual('verified', result.stdout.strip())

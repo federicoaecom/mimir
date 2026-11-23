@@ -34,7 +34,9 @@ BUILD = load_build_module()
 
 class AtomicIndexWriteTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_root = Path(tempfile.mkdtemp(prefix="kb-intel-atomic-write-"))
+        # Resolved: a TEMP given as an 8.3 short path (as on hosted Windows runners) must match the
+        # long path the build reports.
+        self.temp_root = Path(tempfile.mkdtemp(prefix="kb-intel-atomic-write-")).resolve()
         self.corpus = copy_corpus(SAMPLE_KB, self.temp_root / "KbObjectsXml")
         self.output_path = self.temp_root / "KbIntelligence" / "kb-intelligence.sqlite"
         self.temp_path = self.output_path.with_name(self.output_path.name + ".tmp")

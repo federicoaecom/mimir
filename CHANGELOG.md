@@ -6,6 +6,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-23
+
+### Fixed
+
+- Two tests failed on the hosted CI runners of the 1.2.0 release: the corpus lock fork probes now ignore the `DeprecationWarning` that Python 3.12 and later write when a multi-threaded process forks (the probes fork one on purpose), and the atomic index write test resolves its temporary folder, so an 8.3 short `TEMP` path (as on hosted Windows runners) matches the path the build reports. The product code is unchanged.
+
 ## [1.2.0] - 2026-11-23
 
 ### Changed
